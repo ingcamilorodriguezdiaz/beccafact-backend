@@ -15,13 +15,14 @@ import { CompanyStatusGuard } from '../common/guards/company-status.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { PlanFeature } from '../common/decorators/plan-feature.decorator';
+import { DEFAULT_PAGE, DEFAULT_LIMIT } from '../common/constants/pagination.constants';
 
 @ApiTags('import')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard, CompanyStatusGuard, PlanGuard)
 @Controller({ path: 'import', version: '1' })
 export class ImportController {
-  constructor(private importService: ImportService) {}
+  constructor(private importService: ImportService) { }
 
   // ─── EXCEL TEMPLATE ──────────────────────────────────────────────────────────
 
@@ -83,10 +84,12 @@ export class ImportController {
   @ApiOperation({ summary: 'Historial de importaciones' })
   history(
     @CurrentUser('companyId') companyId: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    return this.importService.getHistory(companyId, page, limit);
+    const pageNumber = Number(page) || DEFAULT_PAGE;
+    const limitNumber = Number(limit) || DEFAULT_LIMIT;
+    return this.importService.getHistory(companyId, pageNumber, limitNumber);
   }
 
   @Get(':id/status')

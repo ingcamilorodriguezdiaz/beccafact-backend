@@ -42,4 +42,10 @@ export class ReportsController {
   ) {
     return this.reportsService.getMonthlyRevenue(companyId, +year);
   }
+
+  @Get('usage-summary')
+  @ApiOperation({ summary: 'Resumen de uso mensual para barra del sidebar' })
+  getUsageSummary(@CurrentUser('companyId') companyId: string) {
+    return this.reportsService.getUsageSummary(companyId);
+  }
 }

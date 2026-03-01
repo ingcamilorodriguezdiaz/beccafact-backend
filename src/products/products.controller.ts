@@ -15,27 +15,33 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { PlanFeature } from '../common/decorators/plan-feature.decorator';
 import { UsageMetric } from '../common/decorators/usage-metric.decorator';
+import { DEFAULT_LIMIT, DEFAULT_PAGE } from '@/common/constants/pagination.constants';
 
 @ApiTags('products')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard, CompanyStatusGuard, PlanGuard)
 @Controller({ path: 'products', version: '1' })
 export class ProductsController {
-  constructor(private productsService: ProductsService) {}
+  constructor(private productsService: ProductsService) { }
 
   @Get()
   @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
-  @PlanFeature('has_inventory')
   @ApiOperation({ summary: 'Listar productos' })
   findAll(
     @CurrentUser('companyId') companyId: string,
     @Query('search') search?: string,
     @Query('categoryId') categoryId?: string,
     @Query('status') status?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    return this.productsService.findAll(companyId, { search, categoryId, status, page, limit });
+    return this.productsService.findAll(companyId, {
+      search,
+      categoryId,
+      status,
+      page: page ? Number(page) : DEFAULT_PAGE,
+      limit: limit ? Number(limit) : DEFAULT_LIMIT,
+    });
   }
 
   @Get('low-stock')

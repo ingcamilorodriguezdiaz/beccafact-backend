@@ -11,25 +11,36 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { CompanyStatusGuard } from '../common/guards/company-status.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { DEFAULT_PAGE, DEFAULT_LIMIT } from '../common/constants/pagination.constants';
 
 @ApiTags('customers')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard, CompanyStatusGuard)
 @Controller({ path: 'customers', version: '1' })
 export class CustomersController {
-  constructor(private customersService: CustomersService) {}
+  constructor(private customersService: CustomersService) { }
 
   @Get()
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
   @ApiOperation({ summary: 'Listar clientes de la empresa' })
   findAll(
     @CurrentUser('companyId') companyId: string,
     @Query('search') search?: string,
     @Query('isActive') isActive?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    const activeFilter = isActive !== undefined ? isActive === 'true' : undefined;
-    return this.customersService.findAll(companyId, { search, isActive: activeFilter, page, limit });
+    const pageNumber = Number(page) || DEFAULT_PAGE;
+    const limitNumber = Number(limit) || DEFAULT_LIMIT;
+    const activeFilter =
+      isActive !== undefined ? isActive === 'true' : undefined;
+
+    return this.customersService.findAll(companyId, {
+      search,
+      isActive: activeFilter,
+      page: pageNumber,
+      limit: limitNumber,
+    });
   }
 
   @Get(':id')

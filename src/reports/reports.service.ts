@@ -169,4 +169,39 @@ export class ReportsService {
     }
     return results;
   }
+
+  /** Resumen de uso del mes actual — alimenta la barra de progreso del sidebar */
+  async getUsageSummary(companyId: string) {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    const [documentsUsedThisMonth, totalProducts, totalCustomers] = await Promise.all([
+      // Documentos (facturas + notas) emitidos este mes
+      this.prisma.invoice.count({
+        where: {
+          companyId,
+          deletedAt: null,
+          status: { not: 'CANCELLED' },
+          issueDate: { gte: monthStart, lte: monthEnd },
+        },
+      }),
+      // Productos activos de la empresa
+      this.prisma.product.count({
+        where: { companyId, deletedAt: null },
+      }),
+      // Clientes activos de la empresa
+      this.prisma.customer.count({
+        where: { companyId, deletedAt: null },
+      }),
+    ]);
+
+    return {
+      documentsUsedThisMonth,
+      totalProducts,
+      totalCustomers,
+      month: now.getMonth() + 1,
+      year:  now.getFullYear(),
+    };
+  }
 }
