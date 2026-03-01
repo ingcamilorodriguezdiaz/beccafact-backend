@@ -1,0 +1,33 @@
+import {
+  IsString, IsOptional, IsEnum, IsUUID, IsArray, ValidateNested,
+  IsNumber, Min, IsDateString, IsBoolean,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { InvoiceType } from '@prisma/client';
+
+export class InvoiceItemDto {
+  @ApiPropertyOptional() @IsOptional() @IsUUID() productId?: string;
+  @ApiProperty() @IsString() description: string;
+  @ApiProperty() @IsNumber() @Min(0.0001) quantity: number;
+  @ApiProperty() @IsNumber() @Min(0) unitPrice: number;
+  @ApiPropertyOptional({ default: 19 }) @IsOptional() @IsNumber() @Min(0) taxRate?: number;
+  @ApiPropertyOptional({ default: 0 }) @IsOptional() @IsNumber() @Min(0) discount?: number;
+}
+
+export class CreateInvoiceDto {
+  @ApiProperty() @IsUUID() customerId: string;
+  @ApiPropertyOptional({ enum: ['VENTA', 'NOTA_CREDITO', 'NOTA_DEBITO', 'SOPORTE_ADQUISICION'] })
+  @ApiPropertyOptional({ enum: InvoiceType })
+  @IsOptional()
+  @IsEnum(InvoiceType)
+  type?: InvoiceType;
+  @ApiPropertyOptional({ default: 'FV' }) @IsOptional() @IsString() prefix?: string;
+  @ApiPropertyOptional() @IsOptional() @IsDateString() issueDate?: string;
+  @ApiPropertyOptional() @IsOptional() @IsDateString() dueDate?: string;
+  @ApiProperty({ type: [InvoiceItemDto] }) @IsArray() @ValidateNested({ each: true }) @Type(() => InvoiceItemDto) items: InvoiceItemDto[];
+  @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0) discountAmount?: number;
+  @ApiPropertyOptional() @IsOptional() @IsString() notes?: string;
+  @ApiPropertyOptional({ default: 'COP' }) @IsOptional() @IsString() currency?: string;
+  @ApiPropertyOptional({ default: false }) @IsOptional() @IsBoolean() isDraft?: boolean;
+}
