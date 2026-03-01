@@ -37,9 +37,10 @@ export class ImportController {
   @ApiOperation({ summary: 'Generar y descargar plantilla Excel para importación masiva' })
   async downloadTemplate(
     @Body('columns') columns: string[],
+    @Body('customLabels') customLabels: Record<string, { label: string; hint: string; sample?: string }>,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    const { buffer, filename } = await this.importService.generateTemplate(columns);
+    const { buffer, filename } = await this.importService.generateTemplate(columns, customLabels);
 
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

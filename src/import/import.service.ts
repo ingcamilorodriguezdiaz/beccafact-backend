@@ -56,12 +56,27 @@ export class ImportService {
 
   // ─── EXCEL TEMPLATE ──────────────────────────────────────────────────────────
 
-  async generateTemplate(requestedColumns?: string[]): Promise<{ buffer: Buffer; filename: string }> {
+  async generateTemplate(
+    requestedColumns?: string[],
+    customLabels?: Record<string, { label: string; hint: string; sample?: string }>,
+  ): Promise<{ buffer: Buffer; filename: string }> {
     // Default column order if none specified
     const columnOrder = ['nombre_producto', 'sku', 'precio', 'categoria', 'costo', 'stock_inicial', 'impuesto', 'unidad', 'descripcion', 'estado'];
     const columns = requestedColumns?.length
       ? columnOrder.filter(k => requestedColumns.includes(k) || ['nombre_producto','sku','precio'].includes(k))
       : columnOrder;
+
+    // Merge custom labels over defaults
+    const getMeta = (k: string) => {
+      const base = COLUMN_META[k] ?? { label: k, type: 'text', hint: '' };
+      const custom = customLabels?.[k];
+      return {
+        label:  custom?.label  ?? base.label,
+        hint:   custom?.hint   ?? base.hint,
+        type:   base.type,
+        sample: custom?.sample ?? undefined,
+      };
+    };
 
     const wb = XLSX.utils.book_new();
 
@@ -71,15 +86,18 @@ export class ImportService {
     // Brand header row
     wsData.push(['BeccaFact - Plantilla de Importación Masiva de Productos', ...Array(columns.length - 1).fill('')]);
 
-    // Column headers
-    wsData.push(columns.map(k => COLUMN_META[k]?.label ?? k));
+    // Column headers (uses custom labels if provided)
+    wsData.push(columns.map(k => getMeta(k).label));
 
-    // Hint row
-    wsData.push(columns.map(k => COLUMN_META[k]?.hint ?? ''));
+    // Hint row (uses custom hints if provided)
+    wsData.push(columns.map(k => getMeta(k).hint));
 
-    // Sample data rows
+    // Sample data rows (custom sample overrides built-in)
     SAMPLE_PRODUCTS.forEach(product => {
-      wsData.push(columns.map(k => (product as any)[k] ?? ''));
+      wsData.push(columns.map(k => {
+        const custom = customLabels?.[k];
+        return custom?.sample ?? (product as any)[k] ?? '';
+      }));
     });
 
     // 20 empty data rows
