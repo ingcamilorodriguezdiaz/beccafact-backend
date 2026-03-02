@@ -114,7 +114,7 @@ export class ImportController {
     return this.importService.cancelJob(companyId, id);
   }
 
-  @Get(':id/error-report')
+    @Get(':id/error-report')
 @Roles('ADMIN', 'MANAGER')
 @ApiOperation({ summary: 'Descargar reporte de errores de importación como Excel' })
 async downloadErrorReport(

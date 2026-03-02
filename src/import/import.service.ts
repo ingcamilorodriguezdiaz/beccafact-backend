@@ -416,15 +416,11 @@ private parseFile(file: Express.Multer.File): ProductRow[] {
     return { errors, validRows, errorCount: errors.length };
   }
 
-  // ─── ERROR REPORT ─────────────────────────────────────────────────────────
-// ─── ERROR REPORT ─────────────────────────────────────────────────────────────
-
-async generateErrorReport(
+  async generateErrorReport(
   companyId: string,
   jobId: string,
 ): Promise<{ buffer: Buffer; filename: string }> {
-
-  // ← CLAVE: include errors via relación, NO como campo Json
+  // 1. Obtener el Job incluyendo la relación de errores
   const job = await this.prisma.importJob.findFirst({
     where: { id: jobId, companyId },
     include: {
@@ -440,99 +436,104 @@ async generateErrorReport(
 
   // ── Hoja 1: Resumen ──────────────────────────────────────────────────────────
   const summaryData: any[][] = [
-    ['BeccaFact — Reporte de Errores de Importación', '', '', ''],
+    ['BeccaFact — Reporte de Errores de Importación'],
     [''],
-    ['Job ID',       job.id],
-    ['Archivo',      job.fileName],
-    ['Fecha',        new Date(job.createdAt).toLocaleString('es-CO')],
-    ['Estado',       job.status],
-    ['Total filas',  job.totalRows],
-    ['Exitosas',     job.successRows],
-    ['Con errores',  job.errorRows],
+    ['ID de Operación:', job.id],
+    ['Archivo Original:', job.fileName],
+    ['Fecha de Inicio:', new Date(job.createdAt).toLocaleString('es-CO')],
+    ['Estado Final:', job.status],
+    ['Total de Filas:', job.totalRows],
+    ['Filas Exitosas:', job.successRows],
+    ['Filas con Error:', job.errorRows],
     [''],
-    ['Generado el', new Date().toLocaleString('es-CO')],
+    ['Reporte generado el:', new Date().toLocaleString('es-CO')],
   ];
 
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
-  wsSummary['!cols'] = [{ wch: 18 }, { wch: 50 }];
+  wsSummary['!cols'] = [{ wch: 20 }, { wch: 50 }];
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen');
 
-  // ── Hoja 2: Errores detallados ───────────────────────────────────────────────
+  // ── Hoja 2: Detalle de Errores ──────────────────────────────────────────────
   const errorRows: any[][] = [
-    ['BeccaFact — Detalle de Errores por Fila', '', '', '', ''],
+    ['Detalle de Fallas por Fila'],
     [''],
-    ['Fila #', 'Campo con error', 'Valor ingresado', 'Descripción del error', 'Datos de la fila'],
+    ['Fila #', 'Columna/Campo', 'Valor que causó error', 'Descripción del Error'],
   ];
 
   if (job.errors.length === 0) {
-    errorRows.push(['—', '—', '—', 'No se registraron errores', '—']);
+    errorRows.push(['—', '—', '—', 'No se encontraron errores registrados.']);
   } else {
-    for (const err of job.errors) {
-      // rawData es Json? — puede ser un objeto con los datos originales de la fila
-      const rawJson = err.rawData
-        ? JSON.stringify(err.rawData).slice(0, 200)
-        : '—';
-
+    job.errors.forEach(err => {
       errorRows.push([
         err.rowNumber,
-        err.field   ?? '—',
-        err.value   ?? '—',
+        err.field ?? 'General',
+        err.value ?? 'N/A',
         err.message,
-        rawJson,
       ]);
-    }
+    });
   }
 
   const wsErrors = XLSX.utils.aoa_to_sheet(errorRows);
-  wsErrors['!cols'] = [
-    { wch: 8  },  // Fila #
-    { wch: 22 },  // Campo
-    { wch: 25 },  // Valor
-    { wch: 55 },  // Descripción
-    { wch: 60 },  // Datos raw
-  ];
+  wsErrors['!cols'] = [{ wch: 8 }, { wch: 20 }, { wch: 25 }, { wch: 60 }];
   wsErrors['!freeze'] = { xSplit: 0, ySplit: 3 };
-  XLSX.utils.book_append_sheet(wb, wsErrors, 'Errores');
+  XLSX.utils.book_append_sheet(wb, wsErrors, 'Lista de Errores');
 
-  // ── Hoja 3: Filas originales ─────────────────────────────────────────────────
-  // Reconstruye los datos originales de cada fila que tuvo error
-  const rowsWithRaw = job.errors
-    .filter(e => e.rawData)
-    .reduce(
-      (acc, e) => {
-        if (!acc[e.rowNumber]) acc[e.rowNumber] = e.rawData as Record<string, unknown>;
-        return acc;
-      },
-      {} as Record<number, Record<string, unknown>>,
-    );
-
+  // ── Hoja 3: Datos para Corregir (Hoja Técnica) ──────────────────────────────
+  // Aquí reconstruimos la tabla original para que el usuario pueda editarla
   const originalData: any[][] = [
-    ['BeccaFact — Datos Originales de Filas con Error', '', '', '', '', '', '', '', '', ''],
-    [''],
+    ['Filas con Error - Formato de Corrección Masiva'],
+    ['Instrucciones: Corrija los datos en esta tabla y vuelva a subir el archivo.'],
+    [], // Fila 3 vacía para mantener estética
   ];
 
-  const entries = Object.entries(rowsWithRaw).sort(
-    ([a], [b]) => Number(a) - Number(b),
+  // Agrupar rawData por rowNumber (evita duplicar filas si una fila tuvo varios errores)
+  const uniqueErrorRows = Array.from(
+    new Map(job.errors.filter(e => e.rawData).map(e => [e.rowNumber, e.rawData])).values()
   );
 
-  if (entries.length > 0) {
-    const headers = Object.keys(entries[0][1]);
-    originalData.push(['Fila #', ...headers]);
-    for (const [rowNum, data] of entries) {
-      originalData.push([Number(rowNum), ...headers.map(h => String(data[h] ?? ''))]);
-    }
+  if (uniqueErrorRows.length > 0) {
+    // Extraer encabezados de las keys de los datos originales
+    const headers = Object.keys(uniqueErrorRows[0] as object);
+    
+    // Mapeo inverso opcional para que los headers vuelvan a ser los del Excel BeccaFact
+    const reverseLabelMap: Record<string, string> = {
+      nombre_producto: 'Nombre del Producto *',
+      sku: 'SKU / Código *',
+      precio: 'Precio de Venta *',
+      categoria: 'Categoría',
+      costo: 'Costo',
+      stock_inicial: 'Stock Inicial',
+      impuesto: 'IVA (%)',
+      unidad: 'Unidad de Medida',
+      descripcion: 'Descripción',
+      estado: 'Estado'
+    };
+
+    const friendlyHeaders = headers.map(h => reverseLabelMap[h] || h);
+    originalData.push(['Fila # Original', ...friendlyHeaders]);
+
+    // Llenar datos
+    job.errors.filter(e => e.rawData).forEach(err => {
+      const data = err.rawData as Record<string, any>;
+      const rowValues = headers.map(h => data[h] ?? '');
+      originalData.push([err.rowNumber, ...rowValues]);
+    });
   } else {
-    originalData.push(['No hay datos originales disponibles para las filas con error.']);
+    originalData.push(['No hay datos originales disponibles para reconstruir las filas.']);
   }
 
   const wsOriginal = XLSX.utils.aoa_to_sheet(originalData);
-  wsOriginal['!cols'] = [{ wch: 8 }, ...Array(12).fill({ wch: 20 })];
-  XLSX.utils.book_append_sheet(wb, wsOriginal, 'Datos originales');
+  // Estilo de columnas: Fila # (8), el resto (22)
+  wsOriginal['!cols'] = [{ wch: 15 }, ...Array(15).fill({ wch: 22 })];
+  wsOriginal['!freeze'] = { xSplit: 0, ySplit: 4 };
+  XLSX.utils.book_append_sheet(wb, wsOriginal, 'Datos para Corregir');
 
-  // ── Generar buffer ───────────────────────────────────────────────────────────
+  // ── Generación de Archivo ───────────────────────────────────────────────────
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+  
+  // Nombre de archivo seguro: errores_nombreoriginal_fecha.xlsx
   const safeName = job.fileName.replace(/\.[^.]+$/, '').replace(/[^a-z0-9-_]/gi, '_');
-  const filename = `errores-${safeName}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const filename = `REPORTE_ERRORES_${safeName}_${new Date().toISOString().slice(0, 10)}.xlsx`;
 
   return { buffer, filename };
 }

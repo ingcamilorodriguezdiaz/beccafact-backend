@@ -13,7 +13,7 @@ interface ImportJobData {
 export class ImportProcessor {
   private readonly logger = new Logger(ImportProcessor.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   @OnQueueActive()
   onActive(job: Job) {
@@ -27,42 +27,53 @@ export class ImportProcessor {
   @Process('process-products')
   async processProducts(job: Job<ImportJobData>) {
     const { importJobId, companyId, rows } = job.data;
-    const BATCH_SIZE = 100;
+    const BATCH_SIZE = 50; // Reducido ligeramente para mayor estabilidad en la creación de categorías
 
     let successRows = 0;
     let errorRows = 0;
-    const errors: Array<{ rowNumber: number; field?: string; message: string; rawData?: any }> = [];
+    const errors: Array<{ rowNumber: number; field?: string; message: string; rawData?: any; value?: string }> = [];
 
-    // Get existing SKUs for this company to detect duplicates
+    // 1. Cargar SKUs existentes para evitar duplicados en DB
     const existingSkus = await this.prisma.product.findMany({
       where: { companyId, deletedAt: null },
       select: { sku: true },
     });
     const skuSet = new Set(existingSkus.map((p) => p.sku.toUpperCase()));
+    const categoryCache = new Map<string, string>();
 
-    // Get or create categories
-    const categoryCache = new Map<string, string>(); // name -> id
-
-    // Process in batches
+    // 2. Procesamiento por lotes
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
       const batch = rows.slice(i, i + BATCH_SIZE);
       const validProducts: any[] = [];
 
       for (let j = 0; j < batch.length; j++) {
         const row = batch[j];
-        const rowNumber = i + j + 2;
+        // Ajuste de fila: +4 (1 Título, 1 Header, 1 Hint, +1 porque Excel es 1-based)
+        const rowNumber = i + j + 4;
 
         try {
+          // --- VALIDACIONES DE NEGOCIO ---
           const sku = String(row.sku || '').trim().toUpperCase();
+          const nombre = String(row.nombre_producto || '').trim();
+
+          if (!nombre) throw new Error('El nombre del producto es obligatorio');
+          if (!sku) throw new Error('El SKU es obligatorio');
 
           if (skuSet.has(sku)) {
-            errors.push({ rowNumber, field: 'sku', message: `SKU ya existe: ${sku}`, rawData: row });
+            errors.push({
+              rowNumber,
+              field: 'sku',
+              message: `El SKU "${sku}" ya existe en el sistema o está duplicado en el archivo`,
+              rawData: row,
+              value: sku
+            });
             errorRows++;
             continue;
           }
 
+          // --- GESTIÓN DE CATEGORÍAS ---
           let categoryId: string | undefined;
-          if (row.categoria) {
+          if (row.categoria && String(row.categoria).trim() !== '') {
             const catName = String(row.categoria).trim();
             if (!categoryCache.has(catName)) {
               const cat = await this.prisma.category.upsert({
@@ -75,37 +86,54 @@ export class ImportProcessor {
             categoryId = categoryCache.get(catName);
           }
 
-          const price = parseFloat(String(row.precio).replace(/[^0-9.]/g, ''));
-          const cost = row.costo ? parseFloat(String(row.costo).replace(/[^0-9.]/g, '')) : 0;
-          const stock = row.stock_inicial ? parseInt(String(row.stock_inicial)) : 0;
-          const taxRate = row.impuesto ? parseFloat(String(row.impuesto)) : 19;
+          // --- LIMPIEZA DE NUMÉRICOS (Remueve $, comas y espacios) ---
+          const cleanNumber = (val: any) => String(val || '0').replace(/[^0-9.]/g, '');
+
+          const price = parseFloat(cleanNumber(row.precio));
+          const cost = row.costo ? parseFloat(cleanNumber(row.costo)) : 0;
+          const stock = row.stock_inicial ? parseInt(cleanNumber(row.stock_inicial)) : 0;
+
+          // Impuesto: Si viene "19%", extraer solo "19"
+          const taxRate = row.impuesto ? parseFloat(cleanNumber(row.impuesto)) : 19;
+
+          if (isNaN(price)) throw new Error('El precio tiene un formato inválido');
 
           validProducts.push({
             companyId,
             sku,
-            name: String(row.nombre_producto).trim(),
+            name: nombre,
             categoryId,
             price,
             cost,
             stock,
             taxRate,
-            status: row.estado === 'inactivo' ? 'INACTIVE' : 'ACTIVE',
+            description: row.descripcion ? String(row.descripcion).trim() : null,
+            unit: row.unidad ? String(row.unidad).trim().toUpperCase() : 'UND',
+            status: String(row.estado).toUpperCase() === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
           });
 
           skuSet.add(sku);
           successRows++;
         } catch (e) {
-          errors.push({ rowNumber, message: e.message, rawData: row });
+          errors.push({
+            rowNumber,
+            field: 'General',
+            message: e.message,
+            rawData: row
+          });
           errorRows++;
         }
       }
 
-      // Batch insert
+      // 3. Inserción masiva del lote
       if (validProducts.length > 0) {
-        await this.prisma.product.createMany({ data: validProducts, skipDuplicates: true });
+        await this.prisma.product.createMany({
+          data: validProducts,
+          skipDuplicates: true
+        });
       }
 
-      // Update progress
+      // 4. Actualizar progreso del Job
       await this.prisma.importJob.update({
         where: { id: importJobId },
         data: {
@@ -118,24 +146,27 @@ export class ImportProcessor {
       await job.progress(Math.round(((i + BATCH_SIZE) / rows.length) * 100));
     }
 
-    // Save errors
+    // 5. Guardar errores detallados para el reporte Excel
     if (errors.length > 0) {
       await this.prisma.importError.createMany({
         data: errors.map((e) => ({
           importJobId,
           rowNumber: e.rowNumber,
-          field: e.field,
+          field: e.field || 'desconocido',
           message: e.message,
-          rawData: e.rawData,
+          value: e.value || 'N/A',
+          rawData: e.rawData || {}, // Importante para la Hoja 3 del reporte
         })),
       });
     }
 
-    // Finalize job
+    // 6. Finalización del estado
+    const finalStatus = successRows > 0 ? 'COMPLETED' : 'ERROR';
+
     await this.prisma.importJob.update({
       where: { id: importJobId },
       data: {
-        status: errorRows > 0 && successRows === 0 ? 'ERROR' : 'COMPLETED',
+        status: finalStatus,
         completedAt: new Date(),
         successRows,
         errorRows,
