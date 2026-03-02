@@ -113,4 +113,23 @@ export class ImportController {
   ) {
     return this.importService.cancelJob(companyId, id);
   }
+
+  @Get(':id/error-report')
+@Roles('ADMIN', 'MANAGER')
+@ApiOperation({ summary: 'Descargar reporte de errores de importación como Excel' })
+async downloadErrorReport(
+  @CurrentUser('companyId') companyId: string,
+  @Param('id', ParseUUIDPipe) id: string,
+  @Res({ passthrough: true }) res: Response,
+): Promise<StreamableFile> {
+  const { buffer, filename } = await this.importService.generateErrorReport(companyId, id);
+
+  res.set({
+    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Disposition': `attachment; filename="${filename}"`,
+    'Cache-Control': 'no-cache',
+  });
+
+  return new StreamableFile(buffer);
+}
 }

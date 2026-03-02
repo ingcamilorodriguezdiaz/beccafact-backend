@@ -415,4 +415,125 @@ private parseFile(file: Express.Multer.File): ProductRow[] {
 
     return { errors, validRows, errorCount: errors.length };
   }
+
+  // ─── ERROR REPORT ─────────────────────────────────────────────────────────
+// ─── ERROR REPORT ─────────────────────────────────────────────────────────────
+
+async generateErrorReport(
+  companyId: string,
+  jobId: string,
+): Promise<{ buffer: Buffer; filename: string }> {
+
+  // ← CLAVE: include errors via relación, NO como campo Json
+  const job = await this.prisma.importJob.findFirst({
+    where: { id: jobId, companyId },
+    include: {
+      errors: {
+        orderBy: { rowNumber: 'asc' },
+      },
+    },
+  });
+
+  if (!job) throw new NotFoundException('Job de importación no encontrado');
+
+  const wb = XLSX.utils.book_new();
+
+  // ── Hoja 1: Resumen ──────────────────────────────────────────────────────────
+  const summaryData: any[][] = [
+    ['BeccaFact — Reporte de Errores de Importación', '', '', ''],
+    [''],
+    ['Job ID',       job.id],
+    ['Archivo',      job.fileName],
+    ['Fecha',        new Date(job.createdAt).toLocaleString('es-CO')],
+    ['Estado',       job.status],
+    ['Total filas',  job.totalRows],
+    ['Exitosas',     job.successRows],
+    ['Con errores',  job.errorRows],
+    [''],
+    ['Generado el', new Date().toLocaleString('es-CO')],
+  ];
+
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+  wsSummary['!cols'] = [{ wch: 18 }, { wch: 50 }];
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen');
+
+  // ── Hoja 2: Errores detallados ───────────────────────────────────────────────
+  const errorRows: any[][] = [
+    ['BeccaFact — Detalle de Errores por Fila', '', '', '', ''],
+    [''],
+    ['Fila #', 'Campo con error', 'Valor ingresado', 'Descripción del error', 'Datos de la fila'],
+  ];
+
+  if (job.errors.length === 0) {
+    errorRows.push(['—', '—', '—', 'No se registraron errores', '—']);
+  } else {
+    for (const err of job.errors) {
+      // rawData es Json? — puede ser un objeto con los datos originales de la fila
+      const rawJson = err.rawData
+        ? JSON.stringify(err.rawData).slice(0, 200)
+        : '—';
+
+      errorRows.push([
+        err.rowNumber,
+        err.field   ?? '—',
+        err.value   ?? '—',
+        err.message,
+        rawJson,
+      ]);
+    }
+  }
+
+  const wsErrors = XLSX.utils.aoa_to_sheet(errorRows);
+  wsErrors['!cols'] = [
+    { wch: 8  },  // Fila #
+    { wch: 22 },  // Campo
+    { wch: 25 },  // Valor
+    { wch: 55 },  // Descripción
+    { wch: 60 },  // Datos raw
+  ];
+  wsErrors['!freeze'] = { xSplit: 0, ySplit: 3 };
+  XLSX.utils.book_append_sheet(wb, wsErrors, 'Errores');
+
+  // ── Hoja 3: Filas originales ─────────────────────────────────────────────────
+  // Reconstruye los datos originales de cada fila que tuvo error
+  const rowsWithRaw = job.errors
+    .filter(e => e.rawData)
+    .reduce(
+      (acc, e) => {
+        if (!acc[e.rowNumber]) acc[e.rowNumber] = e.rawData as Record<string, unknown>;
+        return acc;
+      },
+      {} as Record<number, Record<string, unknown>>,
+    );
+
+  const originalData: any[][] = [
+    ['BeccaFact — Datos Originales de Filas con Error', '', '', '', '', '', '', '', '', ''],
+    [''],
+  ];
+
+  const entries = Object.entries(rowsWithRaw).sort(
+    ([a], [b]) => Number(a) - Number(b),
+  );
+
+  if (entries.length > 0) {
+    const headers = Object.keys(entries[0][1]);
+    originalData.push(['Fila #', ...headers]);
+    for (const [rowNum, data] of entries) {
+      originalData.push([Number(rowNum), ...headers.map(h => String(data[h] ?? ''))]);
+    }
+  } else {
+    originalData.push(['No hay datos originales disponibles para las filas con error.']);
+  }
+
+  const wsOriginal = XLSX.utils.aoa_to_sheet(originalData);
+  wsOriginal['!cols'] = [{ wch: 8 }, ...Array(12).fill({ wch: 20 })];
+  XLSX.utils.book_append_sheet(wb, wsOriginal, 'Datos originales');
+
+  // ── Generar buffer ───────────────────────────────────────────────────────────
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+  const safeName = job.fileName.replace(/\.[^.]+$/, '').replace(/[^a-z0-9-_]/gi, '_');
+  const filename = `errores-${safeName}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+  return { buffer, filename };
+}
 }
