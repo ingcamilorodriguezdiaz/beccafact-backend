@@ -43,7 +43,7 @@ USER nestjs
 EXPOSE 3000
 
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/src/main.js"]
+CMD npx prisma migrate deploy && node dist/src/main.js
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
