@@ -28,8 +28,7 @@ const corsOrigin = configService.get<string>('CORS_ORIGIN', 'http://localhost:42
   app.enableCors({
     origin: [
       ...corsOrigin.split(','),
-      'https://beccafact-backend.onrender.com', // Tu backend
-      'https://beccafact.onrender.com'         // ¡IMPORTANTE! Agrega aquí la URL de tu FRONTEND de Render
+      'https://beccafact-frontend.onrender.com'
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Company-ID'],
