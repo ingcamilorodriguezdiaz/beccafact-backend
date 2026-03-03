@@ -23,8 +23,14 @@ async function bootstrap() {
   app.use(compression());
 
   // CORS
+const corsOrigin = configService.get<string>('CORS_ORIGIN', 'http://localhost:4200');
+
   app.enableCors({
-    origin: configService.get<string>('CORS_ORIGIN', 'http://localhost:4200'),
+    origin: [
+      ...corsOrigin.split(','),
+      'https://beccafact-backend.onrender.com', // Tu backend
+      'https://beccafact.onrender.com'         // ¡IMPORTANTE! Agrega aquí la URL de tu FRONTEND de Render
+    ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Company-ID'],
     credentials: true,
