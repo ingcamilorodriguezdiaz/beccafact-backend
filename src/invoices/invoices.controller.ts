@@ -1,10 +1,12 @@
 import {
   Controller, Get, Post, Patch, Delete, Body, Param, Query,
-  UseGuards, ParseUUIDPipe, HttpCode, HttpStatus,
+  UseGuards, ParseUUIDPipe, HttpCode, HttpStatus, Res, StreamableFile,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { Response } from 'express';
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CompanyStatusGuard } from '../common/guards/company-status.guard';
@@ -59,6 +61,37 @@ export class InvoicesController {
     @Body() dto: CreateInvoiceDto,
   ) {
     return this.invoicesService.create(companyId, dto);
+  }
+
+  // ─── UPDATE DRAFT ─────────────────────────────────────────────────────────
+
+  @Patch(':id')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @ApiOperation({ summary: 'Editar factura en borrador (DRAFT)' })
+  update(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateInvoiceDto,
+  ) {
+    return this.invoicesService.update(companyId, id, dto);
+  }
+
+  // ─── PDF PREVIEW ──────────────────────────────────────────────────────────
+
+  @Get(':id/pdf')
+  @ApiOperation({ summary: 'Previsualización HTML de la factura (renderizable como PDF)' })
+  async getPdf(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const buffer = await this.invoicesService.generatePdf(companyId, id);
+    res.set({
+      'Content-Type':        'text/html; charset=utf-8',
+      'Content-Disposition': `inline; filename="factura-${id}.html"`,
+      'Cache-Control':       'no-cache',
+    });
+    return new StreamableFile(buffer);
   }
 
   // ─── DIAN ────────────────────────────────────────────────────────────────────
