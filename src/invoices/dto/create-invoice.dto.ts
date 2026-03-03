@@ -11,6 +11,7 @@ export class InvoiceItemDto {
   @ApiProperty() @IsString() description: string;
   @ApiProperty() @IsNumber() @Min(0.0001) quantity: number;
   @ApiProperty() @IsNumber() @Min(0) unitPrice: number;
+  @ApiProperty() @IsNumber() @Min(0) position: number;
   @ApiPropertyOptional({ default: 19 }) @IsOptional() @IsNumber() @Min(0) taxRate?: number;
   @ApiPropertyOptional({ default: 0 }) @IsOptional() @IsNumber() @Min(0) discount?: number;
 }
@@ -30,4 +31,5 @@ export class CreateInvoiceDto {
   @ApiPropertyOptional() @IsOptional() @IsString() notes?: string;
   @ApiPropertyOptional({ default: 'COP' }) @IsOptional() @IsString() currency?: string;
   @ApiPropertyOptional({ default: false }) @IsOptional() @IsBoolean() isDraft?: boolean;
+  @ApiPropertyOptional({ default: false }) @IsOptional() @IsBoolean() sendToDian?: boolean;
 }

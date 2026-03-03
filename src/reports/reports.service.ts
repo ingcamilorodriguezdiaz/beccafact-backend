@@ -29,7 +29,15 @@ export class ReportsService {
       throw new Error('Invalid date calculation');
     }
 
-    const [current, previous, topCustomers, topProducts, lowStock] = await Promise.all([
+    const [activeCustomers,current, previous, topCustomers, topProducts , activeCatalog , lowStockResult] = await Promise.all([
+       // Total customer active
+        this.prisma.customer.count({
+          where: {
+            companyId,
+            deletedAt: null,
+            isActive: true,
+          },
+        }),
       // Current month
       this.prisma.invoice.aggregate({
         where: { companyId, deletedAt: null, issueDate: { gte: from, lte: to }, status: { not: 'CANCELLED' } },
@@ -62,12 +70,26 @@ export class ReportsService {
         orderBy: { _sum: { total: 'desc' } },
         take: 5,
       }),
-      // Low stock products
+        // Solo catálogo activo
       this.prisma.product.count({
-        where: { companyId, deletedAt: null, status: 'ACTIVE' },
+        where: {
+          companyId,
+          deletedAt: null,
+          status: 'ACTIVE',
+        },
       }),
+      // Low stock products
+      this.prisma.$queryRaw<{ count: bigint }[]>`
+        SELECT COUNT(*)::bigint as count
+        FROM "products"
+        WHERE "companyId" = ${companyId}
+          AND "deletedAt" IS NULL
+          AND "status" = 'ACTIVE'
+          AND "stock" <= "minStock"
+      `,
     ]);
 
+    const lowStock = Number(lowStockResult[0]?.count ?? 0);
     const currentTotal = Number(current._sum.total ?? 0);
     const previousTotal = Number(previous._sum.total ?? 0);
 
@@ -100,6 +122,8 @@ export class ReportsService {
         invoiceCount: c._count.id,
       })),
       topProducts,
+      activeCustomers,
+      activeCatalog,
       productCount: lowStock,
     };
   }
