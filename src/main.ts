@@ -28,7 +28,9 @@ const corsOrigin = configService.get<string>('CORS_ORIGIN', 'http://localhost:42
   app.enableCors({
     origin: [
       ...corsOrigin.split(','),
-      'https://beccafact-frontend.onrender.com'
+      'https://beccafact-frontend.onrender.com',
+      'https://beccafact.com',
+      'https://www.beccafact.com',
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Company-ID'],
