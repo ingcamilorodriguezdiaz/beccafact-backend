@@ -1,15 +1,43 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../config/prisma.service';
 
 @Injectable()
 export class SuperAdminService {
   constructor(private prisma: PrismaService) {}
 
+  // ─── ROLES ───────────────────────────────────────────────────────────────────
+
+  /** Listar roles disponibles (excluye SUPER_ADMIN) */
+  async getRoles() {
+    return this.prisma.role.findMany({
+      where: { name: { not: 'SUPER_ADMIN' } },
+      select: {
+        id: true,
+        name: true,
+        displayName: true,
+        description: true,
+        permissions: { select: { id: true, action: true, resource: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
+
   // ─── COMPANIES ───────────────────────────────────────────────────────────────
 
-  async getCompanies(filters: { search?: string; status?: string; page?: number; limit?: number }) {
+  async getCompanies(filters: {
+    search?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }) {
     const { search, status, page = 1, limit = 20 } = filters;
-    const skip = (page - 1) * +limit;
+    const skip = (Number(page) - 1) * Number(limit);
     const where: any = { deletedAt: null };
 
     if (search) {
@@ -31,32 +59,100 @@ export class SuperAdminService {
             take: 1,
             orderBy: { startDate: 'desc' },
           },
-          _count: { select: { users: true, invoices: true, products: true } },
+          _count: { select: { users: true, invoices: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip,
-        take: +limit,
+        take: Number(limit),
       }),
       this.prisma.company.count({ where }),
     ]);
 
-    return { data, total, page: +page, limit: +limit, totalPages: Math.ceil(total / +limit) };
+    return { data, total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) };
   }
 
-  async getCompanyDetail(id: string) {
+  async getCompany(id: string) {
     const company = await this.prisma.company.findUnique({
-      where: { id },
+      where: { id, deletedAt: null },
       include: {
         subscriptions: {
-          include: { plan: { include: { features: true } } },
+          where: { status: { in: ['ACTIVE', 'TRIAL'] } },
+          include: { plan: true },
+          take: 1,
           orderBy: { startDate: 'desc' },
-          take: 5,
         },
-        _count: { select: { users: true, invoices: true, products: true, customers: true } },
+        _count: { select: { users: true, invoices: true } },
       },
     });
     if (!company) throw new NotFoundException('Empresa no encontrada');
     return company;
+  }
+
+  /** Crear empresa + suscripción inicial */
+  async createCompany(data: any) {
+    const { planId, ...companyData } = data;
+
+    if (!companyData.name || !companyData.email) {
+      throw new BadRequestException('Nombre y email son obligatorios');
+    }
+    if (!planId) {
+      throw new BadRequestException('Plan inicial es obligatorio');
+    }
+
+    const existing = await this.prisma.company.findFirst({
+      where: { OR: [{ nit: companyData.nit }, { email: companyData.email }], deletedAt: null },
+    });
+    if (existing) throw new ConflictException('Ya existe una empresa con ese NIT o email');
+
+    const plan = await this.prisma.plan.findUnique({ where: { id: planId } });
+    if (!plan) throw new NotFoundException('Plan no encontrado');
+
+    return this.prisma.$transaction(async (tx) => {
+      const company = await tx.company.create({
+        data: { ...companyData, status: 'ACTIVE' },
+      });
+
+      await tx.subscription.create({
+        data: {
+          companyId: company.id,
+          planId,
+          status: 'ACTIVE',
+          startDate: new Date(),
+        },
+      });
+
+      return tx.company.findUnique({
+        where: { id: company.id },
+        include: {
+          subscriptions: {
+            include: { plan: true },
+            take: 1,
+            orderBy: { startDate: 'desc' },
+          },
+          _count: { select: { users: true, invoices: true } },
+        },
+      });
+    });
+  }
+
+  /** Actualizar datos básicos de una empresa (NIT no se actualiza) */
+  async updateCompany(id: string, data: any) {
+    await this.getCompany(id);
+    // NIT es inmutable
+    const { nit, planId, ...updateData } = data;
+    return this.prisma.company.update({
+      where: { id },
+      data: updateData,
+      include: {
+        subscriptions: {
+          where: { status: { in: ['ACTIVE', 'TRIAL'] } },
+          include: { plan: true },
+          take: 1,
+          orderBy: { startDate: 'desc' },
+        },
+        _count: { select: { users: true, invoices: true } },
+      },
+    });
   }
 
   async suspendCompany(id: string, reason?: string) {
@@ -66,7 +162,7 @@ export class SuperAdminService {
     await Promise.all([
       this.prisma.company.update({ where: { id }, data: { status: 'SUSPENDED' } }),
       this.prisma.subscription.updateMany({
-        where: { companyId: id, status: 'ACTIVE' },
+        where: { companyId: id, status: { in: ['ACTIVE', 'TRIAL'] } },
         data: { status: 'SUSPENDED' },
       }),
     ]);
@@ -77,12 +173,11 @@ export class SuperAdminService {
         action: 'SUSPEND',
         resource: 'company',
         resourceId: id,
-        before: { status: company.status },
-        after: { status: 'SUSPENDED', reason: reason ?? 'Suspended by super admin' },
+        after: { reason },
       },
     });
 
-    return { message: 'Empresa suspendida correctamente', status: 'SUSPENDED' };
+    return { message: 'Empresa suspendida correctamente' };
   }
 
   async activateCompany(id: string) {
@@ -97,24 +192,13 @@ export class SuperAdminService {
       }),
     ]);
 
-    await this.prisma.auditLog.create({
-      data: {
-        companyId: id,
-        action: 'ACTIVATE',
-        resource: 'company',
-        resourceId: id,
-        before: { status: company.status },
-        after: { status: 'ACTIVE' },
-      },
-    });
-
-    return { message: 'Empresa reactivada correctamente', status: 'ACTIVE' };
+    return { message: 'Empresa reactivada correctamente' };
   }
 
   async changePlan(companyId: string, planId: string, customLimits?: Record<string, string>) {
     const [company, plan] = await Promise.all([
       this.prisma.company.findUnique({ where: { id: companyId } }),
-      this.prisma.plan.findUnique({ where: { id: planId }, include: { features: true } }),
+      this.prisma.plan.findUnique({ where: { id: planId } }),
     ]);
 
     if (!company) throw new NotFoundException('Empresa no encontrada');
@@ -122,10 +206,10 @@ export class SuperAdminService {
 
     await this.prisma.subscription.updateMany({
       where: { companyId, status: { in: ['ACTIVE', 'TRIAL'] } },
-      data: { status: 'CANCELLED', endDate: new Date() },
+      data: { status: 'CANCELLED' },
     });
 
-    const subscription = await this.prisma.subscription.create({
+    return this.prisma.subscription.create({
       data: {
         companyId,
         planId,
@@ -133,243 +217,222 @@ export class SuperAdminService {
         startDate: new Date(),
         customLimits: customLimits ?? undefined,
       },
-      include: { plan: { include: { features: true } } },
+      include: { plan: true },
     });
+  }
 
-    await this.prisma.auditLog.create({
-      data: {
-        companyId,
-        action: 'CHANGE_PLAN',
-        resource: 'subscription',
-        resourceId: subscription.id,
-        after: { planId, planName: plan.name },
+  // ─── USERS PER COMPANY ───────────────────────────────────────────────────────
+
+  async getCompanyUsers(companyId: string) {
+    await this.getCompany(companyId);
+    return this.prisma.user.findMany({
+      where: { companyId, deletedAt: null, isSuperAdmin: false },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        isActive: true,
+        lastLoginAt: true,
+        createdAt: true,
+        roles: {
+          include: {
+            role: { select: { id: true, name: true, displayName: true } },
+          },
+        },
       },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** Crear un usuario nuevo e invitarlo a la empresa con un rol */
+  async createCompanyUser(companyId: string, data: any) {
+    await this.getCompany(companyId);
+
+    const { firstName, lastName, email, password, roleId } = data;
+
+    if (!firstName || !email || !password) {
+      throw new BadRequestException('Nombre, email y contraseña son obligatorios');
+    }
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) throw new ConflictException('Ya existe un usuario con ese email');
+
+    if (roleId) {
+      const role = await this.prisma.role.findUnique({ where: { id: roleId } });
+      if (!role) throw new NotFoundException('Rol no encontrado');
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email,
+          password: hashedPassword,
+          firstName,
+          lastName: lastName ?? '',
+          phone: data.phone,
+          companyId,
+          isActive: true,
+        },
+      });
+
+      if (roleId) {
+        await tx.userRole.create({ data: { userId: user.id, roleId } });
+      }
+
+      return tx.user.findUnique({
+        where: { id: user.id },
+        select: {
+          id: true, email: true, firstName: true, lastName: true,
+          isActive: true, createdAt: true,
+          roles: { include: { role: { select: { id: true, name: true, displayName: true } } } },
+        },
+      });
+    });
+  }
+
+  /** Actualizar nombre, apellido, rol de un usuario de una empresa */
+  async updateCompanyUser(companyId: string, userId: string, data: any) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, companyId, deletedAt: null },
+    });
+    if (!user) throw new NotFoundException('Usuario no encontrado en esta empresa');
+
+    const { roleId, firstName, lastName, phone } = data;
+
+    return this.prisma.$transaction(async (tx) => {
+      // Actualizar datos básicos
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          ...(firstName !== undefined && { firstName }),
+          ...(lastName !== undefined && { lastName }),
+          ...(phone !== undefined && { phone }),
+        },
+      });
+
+      // Actualizar rol si se envió
+      if (roleId !== undefined) {
+        await tx.userRole.deleteMany({ where: { userId } });
+        if (roleId) {
+          const role = await tx.role.findUnique({ where: { id: roleId } });
+          if (!role) throw new NotFoundException('Rol no encontrado');
+          await tx.userRole.create({ data: { userId, roleId } });
+        }
+      }
+
+      return tx.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true, email: true, firstName: true, lastName: true,
+          isActive: true, createdAt: true,
+          roles: { include: { role: { select: { id: true, name: true, displayName: true } } } },
+        },
+      });
+    });
+  }
+
+  /** Alternar estado activo/inactivo de un usuario de una empresa */
+  async toggleCompanyUserActive(companyId: string, userId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, companyId, deletedAt: null },
+    });
+    if (!user) throw new NotFoundException('Usuario no encontrado en esta empresa');
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { isActive: !user.isActive },
+      select: { id: true, isActive: true, firstName: true, lastName: true },
     });
 
-    return subscription;
+    return {
+      message: updated.isActive ? 'Usuario activado correctamente' : 'Usuario desactivado correctamente',
+      user: updated,
+    };
   }
 
   // ─── PLANS ───────────────────────────────────────────────────────────────────
 
   async getPlans() {
     return this.prisma.plan.findMany({
-      include: {
-        features: true,
-        _count: { select: { subscriptions: true } },
-      },
+      include: { features: true, _count: { select: { subscriptions: true } } },
       orderBy: { price: 'asc' },
     });
   }
 
-  async getPlan(id: string) {
-    const plan = await this.prisma.plan.findUnique({
-      where: { id },
-      include: {
-        features: true,
-        subscriptions: {
-          where: { status: { in: ['ACTIVE', 'TRIAL'] } },
-          include: { company: { select: { id: true, name: true, email: true } } },
-          take: 20,
-        },
-        _count: { select: { subscriptions: true } },
-      },
-    });
-    if (!plan) throw new NotFoundException('Plan no encontrado');
-    return plan;
-  }
-
   async createPlan(data: any) {
     const { features, ...planData } = data;
-
-    const existing = await this.prisma.plan.findUnique({ where: { name: planData.name } });
-    if (existing) throw new BadRequestException(`Ya existe un plan con el nombre "${planData.name}"`);
-
     return this.prisma.plan.create({
       data: {
         ...planData,
-        price: parseFloat(planData.price),
-        features: { create: (features ?? []).map((f: any) => ({ key: f.key, value: f.value, label: f.label })) },
+        features: features ? { create: features } : undefined,
       },
       include: { features: true },
     });
   }
 
   async updatePlan(id: string, data: any) {
-    const plan = await this.prisma.plan.findUnique({ where: { id } });
-    if (!plan) throw new NotFoundException('Plan no encontrado');
-
     const { features, ...planData } = data;
-    if (planData.price) planData.price = parseFloat(planData.price);
-
     return this.prisma.$transaction(async (tx) => {
-      if (features && features.length > 0) {
+      if (features) {
         await tx.planFeature.deleteMany({ where: { planId: id } });
         await tx.planFeature.createMany({
-          data: features.map((f: any) => ({
-            planId: id,
-            key: f.key,
-            value: f.value,
-            label: f.label,
-          })),
+          data: features.map((f: any) => ({ ...f, planId: id })),
         });
       }
-      return tx.plan.update({
-        where: { id },
-        data: { ...planData, updatedAt: new Date() },
-        include: { features: true, _count: { select: { subscriptions: true } } },
-      });
+      return tx.plan.update({ where: { id }, data: planData, include: { features: true } });
     });
-  }
-
-  async togglePlan(id: string) {
-    const plan = await this.prisma.plan.findUnique({ where: { id } });
-    if (!plan) throw new NotFoundException('Plan no encontrado');
-
-    const updated = await this.prisma.plan.update({
-      where: { id },
-      data: { isActive: !plan.isActive },
-    });
-
-    return { message: updated.isActive ? 'Plan activado' : 'Plan desactivado', isActive: updated.isActive };
-  }
-
-  // ─── USERS ───────────────────────────────────────────────────────────────────
-
-  async getAllUsers(filters: { search?: string; companyId?: string; page?: number; limit?: number }) {
-    const { search, companyId, page = 1, limit = 20 } = filters;
-    const skip = (page - 1) * +limit;
-    const where: any = { deletedAt: null, isSuperAdmin: false };
-
-    if (search) {
-      where.OR = [
-        { email: { contains: search, mode: 'insensitive' } },
-        { firstName: { contains: search, mode: 'insensitive' } },
-        { lastName: { contains: search, mode: 'insensitive' } },
-      ];
-    }
-    if (companyId) where.companyId = companyId;
-
-    const [data, total] = await Promise.all([
-      this.prisma.user.findMany({
-        where,
-        select: {
-          id: true, email: true, firstName: true, lastName: true,
-          isActive: true, lastLoginAt: true, createdAt: true,
-          company: { select: { id: true, name: true } },
-          roles: { include: { role: { select: { name: true } } } },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: +limit,
-      }),
-      this.prisma.user.count({ where }),
-    ]);
-
-    return {
-      data: data.map((u) => ({ ...u, roles: u.roles.map((ur) => ur.role.name) })),
-      total,
-      page: +page,
-      limit: +limit,
-      totalPages: Math.ceil(total / +limit),
-    };
   }
 
   // ─── METRICS ─────────────────────────────────────────────────────────────────
 
   async getGlobalMetrics() {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
     const [
-      totalCompanies, activeCompanies, suspendedCompanies, trialCompanies,
-      totalUsers, totalInvoices, monthlyInvoices, totalProducts,
-      revenueThisMonth, recentInvoices, companiesByPlan,
+      totalCompanies,
+      activeCompanies,
+      suspendedCompanies,
+      totalUsers,
+      totalInvoices,
+      totalProducts,
+      recentInvoices,
     ] = await Promise.all([
       this.prisma.company.count({ where: { deletedAt: null } }),
       this.prisma.company.count({ where: { status: 'ACTIVE' } }),
       this.prisma.company.count({ where: { status: 'SUSPENDED' } }),
-      this.prisma.company.count({ where: { status: 'TRIAL' } }),
       this.prisma.user.count({ where: { deletedAt: null, isSuperAdmin: false } }),
       this.prisma.invoice.count({ where: { deletedAt: null } }),
-      this.prisma.invoice.count({ where: { deletedAt: null, createdAt: { gte: monthStart } } }),
       this.prisma.product.count({ where: { deletedAt: null } }),
-      this.prisma.invoice.aggregate({
-        where: { deletedAt: null, status: { not: 'CANCELLED' }, issueDate: { gte: monthStart } },
-        _sum: { total: true },
-      }),
       this.prisma.invoice.findMany({
         where: { deletedAt: null },
         orderBy: { createdAt: 'desc' },
         take: 10,
-        include: {
-          company: { select: { name: true } },
-          customer: { select: { name: true } },
-        },
-      }),
-      this.prisma.subscription.groupBy({
-        by: ['planId'],
-        where: { status: { in: ['ACTIVE', 'TRIAL'] } },
-        _count: { planId: true },
+        include: { company: { select: { name: true } } },
       }),
     ]);
 
-    const planIds = companiesByPlan.map((c) => c.planId);
-    const plans = await this.prisma.plan.findMany({
-      where: { id: { in: planIds } },
-      select: { id: true, name: true, displayName: true },
-    });
-    const planMap = new Map(plans.map((p) => [p.id, p]));
-
     return {
-      companies: {
-        total: totalCompanies,
-        active: activeCompanies,
-        suspended: suspendedCompanies,
-        trial: trialCompanies,
-        byPlan: companiesByPlan.map((c) => ({
-          plan: planMap.get(c.planId),
-          count: c._count.planId,
-        })),
-      },
+      companies: { total: totalCompanies, active: activeCompanies, suspended: suspendedCompanies },
       users: { total: totalUsers },
-      invoices: {
-        total: totalInvoices,
-        thisMonth: monthlyInvoices,
-        revenueThisMonth: revenueThisMonth._sum.total ?? 0,
-      },
+      invoices: { total: totalInvoices },
       products: { total: totalProducts },
       recentInvoices,
     };
   }
 
-  // ─── AUDIT LOGS ──────────────────────────────────────────────────────────────
-
   async getAuditLogs(filters: {
     companyId?: string;
     resource?: string;
-    action?: string;
-    from?: string;
-    to?: string;
     page?: number;
     limit?: number;
   }) {
-    const { companyId, resource, action, from, to, page = 1, limit = 50 } = filters;
-    const skip = (page - 1) * +limit;
+    const { companyId, resource, page = 1, limit = 50 } = filters;
+    const skip = (Number(page) - 1) * Number(limit);
     const where: any = {};
-
     if (companyId) where.companyId = companyId;
     if (resource) where.resource = resource;
-    if (action) where.action = action;
-
-    if (from || to) {
-      where.createdAt = {};
-      if (from) where.createdAt.gte = new Date(from);
-      if (to) {
-        const toDate = new Date(to);
-        toDate.setHours(23, 59, 59, 999);
-        where.createdAt.lte = toDate;
-      }
-    }
 
     const [data, total] = await Promise.all([
       this.prisma.auditLog.findMany({
@@ -380,11 +443,11 @@ export class SuperAdminService {
         },
         orderBy: { createdAt: 'desc' },
         skip,
-        take: +limit,
+        take: Number(limit),
       }),
       this.prisma.auditLog.count({ where }),
     ]);
 
-    return { data, total, page: +page, limit: +limit, totalPages: Math.ceil(total / +limit) };
+    return { data, total, page: Number(page), limit: Number(limit) };
   }
 }

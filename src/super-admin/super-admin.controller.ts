@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Put, Patch, Body, Param,
+  Controller, Get, Post, Put, Patch, Delete, Body, Param,
   Query, UseGuards, ParseUUIDPipe, HttpCode, HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
@@ -22,20 +22,23 @@ export class SuperAdminController {
     return this.superAdminService.getGlobalMetrics();
   }
 
-  // ─── AUDIT LOGS ──────────────────────────────────────────────────────────────
-
   @Get('audit-logs')
-  @ApiOperation({ summary: 'Logs de auditoría con filtros avanzados' })
+  @ApiOperation({ summary: 'Logs de auditoría' })
   getAuditLogs(
     @Query('companyId') companyId?: string,
     @Query('resource') resource?: string,
-    @Query('action') action?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.superAdminService.getAuditLogs({ companyId, resource, action, from, to, page, limit });
+    return this.superAdminService.getAuditLogs({ companyId, resource, page, limit });
+  }
+
+  // ─── ROLES ───────────────────────────────────────────────────────────────────
+
+  @Get('roles')
+  @ApiOperation({ summary: 'Listar roles disponibles (excluye SUPER_ADMIN)' })
+  getRoles() {
+    return this.superAdminService.getRoles();
   }
 
   // ─── COMPANIES ───────────────────────────────────────────────────────────────
@@ -52,23 +55,29 @@ export class SuperAdminController {
   }
 
   @Get('companies/:id')
-  @ApiOperation({ summary: 'Detalle de empresa' })
+  @ApiOperation({ summary: 'Obtener detalle de una empresa' })
   getCompany(@Param('id', ParseUUIDPipe) id: string) {
-    return this.superAdminService.getCompanyDetail(id);
+    return this.superAdminService.getCompany(id);
+  }
+
+  @Post('companies')
+  @ApiOperation({ summary: 'Crear empresa con plan inicial' })
+  createCompany(@Body() data: any) {
+    return this.superAdminService.createCompany(data);
+  }
+
+  @Patch('companies/:id')
+  @ApiOperation({ summary: 'Actualizar datos de empresa' })
+  updateCompany(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() data: any,
+  ) {
+    return this.superAdminService.updateCompany(id, data);
   }
 
   @Patch('companies/:id/suspend')
-  suspendCompanyPatch(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body('reason') reason?: string,
-  ) {
-    return this.superAdminService.suspendCompany(id, reason);
-  }
-
-  @Post('companies/:id/suspend')
-  @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Suspender empresa' })
-  suspendCompanyPost(
+  suspendCompany(
     @Param('id', ParseUUIDPipe) id: string,
     @Body('reason') reason?: string,
   ) {
@@ -76,20 +85,13 @@ export class SuperAdminController {
   }
 
   @Patch('companies/:id/activate')
-  activateCompanyPatch(@Param('id', ParseUUIDPipe) id: string) {
-    return this.superAdminService.activateCompany(id);
-  }
-
-  @Post('companies/:id/activate')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Reactivar empresa' })
-  activateCompanyPost(@Param('id', ParseUUIDPipe) id: string) {
+  @ApiOperation({ summary: 'Activar empresa' })
+  activateCompany(@Param('id', ParseUUIDPipe) id: string) {
     return this.superAdminService.activateCompany(id);
   }
 
   @Post('companies/:id/change-plan')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Cambiar plan de empresa' })
+  @ApiOperation({ summary: 'Cambiar plan de una empresa' })
   changePlan(
     @Param('id', ParseUUIDPipe) id: string,
     @Body('planId') planId: string,
@@ -98,49 +100,60 @@ export class SuperAdminController {
     return this.superAdminService.changePlan(id, planId, customLimits);
   }
 
+  // ─── USERS PER COMPANY ───────────────────────────────────────────────────────
+
+  @Get('companies/:id/users')
+  @ApiOperation({ summary: 'Listar usuarios de una empresa' })
+  getCompanyUsers(@Param('id', ParseUUIDPipe) id: string) {
+    return this.superAdminService.getCompanyUsers(id);
+  }
+
+  @Post('companies/:id/users')
+  @ApiOperation({ summary: 'Crear e invitar usuario a una empresa' })
+  createCompanyUser(
+    @Param('id', ParseUUIDPipe) companyId: string,
+    @Body() data: any,
+  ) {
+    return this.superAdminService.createCompanyUser(companyId, data);
+  }
+
+  @Patch('companies/:id/users/:userId')
+  @ApiOperation({ summary: 'Actualizar usuario de una empresa (nombre, rol, estado)' })
+  updateCompanyUser(
+    @Param('id', ParseUUIDPipe) companyId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() data: any,
+  ) {
+    return this.superAdminService.updateCompanyUser(companyId, userId, data);
+  }
+
+  @Patch('companies/:id/users/:userId/toggle-active')
+  @ApiOperation({ summary: 'Activar o desactivar usuario de una empresa' })
+  @HttpCode(HttpStatus.OK)
+  toggleCompanyUserActive(
+    @Param('id', ParseUUIDPipe) companyId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+  ) {
+    return this.superAdminService.toggleCompanyUserActive(companyId, userId);
+  }
+
   // ─── PLANS ───────────────────────────────────────────────────────────────────
 
   @Get('plans')
-  @ApiOperation({ summary: 'Listar planes con conteo de suscripciones' })
+  @ApiOperation({ summary: 'Listar todos los planes' })
   getPlans() {
     return this.superAdminService.getPlans();
   }
 
-  @Get('plans/:id')
-  @ApiOperation({ summary: 'Detalle de plan con suscripciones activas' })
-  getPlan(@Param('id', ParseUUIDPipe) id: string) {
-    return this.superAdminService.getPlan(id);
-  }
-
   @Post('plans')
-  @ApiOperation({ summary: 'Crear nuevo plan' })
+  @ApiOperation({ summary: 'Crear plan' })
   createPlan(@Body() data: any) {
     return this.superAdminService.createPlan(data);
   }
 
   @Put('plans/:id')
-  @ApiOperation({ summary: 'Actualizar plan y sus features' })
+  @ApiOperation({ summary: 'Actualizar plan' })
   updatePlan(@Param('id', ParseUUIDPipe) id: string, @Body() data: any) {
     return this.superAdminService.updatePlan(id, data);
-  }
-
-  @Patch('plans/:id/toggle')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Activar/desactivar plan' })
-  togglePlan(@Param('id', ParseUUIDPipe) id: string) {
-    return this.superAdminService.togglePlan(id);
-  }
-
-  // ─── USERS ───────────────────────────────────────────────────────────────────
-
-  @Get('users')
-  @ApiOperation({ summary: 'Todos los usuarios del sistema' })
-  getAllUsers(
-    @Query('search') search?: string,
-    @Query('companyId') companyId?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
-  ) {
-    return this.superAdminService.getAllUsers({ search, companyId, page, limit });
   }
 }

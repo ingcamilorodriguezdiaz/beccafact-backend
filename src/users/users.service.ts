@@ -201,7 +201,7 @@ export class UsersService {
 
   async getRoles() {
     return this.prisma.role.findMany({
-      where: { name: { not: 'SUPER_ADMIN' } },
+      where: { name: { not: 'SUPER_ADMIN' }, isSystem :true },
       include: { permissions: true },
       orderBy: { name: 'asc' },
     });

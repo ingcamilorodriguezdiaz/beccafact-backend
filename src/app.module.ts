@@ -15,6 +15,7 @@ import { ImportModule } from './import/import.module';
 import { ReportsModule } from './reports/reports.module';
 import { SuperAdminModule } from './super-admin/super-admin.module';
 import { PrismaModule } from './config/prisma.module';
+import { RolesModule } from './roles/roles.module';
 
 @Module({
   imports: [
@@ -43,13 +44,14 @@ import { PrismaModule } from './config/prisma.module';
     CompaniesModule,
     PlansModule,
     ProductsModule,
-    CategoriesModule, // ← NUEVO
+    CategoriesModule, 
     InvoicesModule,
     CustomersModule,
     IntegrationsModule,
     ImportModule,
     ReportsModule,
     SuperAdminModule,
+    RolesModule
   ],
 })
 export class AppModule {}
