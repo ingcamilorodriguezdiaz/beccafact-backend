@@ -15,6 +15,12 @@ export class PlansController {
     return this.plansService.findPublic();
   }
 
+  @Get('feature-catalog')
+  @ApiOperation({ summary: 'Catálogo completo de features/límites disponibles en los planes' })
+  getFeatureCatalog() {
+    return this.plansService.getFeatureCatalog();
+  }
+
   @Get('my-plan')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
