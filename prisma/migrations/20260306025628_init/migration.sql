@@ -230,8 +230,15 @@ CREATE TABLE "invoices" (
     "dianCufe" TEXT,
     "dianQrCode" TEXT,
     "dianStatus" TEXT,
+    "dianStatusCode" TEXT,
+    "dianStatusMsg" TEXT,
+    "dianZipKey" TEXT,
+    "dianAttempts" INTEGER NOT NULL DEFAULT 0,
     "dianSentAt" TIMESTAMP(3),
     "dianResponseAt" TIMESTAMP(3),
+    "dianXmlBase64" TEXT,
+    "xmlContent" TEXT,
+    "xmlSigned" TEXT,
     "pdfUrl" TEXT,
     "xmlUrl" TEXT,
     "currency" TEXT NOT NULL DEFAULT 'COP',
@@ -341,6 +348,68 @@ CREATE TABLE "import_errors" (
     CONSTRAINT "import_errors_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "employees" (
+    "id" TEXT NOT NULL,
+    "companyId" TEXT NOT NULL,
+    "documentType" TEXT NOT NULL DEFAULT 'CC',
+    "documentNumber" TEXT NOT NULL,
+    "firstName" TEXT NOT NULL,
+    "lastName" TEXT NOT NULL,
+    "email" TEXT,
+    "phone" TEXT,
+    "position" TEXT NOT NULL,
+    "baseSalary" DECIMAL(12,2) NOT NULL,
+    "contractType" TEXT NOT NULL DEFAULT 'INDEFINITE',
+    "hireDate" TIMESTAMP(3) NOT NULL,
+    "city" TEXT,
+    "bankAccount" TEXT,
+    "bankName" TEXT,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "deletedAt" TIMESTAMP(3),
+
+    CONSTRAINT "employees_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "payroll_records" (
+    "id" TEXT NOT NULL,
+    "companyId" TEXT NOT NULL,
+    "employeeId" TEXT NOT NULL,
+    "period" TEXT NOT NULL,
+    "payDate" TIMESTAMP(3) NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "cune" TEXT,
+    "baseSalary" DECIMAL(12,2) NOT NULL,
+    "daysWorked" INTEGER NOT NULL DEFAULT 30,
+    "overtimeHours" DECIMAL(8,2) NOT NULL DEFAULT 0,
+    "bonuses" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "commissions" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "transportAllowance" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "vacationPay" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "healthEmployee" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "pensionEmployee" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "sickLeave" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "loans" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "otherDeductions" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "healthEmployer" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "pensionEmployer" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "arl" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "compensationFund" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "totalEarnings" DECIMAL(12,2) NOT NULL,
+    "totalDeductions" DECIMAL(12,2) NOT NULL,
+    "netPay" DECIMAL(12,2) NOT NULL,
+    "totalEmployerCost" DECIMAL(12,2) NOT NULL,
+    "notes" TEXT,
+    "submittedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "payroll_records_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "plans_name_key" ON "plans"("name");
 
@@ -446,6 +515,24 @@ CREATE INDEX "import_jobs_status_idx" ON "import_jobs"("status");
 -- CreateIndex
 CREATE INDEX "import_errors_importJobId_idx" ON "import_errors"("importJobId");
 
+-- CreateIndex
+CREATE INDEX "employees_companyId_idx" ON "employees"("companyId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "employees_companyId_documentNumber_key" ON "employees"("companyId", "documentNumber");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "payroll_records_cune_key" ON "payroll_records"("cune");
+
+-- CreateIndex
+CREATE INDEX "payroll_records_companyId_idx" ON "payroll_records"("companyId");
+
+-- CreateIndex
+CREATE INDEX "payroll_records_companyId_period_idx" ON "payroll_records"("companyId", "period");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "payroll_records_companyId_employeeId_period_key" ON "payroll_records"("companyId", "employeeId", "period");
+
 -- AddForeignKey
 ALTER TABLE "plan_features" ADD CONSTRAINT "plan_features_planId_fkey" FOREIGN KEY ("planId") REFERENCES "plans"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -514,3 +601,12 @@ ALTER TABLE "import_jobs" ADD CONSTRAINT "import_jobs_userId_fkey" FOREIGN KEY (
 
 -- AddForeignKey
 ALTER TABLE "import_errors" ADD CONSTRAINT "import_errors_importJobId_fkey" FOREIGN KEY ("importJobId") REFERENCES "import_jobs"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "employees" ADD CONSTRAINT "employees_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "companies"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "payroll_records" ADD CONSTRAINT "payroll_records_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "companies"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "payroll_records" ADD CONSTRAINT "payroll_records_employeeId_fkey" FOREIGN KEY ("employeeId") REFERENCES "employees"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

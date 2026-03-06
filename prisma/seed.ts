@@ -44,6 +44,16 @@ async function main() {
         { resource: 'integrations', action: 'read' },
         { resource: 'integrations', action: 'update' },
         { resource: 'integrations', action: 'delete' },
+        // Cartera: acceso completo
+        { resource: 'cartera', action: 'read' },
+        { resource: 'cartera', action: 'create' },
+        { resource: 'cartera', action: 'update' },
+        // Nómina: acceso completo
+        { resource: 'payroll', action: 'read' },
+        { resource: 'payroll', action: 'create' },
+        { resource: 'payroll', action: 'update' },
+        { resource: 'payroll', action: 'delete' },
+        { resource: 'payroll', action: 'transmit' },
       ],
     },
     {
@@ -65,6 +75,15 @@ async function main() {
         { resource: 'customers', action: 'update' },
         { resource: 'reports', action: 'read' },
         { resource: 'users', action: 'read' },
+        // Cartera: puede registrar pagos y recordatorios
+        { resource: 'cartera', action: 'read' },
+        { resource: 'cartera', action: 'create' },
+        { resource: 'cartera', action: 'update' },
+        // Nómina: puede crear y transmitir, NO puede anular
+        { resource: 'payroll', action: 'read' },
+        { resource: 'payroll', action: 'create' },
+        { resource: 'payroll', action: 'update' },
+        { resource: 'payroll', action: 'transmit' },
       ],
     },
     {
@@ -79,6 +98,11 @@ async function main() {
         { resource: 'products', action: 'update' },
         { resource: 'customers', action: 'create' },
         { resource: 'customers', action: 'read' },
+        // Cartera: solo consulta (no puede registrar pagos ni enviar recordatorios)
+        { resource: 'cartera', action: 'read' },
+        // Nómina: puede ver y crear borradores, NO puede transmitir ni anular
+        { resource: 'payroll', action: 'read' },
+        { resource: 'payroll', action: 'create' },
       ],
     },
     {

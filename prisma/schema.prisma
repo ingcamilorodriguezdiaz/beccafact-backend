@@ -78,6 +78,8 @@ model Company {
   usageTracking  UsageTracking[]
   auditLogs      AuditLog[]
   importJobs     ImportJob[]
+  employees      Employee[]
+  payrollRecords PayrollRecord[]
 
   @@index([status])
   @@index([nit])
@@ -324,8 +326,15 @@ model Invoice {
   dianCufe        String?       @unique
   dianQrCode      String?       @db.Text
   dianStatus      String?
+  dianStatusCode  String?
+  dianStatusMsg   String?       @db.Text
+  dianZipKey      String?
+  dianAttempts    Int           @default(0)
   dianSentAt      DateTime?
   dianResponseAt  DateTime?
+  dianXmlBase64   String?       @db.Text
+  xmlContent      String?       @db.Text
+  xmlSigned       String?       @db.Text
   pdfUrl          String?
   xmlUrl          String?
   currency        String        @default("COP")
@@ -518,4 +527,89 @@ enum ImportStatus {
   COMPLETED
   ERROR
   CANCELLED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAYROLL — Nómina Electrónica
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Employee {
+  id             String    @id @default(uuid())
+  companyId      String
+  documentType   String    @default("CC")   // CC | CE | PASSPORT | NIT
+  documentNumber String
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String?
+  position       String                      // job title / cargo
+  baseSalary     Decimal   @db.Decimal(12, 2)
+  contractType   String    @default("INDEFINITE") // INDEFINITE | FIXED | PROJECT | APPRENTICE
+  hireDate       DateTime
+  city           String?
+  bankAccount    String?
+  bankName       String?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  company       Company         @relation(fields: [companyId], references: [id])
+  payrollRecords PayrollRecord[]
+
+  @@unique([companyId, documentNumber])
+  @@index([companyId])
+  @@map("employees")
+}
+
+model PayrollRecord {
+  id         String   @id @default(uuid())
+  companyId  String
+  employeeId String
+  period     String   // YYYY-MM
+  payDate    DateTime
+  status     String   @default("DRAFT")
+  // DRAFT | PROCESSING | SUBMITTED | ACCEPTED | REJECTED | VOIDED
+  cune       String?  @unique  // DIAN electronic payroll code
+
+  // Earnings
+  baseSalary        Decimal  @db.Decimal(12, 2)
+  daysWorked        Int      @default(30)
+  overtimeHours     Decimal  @default(0) @db.Decimal(8, 2)
+  bonuses           Decimal  @default(0) @db.Decimal(12, 2)
+  commissions       Decimal  @default(0) @db.Decimal(12, 2)
+  transportAllowance Decimal @default(0) @db.Decimal(12, 2)
+  vacationPay       Decimal  @default(0) @db.Decimal(12, 2)
+
+  // Employee deductions
+  healthEmployee    Decimal  @default(0) @db.Decimal(12, 2)
+  pensionEmployee   Decimal  @default(0) @db.Decimal(12, 2)
+  sickLeave         Decimal  @default(0) @db.Decimal(12, 2)
+  loans             Decimal  @default(0) @db.Decimal(12, 2)
+  otherDeductions   Decimal  @default(0) @db.Decimal(12, 2)
+
+  // Employer contributions
+  healthEmployer    Decimal  @default(0) @db.Decimal(12, 2)
+  pensionEmployer   Decimal  @default(0) @db.Decimal(12, 2)
+  arl               Decimal  @default(0) @db.Decimal(12, 2)
+  compensationFund  Decimal  @default(0) @db.Decimal(12, 2)
+
+  // Calculated totals
+  totalEarnings     Decimal  @db.Decimal(12, 2)
+  totalDeductions   Decimal  @db.Decimal(12, 2)
+  netPay            Decimal  @db.Decimal(12, 2)
+  totalEmployerCost Decimal  @db.Decimal(12, 2)
+
+  notes        String?
+  submittedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company  Company  @relation(fields: [companyId], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([companyId, employeeId, period])
+  @@index([companyId])
+  @@index([companyId, period])
+  @@map("payroll_records")
 }
