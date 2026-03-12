@@ -292,8 +292,12 @@ export class InvoicesService {
     const dianPrefix   = company.dianPrefijo      || prefix;
     const rangoDesde   = String(company.dianRangoDesde || 1);
     const rangoHasta   = String(company.dianRangoHasta || 5000000);
-    const fechaDesde   = company.dianFechaDesde ? this.toColombiaDate(new Date(company.dianFechaDesde)) : '2019-01-19';
-    const fechaHasta   = company.dianFechaHasta ? this.toColombiaDate(new Date(company.dianFechaHasta)) : '2030-01-19';
+    // Fechas de la resolución: vienen de la DB como Date (ej. 2019-01-19T00:00:00Z).
+    // toColombiaDate restaría 5h → 2019-01-18. Para fechas de autorización usamos
+    // directamente el valor ISO sin corrección de zona (son fechas de calendario, no timestamps).
+    const toDateOnly = (d: Date) => d.toISOString().split('T')[0];
+    const fechaDesde   = company.dianFechaDesde ? toDateOnly(new Date(company.dianFechaDesde)) : '2019-01-19';
+    const fechaHasta   = company.dianFechaHasta ? toDateOnly(new Date(company.dianFechaHasta)) : '2030-01-19';
 
     // ── Build UBL 2.1 XML ────────────────────────────────────────────────
     this.logger.log(`[DIAN] Generating XML for ${fullNumber} CUFE=${cufe.slice(0,16)}…`);
