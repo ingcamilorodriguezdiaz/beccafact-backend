@@ -400,7 +400,7 @@ export class InvoicesService {
     }
 
     // ── Persist result ────────────────────────────────────────────────────
-    const newStatus = soapResult.zipKey ? 'ISSUED' : 'DRAFT';
+    const newStatus = soapResult.zipKey ? 'SENT_DIAN' : 'DRAFT';
     const updated = await this.prisma.invoice.update({
       where: { id: invoiceId },
       data: {
