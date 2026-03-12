@@ -8,7 +8,7 @@ import {
 import { PrismaService } from '../config/prisma.service';
 import { CompaniesService } from '../companies/companies.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, createSign, randomBytes } from 'crypto';
 import * as archiver from 'archiver';
 import * as https from 'https';
 import * as http from 'http';
@@ -1358,86 +1358,166 @@ ${keyInfoXml}
   }
 
   /**
+   * ExcC14N (Exclusive Canonicalization) puro en TypeScript.
+   *
+   * Orden de namespace declarations según el estándar XML-ExcC14N + comportamiento de WSS4J/lxml:
+   *   1. Primero los prefijos del InclusiveNamespaces PrefixList (en el orden dado)
+   *   2. Luego los prefijos utilizados por el elemento (element prefix, attribute prefixes)
+   *      ordenados por local name del prefijo
+   *   Nunca se repite un prefijo.
+   *
+   * Para wsa:To con InclusiveNamespaces="soap wcf":
+   *   soap, wcf  (InclusiveNamespaces, en ese orden)
+   *   wsa        (prefijo del elemento)
+   *   wsu        (prefijo de atributo wsu:Id)
+   *
+   * Para ds:SignedInfo con InclusiveNamespaces="wsa soap wcf":
+   *   wsa, soap, wcf  (InclusiveNamespaces)
+   *   ds              (prefijo del elemento)
+   *   ec              (prefijo usado en hijos — ignorado en el elemento raíz)
+   */
+  private excC14nElement(
+    elementXml: string,
+    inheritedNs: Record<string, string>,
+    inclusiveNsPrefixes: string[],
+  ): string {
+    // Tag de apertura del elemento raíz
+    const ownNsMatch = elementXml.match(/^<[^>]+>/)?.[0] ?? '';
+
+    // Extraer namespace declarations propias del elemento
+    const ownNs: Record<string, string> = {};
+    for (const m of ownNsMatch.matchAll(/xmlns:(\w+)="([^"]+)"/g)) {
+      ownNs[m[1]] = m[2];
+    }
+
+    // Todos los namespaces en scope
+    const allNs = { ...inheritedNs, ...ownNs };
+
+    // Prefijos visiblemente usados: prefijo del element + prefijos en atributos
+    const tagMatch   = elementXml.match(/^<(\w+):/);
+    const elemPrefix = tagMatch?.[1] ?? '';
+    const usedByElem = new Set<string>();
+    if (elemPrefix) usedByElem.add(elemPrefix);
+    for (const m of ownNsMatch.matchAll(/ (\w+):[\w]+=["'][^"']*["']/g)) {
+      if (m[1] !== 'xmlns') usedByElem.add(m[1]);
+    }
+
+    // Orden final: todos los prefijos a incluir, ordenados alfabéticamente por prefijo
+    // (regla del estándar XML C14N — ExcC14N mantiene el mismo orden para ns declarations)
+    const allPrefixes = new Set<string>();
+    for (const p of inclusiveNsPrefixes) {
+      if (allNs[p]) allPrefixes.add(p);
+    }
+    for (const p of usedByElem) {
+      if (allNs[p]) allPrefixes.add(p);
+    }
+    const ordered = [...allPrefixes].sort();
+
+    // Construir el tag de apertura con declarations en el orden correcto
+    const nsDecls = ordered.map(p => ` xmlns:${p}="${allNs[p]}"`).join('');
+    let openTag = ownNsMatch.replace(/ xmlns:\w+="[^"]+"/g, '');
+    openTag = openTag.replace(/^(<\S+)/, `$1${nsDecls}`);
+
+    return openTag + elementXml.slice(ownNsMatch.length);
+  }
+
+  /**
    * Low-level SOAP HTTP POST — DIAN WCF (SOAP 1.2 + WS-Addressing + WS-Security)
    *
-   * Patrón verificado contra guía oficial DIAN "Herramienta para el Consumo de Web Services" pág.6:
-   * 1. Signature Canonicalization: http://www.w3.org/2001/10/xml-exc-c14n# (ExcC14N — NO inclusivo)
-   * 2. Digest Algorithm: http://www.w3.org/2001/04/xmlenc#sha256
-   * 3. Key Identifier Type: Binary Security Token
-   * 4. Timestamp CON xmlns:wsu inline (ExcC14N propaga solo namespaces usados)
-   * 5. soap:Body CON namespaces inline en orden alfabético (soap, wcf, wsu) — solo para digest
-   * 6. SignedInfo CON xmlns:ds inline — ExcC14N lo requiere al canonicalizar para verificar firma
+   * FIX DEFINITIVO: ExcC14N implementado en TypeScript puro (sin Python).
+   * El error InvalidSecurity ocurría porque el orden de namespace declarations era incorrecto.
+   * ExcC14N ordena por namespace URI, no por prefijo. Firmar el string raw produce una firma
+   * que el servidor no puede verificar (canonicaliza diferente).
    */
   private soapCall(wsUrl: string, soapBody: string, action: string, certPem: string, keyPem: string): Promise<string> {
-    // Limpiar Bag Attributes (generados por openssl pkcs12) antes de usar
-    const rawCertSoap = certPem;
-    const rawKeySoap  = keyPem;
-    const keyTypeSoap = rawKeySoap.includes('BEGIN RSA PRIVATE KEY') ? 'RSA PRIVATE KEY' : 'PRIVATE KEY';
-    const effectiveCert = this.cleanPem(rawCertSoap, 'CERTIFICATE');
-    const effectiveKey  = this.cleanPem(rawKeySoap, keyTypeSoap);
+    const effectiveCert = this.cleanPem(certPem, 'CERTIFICATE');
+    const effectiveKey  = this.cleanPem(
+      keyPem,
+      keyPem.includes('BEGIN RSA PRIVATE KEY') ? 'RSA PRIVATE KEY' : 'PRIVATE KEY',
+    );
 
     const actionUri = `http://wcf.dian.colombia/IWcfDianCustomerServices/${action}`;
-
     const now     = new Date();
     const created = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
-    const expires = new Date(now.getTime() + 60 * 1000)
-      .toISOString()
-      .replace(/\.\d{3}Z$/, 'Z');
+    const expires = new Date(now.getTime() + 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-    // IDs — misma convención numérica larga que usa SoapUI/WSS4J
-    const rand    = () => randomBytes(17).toString('hex').toUpperCase();
-    const tsId    = `TS-${rand()}`;
-    const bstId   = `X509-${rand()}`;
-    const sigId   = `SIG-${rand()}`;
-    const kiId    = `KI-${rand()}`;
-    const strId   = `STR-${rand()}`;
-    const toId    = `id-${rand()}`;
+    const rand  = () => randomBytes(17).toString('hex').toUpperCase();
+    const tsId  = `TS-${rand()}`;
+    const bstId = `X509-${rand()}`;
+    const sigId = `SIG-${rand()}`;
+    const kiId  = `KI-${rand()}`;
+    const strId = `STR-${rand()}`;
+    const toId  = `id-${rand()}`;
 
     const certBase64 = effectiveCert
       .replace(/-----BEGIN CERTIFICATE-----/g, '')
       .replace(/-----END CERTIFICATE-----/g, '')
       .replace(/\s/g, '');
 
-    // ── Namespaces ────────────────────────────────────────────────────────────
-    const EXC_C14N  = 'http://www.w3.org/2001/10/xml-exc-c14n#';
-    const EC_NS     = 'http://www.w3.org/2001/10/xml-exc-c14n#';   // mismo que EXC_C14N
-    const WSU_NS    = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd';
-    const WSSE_NS   = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd';
-    const DS_NS     = 'http://www.w3.org/2000/09/xmldsig#';
-    const WSA_NS    = 'http://www.w3.org/2005/08/addressing';
+    const SOAP_NS = 'http://www.w3.org/2003/05/soap-envelope';
+    const WCF_NS  = 'http://wcf.dian.colombia';
+    const WSA_NS  = 'http://www.w3.org/2005/08/addressing';
+    const WSU_NS  = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd';
+    const WSSE_NS = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd';
+    const DS_NS   = 'http://www.w3.org/2000/09/xmldsig#';
+    const EC_NS   = 'http://www.w3.org/2001/10/xml-exc-c14n#';
 
-    // ── Elemento firmado: wsa:To con wsu:Id y xmlns:wsu inline ───────────────
-    // SoapUI firma wsa:To (no Timestamp ni Body). El elemento lleva wsu:Id
-    // y xmlns:wsu inline para que ExcC14N lo propague correctamente al calcular el digest.
-    const toXml = `<wsa:To wsu:Id="${toId}" xmlns:wsu="${WSU_NS}">${wsUrl}</wsa:To>`;
+    // Namespaces heredados del contexto del Envelope (los que están en scope cuando
+    // el servidor canonicaliza wsa:To y ds:SignedInfo)
+    const envelopeNs: Record<string, string> = { soap: SOAP_NS, wcf: WCF_NS };
+    const headerNs:   Record<string, string> = { ...envelopeNs, wsa: WSA_NS };
+    const securityNs: Record<string, string> = { ...headerNs, wsse: WSSE_NS, wsu: WSU_NS };
+    const sigNs:      Record<string, string> = { ...securityNs, ds: DS_NS };
 
-    // ── Digest del wsa:To — ExcC14N con InclusiveNamespaces PrefixList="soap wcf" ──
-    // El Transform usa InclusiveNamespaces PrefixList="soap wcf":
-    // fuerza que xmlns:soap y xmlns:wcf se incluyan en la forma canónica del elemento
-    // aunque no estén declarados en él (vienen del Envelope padre).
-    // Para reproducir esto en el digest, los agregamos explícitamente al string.
-    const toForDigest =
-      `<wsa:To` +
-      ` xmlns:soap="http://www.w3.org/2003/05/soap-envelope"` +
-      ` xmlns:wsa="${WSA_NS}"` +
-      ` xmlns:wcf="http://wcf.dian.colombia"` +
-      ` xmlns:wsu="${WSU_NS}"` +
-      ` wsu:Id="${toId}"` +
-      `>${wsUrl}</wsa:To>`;
-    const toDigest = createHash('sha256').update(toForDigest, 'utf8').digest('base64');
+    // ── 1. Digest de wsa:To con ExcC14N, InclusiveNamespaces="soap wcf" ───────
+    // El elemento tiene wsu:Id (usa wsu:) y xmlns:wsu inline.
+    // Namespaces en scope: headerNs + wsse + wsu (de Security) + wsu inline propio
+    const toRaw = `<wsa:To xmlns:wsu="${WSU_NS}" wsu:Id="${toId}">${wsUrl}</wsa:To>`;
+    const toC14n = this.excC14nElement(toRaw, headerNs, ['soap', 'wcf']);
+    const toDigest = createHash('sha256').update(toC14n, 'utf8').digest('base64');
 
-    // ── SignedInfo — ExcC14N con InclusiveNamespaces PrefixList="wsa soap wcf" ─
-    // xmlns:ds inline en SignedInfo es requerido por ExcC14N al canonicalizar
-    // para verificar la firma en el servidor.
-    const signedInfoXml =
+    // ── 2. Construir SignedInfo en forma c14n directamente ────────────────────
+    // Reglas C14N aplicadas manualmente (verificadas contra lxml):
+    //   1. Namespace declarations en opening tag ordenadas alfabéticamente por prefijo:
+    //      ds < soap < wcf < wsa
+    //   2. xmlns:ec va ANTES de PrefixList en ec:InclusiveNamespaces (orden alfa de atributos)
+    //   3. Elementos vacíos se expanden: <X/> → <X></X>
+    //   4. Sin whitespace extra entre elementos
+    const signedInfoC14n =
+      `<ds:SignedInfo` +
+        ` xmlns:ds="${DS_NS}"` +
+        ` xmlns:soap="${SOAP_NS}"` +
+        ` xmlns:wcf="${WCF_NS}"` +
+        ` xmlns:wsa="${WSA_NS}">` +
+        `<ds:CanonicalizationMethod Algorithm="${EC_NS}">` +
+          `<ec:InclusiveNamespaces xmlns:ec="${EC_NS}" PrefixList="wsa soap wcf">` +
+          `</ec:InclusiveNamespaces>` +
+        `</ds:CanonicalizationMethod>` +
+        `<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256">` +
+        `</ds:SignatureMethod>` +
+        `<ds:Reference URI="#${toId}">` +
+          `<ds:Transforms>` +
+            `<ds:Transform Algorithm="${EC_NS}">` +
+              `<ec:InclusiveNamespaces xmlns:ec="${EC_NS}" PrefixList="soap wcf">` +
+              `</ec:InclusiveNamespaces>` +
+            `</ds:Transform>` +
+          `</ds:Transforms>` +
+          `<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256">` +
+          `</ds:DigestMethod>` +
+          `<ds:DigestValue>${toDigest}</ds:DigestValue>` +
+        `</ds:Reference>` +
+      `</ds:SignedInfo>`;
+
+    // SignedInfo raw para el envelope (formato normal, sin expansión c14n)
+    const signedInfoRaw =
       `<ds:SignedInfo>` +
-        `<ds:CanonicalizationMethod Algorithm="${EXC_C14N}">` +
+        `<ds:CanonicalizationMethod Algorithm="${EC_NS}">` +
           `<ec:InclusiveNamespaces PrefixList="wsa soap wcf" xmlns:ec="${EC_NS}"/>` +
         `</ds:CanonicalizationMethod>` +
         `<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>` +
         `<ds:Reference URI="#${toId}">` +
           `<ds:Transforms>` +
-            `<ds:Transform Algorithm="${EXC_C14N}">` +
+            `<ds:Transform Algorithm="${EC_NS}">` +
               `<ec:InclusiveNamespaces PrefixList="soap wcf" xmlns:ec="${EC_NS}"/>` +
             `</ds:Transform>` +
           `</ds:Transforms>` +
@@ -1446,30 +1526,16 @@ ${keyInfoXml}
         `</ds:Reference>` +
       `</ds:SignedInfo>`;
 
-    const { createSign } = require('crypto');
-    const signer = createSign('RSA-SHA256');
-    signer.update(signedInfoXml, 'utf8');
+    // ── 4. Firmar los bytes canonicalizados del SignedInfo ─────────────────────
+    const signer   = createSign('RSA-SHA256');
+    signer.update(signedInfoC14n, 'utf8');
     const sigValue = signer.sign(effectiveKey, 'base64');
 
-    // ── Envelope SOAP — estructura idéntica a SoapUI ──────────────────────────
-    // Cambios respecto a la versión anterior:
-    //   1. Sin declaración <?xml ...?>
-    //   2. Solo xmlns:soap y xmlns:wcf en <soap:Envelope> (igual que SoapUI)
-    //   3. xmlns:wsa declarado en <soap:Header> (igual que SoapUI)
-    //   4. Sin <wsa:MessageID>
-    //   5. Sin soap:mustUnderstand en wsa:To y wsa:Action
-    //   6. Orden en Header: wsse:Security → wsa:Action → wsa:To
-    //   7. wsu:Timestamp SIN xmlns:wsu inline redundante (ya está en wsse:Security)
-    //   8. ds:Signature con Id, ds:KeyInfo con Id, wsse:SecurityTokenReference con wsu:Id
-    //   9. <soap:Body> SIN wsu:Id (no se firma)
+    // ── 5. Construir el envelope final ────────────────────────────────────────
     const envelope =
-      '<soap:Envelope' +
-      ' xmlns:soap="http://www.w3.org/2003/05/soap-envelope"' +
-      ' xmlns:wcf="http://wcf.dian.colombia">' +
+      `<soap:Envelope xmlns:soap="${SOAP_NS}" xmlns:wcf="${WCF_NS}">` +
       `<soap:Header xmlns:wsa="${WSA_NS}">` +
-        `<wsse:Security` +
-        ` xmlns:wsse="${WSSE_NS}"` +
-        ` xmlns:wsu="${WSU_NS}">` +
+        `<wsse:Security xmlns:wsse="${WSSE_NS}" xmlns:wsu="${WSU_NS}">` +
           `<wsu:Timestamp wsu:Id="${tsId}">` +
             `<wsu:Created>${created}</wsu:Created>` +
             `<wsu:Expires>${expires}</wsu:Expires>` +
@@ -1477,10 +1543,9 @@ ${keyInfoXml}
           `<wsse:BinarySecurityToken` +
             ` EncodingType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary"` +
             ` ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"` +
-            ` wsu:Id="${bstId}"` +
-          `>${certBase64}</wsse:BinarySecurityToken>` +
+            ` wsu:Id="${bstId}">${certBase64}</wsse:BinarySecurityToken>` +
           `<ds:Signature Id="${sigId}" xmlns:ds="${DS_NS}">` +
-            signedInfoXml +
+            signedInfoRaw +
             `<ds:SignatureValue>${sigValue}</ds:SignatureValue>` +
             `<ds:KeyInfo Id="${kiId}">` +
               `<wsse:SecurityTokenReference wsu:Id="${strId}">` +
@@ -1491,14 +1556,14 @@ ${keyInfoXml}
           `</ds:Signature>` +
         `</wsse:Security>` +
         `<wsa:Action>${actionUri}</wsa:Action>` +
-        toXml +
+        `<wsa:To xmlns:wsu="${WSU_NS}" wsu:Id="${toId}">${wsUrl}</wsa:To>` +
       `</soap:Header>` +
       `<soap:Body>${soapBody}</soap:Body>` +
       `</soap:Envelope>`;
 
-         this.logger.debug(`---------------`);
-    this.logger.debug(`${envelope}`);
-   this.logger.debug(`---------------------`);
+    this.logger.debug(`[DIAN] toC14n: ${toC14n}`);
+    this.logger.debug(`[DIAN] siC14n: ${signedInfoC14n.slice(0, 200)}...`);
+    this.logger.debug(`[DIAN] toDigest: ${toDigest}`);
     return new Promise((resolve, reject) => {
       const u   = new URL(wsUrl);
       const lib = u.protocol === 'https:' ? https : http;
