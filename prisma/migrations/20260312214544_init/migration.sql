@@ -66,9 +66,10 @@ CREATE TABLE "companies" (
     "address" TEXT,
     "city" TEXT,
     "department" TEXT,
+    "cityCode" TEXT,
+    "departmentCode" TEXT,
     "country" TEXT NOT NULL DEFAULT 'CO',
     "status" "CompanyStatus" NOT NULL DEFAULT 'ACTIVE',
-    "dianApiKey" TEXT,
     "dianTestMode" BOOLEAN NOT NULL DEFAULT true,
     "dianSoftwareId" TEXT,
     "dianSoftwarePin" TEXT,
@@ -192,6 +193,7 @@ CREATE TABLE "products" (
     "status" "ProductStatus" NOT NULL DEFAULT 'ACTIVE',
     "imageUrl" TEXT,
     "barcode" TEXT,
+    "unspscCode" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "deletedAt" TIMESTAMP(3),
@@ -211,6 +213,8 @@ CREATE TABLE "customers" (
     "address" TEXT,
     "city" TEXT,
     "department" TEXT,
+    "cityCode" TEXT,
+    "departmentCode" TEXT,
     "country" TEXT NOT NULL DEFAULT 'CO',
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "creditLimit" DECIMAL(12,2),
@@ -259,6 +263,7 @@ CREATE TABLE "invoices" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "deletedAt" TIMESTAMP(3),
+    "dianErrors" TEXT,
 
     CONSTRAINT "invoices_pkey" PRIMARY KEY ("id")
 );
@@ -496,6 +501,9 @@ CREATE INDEX "invoices_companyId_status_idx" ON "invoices"("companyId", "status"
 CREATE INDEX "invoices_companyId_issueDate_idx" ON "invoices"("companyId", "issueDate");
 
 -- CreateIndex
+CREATE INDEX "invoices_dianZipKey_idx" ON "invoices"("dianZipKey");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "invoices_companyId_invoiceNumber_key" ON "invoices"("companyId", "invoiceNumber");
 
 -- CreateIndex
@@ -562,10 +570,10 @@ ALTER TABLE "users" ADD CONSTRAINT "users_companyId_fkey" FOREIGN KEY ("companyI
 ALTER TABLE "role_permissions" ADD CONSTRAINT "role_permissions_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "roles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_roles" ADD CONSTRAINT "user_roles_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_roles" ADD CONSTRAINT "user_roles_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "roles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_roles" ADD CONSTRAINT "user_roles_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "roles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_roles" ADD CONSTRAINT "user_roles_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "categories" ADD CONSTRAINT "categories_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "companies"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -574,10 +582,10 @@ ALTER TABLE "categories" ADD CONSTRAINT "categories_companyId_fkey" FOREIGN KEY 
 ALTER TABLE "categories" ADD CONSTRAINT "categories_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "categories"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "products" ADD CONSTRAINT "products_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "companies"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "products" ADD CONSTRAINT "products_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "categories"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "products" ADD CONSTRAINT "products_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "categories"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "products" ADD CONSTRAINT "products_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "companies"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "customers" ADD CONSTRAINT "customers_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "companies"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

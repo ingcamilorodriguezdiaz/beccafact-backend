@@ -1,3 +1,4 @@
+import { payroll_records } from './../../node_modules/.prisma/client/index.d';
 import {
   Injectable,
   NotFoundException,
@@ -78,28 +79,28 @@ export class PayrollService {
       ];
     }
     const [data, total] = await Promise.all([
-      this.prisma.employee.findMany({ where, orderBy: { lastName: 'asc' }, skip, take: limit }),
-      this.prisma.employee.count({ where }),
+      this.prisma.employees.findMany({ where, orderBy: { lastName: 'asc' }, skip, take: limit }),
+      this.prisma.employees.count({ where }),
     ]);
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async findEmployee(companyId: string, id: string) {
-    const emp = await this.prisma.employee.findFirst({
+    const emp = await this.prisma.employees.findFirst({
       where: { id, companyId, deletedAt: null },
-      include: { payrollRecords: { orderBy: { period: 'desc' }, take: 12 } },
+      include: { payroll_records: { orderBy: { period: 'desc' }, take: 12 } },
     });
     if (!emp) throw new NotFoundException('Employee not found');
     return emp;
   }
 
   async createEmployee(companyId: string, dto: CreateEmployeeDto, userId: string) {
-    const exists = await this.prisma.employee.findFirst({
+    const exists = await this.prisma.employees.findFirst({
       where: { companyId, documentNumber: dto.documentNumber, deletedAt: null },
     });
     if (exists) throw new ConflictException(`Employee with document ${dto.documentNumber} already exists`);
 
-    const employee = await this.prisma.employee.create({
+    const employee = await this.prisma.employees.create({
       data: {
         companyId,
         documentType:   dto.documentType,
@@ -128,7 +129,7 @@ export class PayrollService {
     const before = await this.findEmployee(companyId, id);
     const data: any = { ...dto };
     if (dto.hireDate) data.hireDate = new Date(dto.hireDate);
-    const updated = await this.prisma.employee.update({ where: { id }, data });
+    const updated = await this.prisma.employees.update({ where: { id }, data });
     await this.prisma.auditLog.create({
       data: { companyId, userId, action: 'UPDATE', resource: 'employee', resourceId: id, before: before as any, after: dto as any },
     });
@@ -137,7 +138,7 @@ export class PayrollService {
 
   async deactivateEmployee(companyId: string, id: string, userId: string) {
     await this.findEmployee(companyId, id);
-    const updated = await this.prisma.employee.update({ where: { id }, data: { isActive: false } });
+    const updated = await this.prisma.employees.update({ where: { id }, data: { isActive: false } });
     await this.prisma.auditLog.create({
       data: { companyId, userId, action: 'DEACTIVATE', resource: 'employee', resourceId: id },
     });
@@ -158,23 +159,23 @@ export class PayrollService {
     if (status)     where.status     = status;
 
     const [data, total] = await Promise.all([
-      this.prisma.payrollRecord.findMany({
+      this.prisma.payroll_records.findMany({
         where,
         include: {
-          employee: { select: { id: true, firstName: true, lastName: true, documentNumber: true, position: true } },
+          employees: { select: { id: true, firstName: true, lastName: true, documentNumber: true, position: true } },
         },
         orderBy: [{ period: 'desc' }, { createdAt: 'desc' }],
         skip, take: limit,
       }),
-      this.prisma.payrollRecord.count({ where }),
+      this.prisma.payroll_records.count({ where }),
     ]);
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async findPayrollRecord(companyId: string, id: string) {
-    const record = await this.prisma.payrollRecord.findFirst({
+    const record = await this.prisma.payroll_records.findFirst({
       where: { id, companyId },
-      include: { employee: true },
+      include: { employees: true },
     });
     if (!record) throw new NotFoundException('Payroll record not found');
     return record;
@@ -184,7 +185,7 @@ export class PayrollService {
     const employee = await this.findEmployee(companyId, dto.employeeId);
     if (!employee.isActive) throw new BadRequestException('Cannot create payroll for an inactive employee');
 
-    const existing = await this.prisma.payrollRecord.findFirst({
+    const existing = await this.prisma.payroll_records.findFirst({
       where: { companyId, employeeId: dto.employeeId, period: dto.period },
     });
     if (existing) throw new ConflictException(
@@ -193,7 +194,7 @@ export class PayrollService {
 
     const calc = this.calculatePayroll(dto);
 
-    const record = await this.prisma.payrollRecord.create({
+    const record = await this.prisma.payroll_records.create({
       data: {
         companyId,
         employeeId:         dto.employeeId,
@@ -222,7 +223,7 @@ export class PayrollService {
         totalEmployerCost:  calc.totalEmployerCost,
         notes:              dto.notes,
       },
-      include: { employee: { select: { id: true, firstName: true, lastName: true } } },
+      include: { employees: { select: { id: true, firstName: true, lastName: true } } },
     });
 
     await this.prisma.auditLog.create({
@@ -236,14 +237,14 @@ export class PayrollService {
     const record = await this.findPayrollRecord(companyId, id);
     if (record.status !== 'DRAFT') throw new BadRequestException('Only DRAFT records can be submitted');
 
-    const updated = await this.prisma.payrollRecord.update({
+    const updated = await this.prisma.payroll_records.update({
       where: { id },
       data: {
         status:      'SUBMITTED',
         submittedAt: new Date(),
         cune: `CUNE-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
       },
-      include: { employee: { select: { id: true, firstName: true, lastName: true } } },
+      include: { employees: { select: { id: true, firstName: true, lastName: true } } },
     });
     await this.prisma.auditLog.create({
       data: { companyId, userId, action: 'SUBMIT', resource: 'payroll', resourceId: id },
@@ -256,7 +257,7 @@ export class PayrollService {
     if (record.status === 'VOIDED')   throw new BadRequestException('Record is already voided');
     if (record.status === 'ACCEPTED') throw new BadRequestException('Accepted records cannot be voided');
 
-    const updated = await this.prisma.payrollRecord.update({
+    const updated = await this.prisma.payroll_records.update({
       where: { id },
       data: { status: 'VOIDED', notes: reason },
     });
@@ -267,10 +268,10 @@ export class PayrollService {
   }
 
   async getPeriodSummary(companyId: string, period: string) {
-    const records = await this.prisma.payrollRecord.findMany({
+    const records = await this.prisma.payroll_records.findMany({
       where: { companyId, period, status: { not: 'VOIDED' } },
       include: {
-        employee: { select: { id: true, firstName: true, lastName: true, position: true } },
+        employees: { select: { id: true, firstName: true, lastName: true, position: true } },
       },
     });
     return {

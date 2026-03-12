@@ -10,5 +10,4 @@ export class UpdateCompanyDto {
   @ApiPropertyOptional() @IsOptional() @IsString() city?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() department?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() logoUrl?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() dianApiKey?: string;
 }

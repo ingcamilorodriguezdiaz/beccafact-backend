@@ -103,7 +103,7 @@ export class InvoicesService {
       include: {
         customer: true,
         items: {
-          include: { product: { select: { id: true, name: true, sku: true } } },
+          include: { product: { select: { id: true, name: true, sku: true, unspscCode: true } } },
           orderBy: { position: 'asc' },
         },
       },
@@ -354,7 +354,9 @@ export class InvoicesService {
         discount:  Number(it.discount || 0),
         // lineTotal = precio neto SIN IVA (UBL LineExtensionAmount y TaxableAmount)
         // it.total en la BD incluye IVA → usar total - taxAmount para obtener el neto
-        lineTotal: Number(it.total) - Number(it.taxAmount),
+        lineTotal:   Number(it.total) - Number(it.taxAmount),
+        sku:         it.product?.sku || it.description?.substring(0, 20) || String(idx + 1),
+        unspscCode:  it.product?.unspscCode ?? (it as any).unspscCode ?? null,
       })),
     });
     const certPem = this.normalizePem(company.dianCertificate);
@@ -398,22 +400,24 @@ export class InvoicesService {
       this.logger.error(`[DIAN] SOAP call failed: ${err.message}`);
       await this.prisma.invoice.update({
         where: { id: invoiceId },
-        data:  { dianStatus: 'ERROR', dianStatusMsg: err.message } as any,
+        data:  { dianStatus: 'ERROR', dianStatusMsg: err.message, dianErrors: null } as any,
       });
       throw new BadRequestException(`Error de comunicación con DIAN: ${err.message}`);
     }
 
     // ── Persist result ────────────────────────────────────────────────────
     const newStatus = soapResult.zipKey ? 'SENT_DIAN' : 'DRAFT';
+    const sendErrors: string[] = soapResult.errorMessages ?? [];
     const updated = await this.prisma.invoice.update({
       where: { id: invoiceId },
       data: {
         status:          newStatus,
         dianStatus:      soapResult.zipKey ? 'SENT' : 'ERROR',
-        dianZipKey:      soapResult.zipKey,
-        dianQrCode:      `https://catalogo-vpfe-hab.dian.gov.co/document/searchqr?documentkey=${cufe}`,
+        dianZipKey:      soapResult.zipKey   || null,
+        dianQrCode:      cufe ? `https://catalogo-vpfe-hab.dian.gov.co/document/searchqr?documentkey=${cufe}` : null,
         dianSentAt:      new Date(),
-        dianStatusMsg:   soapResult.errorMessages?.join('; ') || null,
+        dianStatusMsg:   sendErrors.length > 0 ? sendErrors.join('; ') : null,
+        dianErrors:      sendErrors.length > 0 ? JSON.stringify(sendErrors) : null,
       } as any,
     });
 
@@ -456,14 +460,16 @@ export class InvoicesService {
       newInvoiceStatus = 'REJECTED_DIAN';
     }
 
+    const statusErrors: string[] = result.errorMessages ?? [];
     return this.prisma.invoice.update({
       where: { id: invoiceId },
       data: {
         status:          newInvoiceStatus,
         dianStatus:      result.statusCode,
         dianStatusCode:  result.statusCode,
-        dianStatusMsg:   result.statusMessage || result.statusDescription,
-        dianXmlBase64:   result.xmlBase64,
+        dianStatusMsg:   result.statusMessage || result.statusDescription || null,
+        dianErrors:      statusErrors.length > 0 ? JSON.stringify(statusErrors) : null,
+        dianXmlBase64:   result.xmlBase64 || null,
         dianResponseAt:  new Date(),
       } as any,
     });
@@ -818,7 +824,7 @@ export class InvoicesService {
     // Nuevos campos de control
     customizationId?: string;    // '01' consumidor final | '05' bienes | '09' servicios | '10' mandatos  default='05'
     paymentMeansCode?: string;   // '10' contado | '41' crédito | '42' transferencia | '48' tarj.crédito | '54' tarj.débito
-    items: Array<{ lineId: number; description: string; quantity: number; unit: string; unitPrice: number; taxRate: number; taxAmount: number; discount: number; lineTotal: number }>;
+    items: Array<{ lineId: number; description: string; quantity: number; unit: string; unitPrice: number; taxRate: number; taxAmount: number; discount: number; lineTotal: number; sku?: string; unspscCode?: string | null }>;
   }): string {
     const x = (s: string) => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     const isHab = d.profileExecutionId === '2';
@@ -883,8 +889,11 @@ export class InvoicesService {
       <cac:Item>
          <cbc:Description>${x(item.description)}</cbc:Description>
          <cac:SellersItemIdentification>
-            <cbc:ID>${item.lineId}</cbc:ID>
-         </cac:SellersItemIdentification>
+            <cbc:ID>${item.sku || String(item.lineId)}</cbc:ID>
+         </cac:SellersItemIdentification>${item.unspscCode ? `
+         <cac:AdditionalItemIdentification>
+            <cbc:ID schemeAgencyID="10" schemeID="001" schemeName="UNSPSC">${item.unspscCode}</cbc:ID>
+         </cac:AdditionalItemIdentification>` : ''}
       </cac:Item>
       <cac:Price>
          <cbc:PriceAmount currencyID="${d.currency}">${grossUnitPrice.toFixed(2)}</cbc:PriceAmount>
