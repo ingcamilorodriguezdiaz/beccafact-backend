@@ -6,7 +6,7 @@ export class CreateCustomerDto {
   @ApiProperty({ enum: ['NIT', 'CC', 'CE', 'PASSPORT', 'TI'] })@IsEnum(['NIT', 'CC', 'CE', 'PASSPORT', 'TI'])documentType: DocumentType;
   @ApiProperty({ example: '900123456-7' }) @IsString() @IsNotEmpty() documentNumber: string;
   @ApiProperty({ example: 'Cliente SAS' }) @IsString() @IsNotEmpty() name: string;
-  @ApiPropertyOptional() @IsOptional() @IsEmail() email?: string;
+  @ApiPropertyOptional() @IsOptional() email?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() phone?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() address?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() city?: string;

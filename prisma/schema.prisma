@@ -61,8 +61,21 @@ model Company {
   department     String?
   country        String        @default("CO")
   status         CompanyStatus @default(ACTIVE)
-  dianApiKey     String?       @db.Text
-  dianTestMode   Boolean       @default(true)
+  dianApiKey          String?       @db.Text
+  dianTestMode        Boolean       @default(true)
+  // Configuración DIAN habilitación y producción
+  dianSoftwareId      String?
+  dianSoftwarePin     String?
+  dianTestSetId       String?
+  dianClaveTecnica    String?
+  dianResolucion      String?
+  dianPrefijo         String?
+  dianRangoDesde      Int?
+  dianRangoHasta      Int?
+  dianFechaDesde      String?
+  dianFechaHasta      String?
+  dianCertificate     String?       @db.Text
+  dianCertificateKey  String?       @db.Text
   logoUrl        String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
@@ -339,6 +352,7 @@ model Invoice {
   xmlUrl          String?
   currency        String        @default("COP")
   exchangeRate    Decimal       @default(1) @db.Decimal(12, 4)
+  paymentMethod   String        @default("cash")  // cash|credit|transfer|credit_card|debit_card|check
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   deletedAt       DateTime?

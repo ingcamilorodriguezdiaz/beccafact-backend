@@ -1,7 +1,19 @@
-import { IsString, IsOptional, IsNumber, IsEnum, IsUUID, Min, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsEnum,
+  IsUUID,
+  Min,
+  MaxLength,
+} from 'class-validator';
+
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { TaxType } from '@prisma/client';
+
+import { TaxType, ProductStatus } from '@prisma/client';
+
 export class CreateProductDto {
+
   @ApiProperty({ example: 'Laptop Asus i5' })
   @IsString()
   @MaxLength(255)
@@ -64,4 +76,13 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   barcode?: string;
+
+  @ApiPropertyOptional({
+    enum: ProductStatus,
+    default: ProductStatus.ACTIVE,
+  })
+  @IsOptional()
+  @IsEnum(ProductStatus)
+  status?: ProductStatus;
+
 }
