@@ -18,11 +18,11 @@ import { resolve } from 'path';
 // ─────────────────────────────────────────────────────────────────────────────
 // DIAN Constants — BeccaFact Software propio
 // ─────────────────────────────────────────────────────────────────────────────
-const DIAN_SOFTWARE_ID  = '8c2e43bd-9d57-4144-b0af-8876de5917a8';
+const DIAN_SOFTWARE_ID = '8c2e43bd-9d57-4144-b0af-8876de5917a8';
 const DIAN_SOFTWARE_PIN = '12345';
-const DIAN_TEST_SET_ID  = 'aa87ad48-5975-46d1-b0d5-f8ed563a528e';
-const DIAN_WS_HAB       = 'https://vpfe-hab.dian.gov.co/WcfDianCustomerServices.svc';
-const DIAN_WS_PROD      = 'https://vpfe.dian.gov.co/WcfDianCustomerServices.svc';
+const DIAN_TEST_SET_ID = 'aa87ad48-5975-46d1-b0d5-f8ed563a528e';
+const DIAN_WS_HAB = 'https://vpfe-hab.dian.gov.co/WcfDianCustomerServices.svc';
+const DIAN_WS_PROD = 'https://vpfe.dian.gov.co/WcfDianCustomerServices.svc';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,9 +47,9 @@ export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name);
 
   constructor(
-    private prisma:    PrismaService,
+    private prisma: PrismaService,
     private companiesService: CompaniesService,
-  ) {   
+  ) {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -71,13 +71,13 @@ export class InvoicesService {
         { customer: { name: { contains: search, mode: 'insensitive' } } },
       ];
     }
-    if (status)     where.status     = status;
-    if (type)       where.type       = type;
+    if (status) where.status = status;
+    if (type) where.type = type;
     if (customerId) where.customerId = customerId;
     if (from || to) {
       where.issueDate = {};
       if (from) where.issueDate.gte = new Date(from);
-      if (to)   where.issueDate.lte = new Date(to);
+      if (to) where.issueDate.lte = new Date(to);
     }
 
     const [data, total] = await Promise.all([
@@ -125,41 +125,41 @@ export class InvoicesService {
     const productIds = dto.items.map(i => i.productId).filter(Boolean) as string[];
     const products = productIds.length > 0
       ? await this.prisma.product.findMany({
-          where: { id: { in: productIds }, companyId },
-          select: { id: true, unit: true, sku: true },
-        })
+        where: { id: { in: productIds }, companyId },
+        select: { id: true, unit: true, sku: true },
+      })
       : [];
     const productMap = new Map(products.map(p => [p.id, p]));
 
     let subtotal = 0;
     let taxAmount = 0;
     const itemsWithTotals = dto.items.map((item, index) => {
-      const lineSubtotal  = Number(item.quantity) * Number(item.unitPrice);
-      const discount      = lineSubtotal * (Number(item.discount ?? 0) / 100);
+      const lineSubtotal = Number(item.quantity) * Number(item.unitPrice);
+      const discount = lineSubtotal * (Number(item.discount ?? 0) / 100);
       const lineAfterDiscount = lineSubtotal - discount;
-      const lineTax       = lineAfterDiscount * (Number(item.taxRate ?? 19) / 100);
-      const lineTotal     = lineAfterDiscount + lineTax;
-      subtotal  += lineAfterDiscount;
+      const lineTax = lineAfterDiscount * (Number(item.taxRate ?? 19) / 100);
+      const lineTotal = lineAfterDiscount + lineTax;
+      subtotal += lineAfterDiscount;
       taxAmount += lineTax;
       // unit: usar el del producto si existe, luego el del DTO, default 'EA' (tabla 13.3.6 UNece)
       const prod = item.productId ? productMap.get(item.productId) : undefined;
       const unit = (item as any).unit || prod?.unit || 'EA';
       return {
-    description: item.description,
-    quantity: Number(item.quantity),
-    unitPrice: Number(item.unitPrice),
-    taxRate: Number(item.taxRate ?? 19),
-    taxAmount: lineTax,
-    discount: Number(item.discount ?? 0),
-    total: lineTotal,
-    position: index + 1,
+        description: item.description,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        taxRate: Number(item.taxRate ?? 19),
+        taxAmount: lineTax,
+        discount: Number(item.discount ?? 0),
+        total: lineTotal,
+        position: index + 1,
 
-    ...(item.productId && {
-      product: {
-        connect: { id: item.productId }
-      }
-    })
-  }as any;
+        ...(item.productId && {
+          product: {
+            connect: { id: item.productId }
+          }
+        })
+      } as any;
     });
 
     const total = subtotal + taxAmount;
@@ -170,18 +170,18 @@ export class InvoicesService {
         companyId,
         customerId: dto.customerId,
         invoiceNumber,
-        prefix:    dto.prefix ?? 'FV',
-        type:      dto.type ?? 'VENTA',
-        status:    'DRAFT',
+        prefix: dto.prefix ?? 'FV',
+        type: dto.type ?? 'VENTA',
+        status: 'DRAFT',
         issueDate: dto.issueDate ? new Date(dto.issueDate) : new Date(),
-        dueDate:   dto.dueDate   ? new Date(dto.dueDate)   : null,
+        dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
         subtotal,
         taxAmount,
         discountAmount: dto.discountAmount ?? 0,
         total,
-        notes:    dto.notes,
+        notes: dto.notes,
         currency: dto.currency ?? 'COP',
-        items:    { create: itemsWithTotals },
+        items: { create: itemsWithTotals },
       },
       include: { customer: true, items: true },
     });
@@ -195,7 +195,7 @@ export class InvoicesService {
     if (['CANCELLED', 'PAID'].includes(invoice.status)) throw new BadRequestException('Esta factura no puede cancelarse');
     return this.prisma.invoice.update({
       where: { id: invoiceId },
-      data:  { status: 'CANCELLED', notes: `${invoice.notes ?? ''}\n[CANCELADA]: ${reason}` },
+      data: { status: 'CANCELLED', notes: `${invoice.notes ?? ''}\n[CANCELADA]: ${reason}` },
     });
   }
 
@@ -210,7 +210,7 @@ export class InvoicesService {
     const [invoices, byStatus, byType] = await Promise.all([
       this.prisma.invoice.aggregate({ where, _sum: { total: true, taxAmount: true, subtotal: true }, _count: { id: true } }),
       this.prisma.invoice.groupBy({ by: ['status'], where, _count: { id: true }, _sum: { total: true } }),
-      this.prisma.invoice.groupBy({ by: ['type'],   where, _count: { id: true }, _sum: { total: true } }),
+      this.prisma.invoice.groupBy({ by: ['type'], where, _count: { id: true }, _sum: { total: true } }),
     ]);
     return {
       totals: { count: invoices._count.id, total: invoices._sum.total ?? 0, subtotal: invoices._sum.subtotal ?? 0, taxAmount: invoices._sum.taxAmount ?? 0 },
@@ -228,7 +228,7 @@ export class InvoicesService {
       where: { id: invoiceId, companyId, deletedAt: null },
       include: {
         customer: true,
-        company:  true,
+        company: true,
         items: {
           include: { product: { select: { id: true, sku: true, unit: true, unspscCode: true } } },
           orderBy: { position: 'asc' },
@@ -239,22 +239,22 @@ export class InvoicesService {
     if (invoice.status !== 'DRAFT') throw new BadRequestException('Solo se pueden enviar facturas en estado DRAFT');
 
     const inv = invoice as any;
-    const company   = inv.company;
-    const customer  = inv.customer;
-    const items     = inv.items;
+    const company = inv.company;
+    const customer = inv.customer;
+    const items = inv.items;
 
     // ── Determine environment ─────────────────────────────────────────────
-    const isTestMode    = company.dianTestMode !== false;
-    const softwareId    = company.dianSoftwareId  || DIAN_SOFTWARE_ID;
-    const softwarePin   = company.dianSoftwarePin || DIAN_SOFTWARE_PIN;
-    const testSetId     = company.dianTestSetId   || DIAN_TEST_SET_ID;
-    const claveTecnica  = company.dianClaveTecnica || DIAN_TECH_KEY_HAB;
+    const isTestMode = company.dianTestMode !== false;
+    const softwareId = company.dianSoftwareId || DIAN_SOFTWARE_ID;
+    const softwarePin = company.dianSoftwarePin || DIAN_SOFTWARE_PIN;
+    const testSetId = company.dianTestSetId || DIAN_TEST_SET_ID;
+    const claveTecnica = company.dianClaveTecnica || DIAN_TECH_KEY_HAB;
 
     // ── Full invoice number for DIAN ──────────────────────────────────────
     // En HABILITACIÓN la DIAN exige prefijo SETP y numeración 990000001-995000000
     // En PRODUCCIÓN se usa el prefijo y número real de la factura
     const dbPrefix = invoice.prefix || 'FV';
-    const rawNum   = invoice.invoiceNumber || '0001';
+    const rawNum = invoice.invoiceNumber || '0001';
 
     let prefix: string;
     let numericPart: string;
@@ -289,7 +289,7 @@ export class InvoicesService {
     //    SIN restar offset (la fecha del documento es un dato de negocio, no timestamp).
     // 2. issueTime: se usa new Date() en el momento del envío a DIAN.
     //    La firma usará exactamente este mismo valor → IssueTime == SigningTime.
-    const nowForIssue  = new Date();  // momento exacto de generación/envío
+    const nowForIssue = new Date();  // momento exacto de generación/envío
     // Extraer fecha del documento directamente del string ISO sin ajuste de zona
     // invoice.issueDate puede ser Date o string "2026-03-12" / "2026-03-12T00:00:00.000Z"
     const issueDateRaw = invoice.issueDate instanceof Date
@@ -299,11 +299,11 @@ export class InvoicesService {
     const issueTime = this.toColombiaTime(nowForIssue);       // hora actual Colombia == SigningTime
 
     // ── Tax breakdown ─────────────────────────────────────────────────────
-    const taxIva  = Number(invoice.taxAmount);   // code 01 IVA
-    const taxInc  = 0;                           // code 04 INC (not used here)
-    const taxIca  = 0;                           // code 03 ICA (not used here)
+    const taxIva = Number(invoice.taxAmount);   // code 01 IVA
+    const taxInc = 0;                           // code 04 INC (not used here)
+    const taxIca = 0;                           // code 03 ICA (not used here)
     const subtotal = Number(invoice.subtotal);
-    const total    = Number(invoice.total);
+    const total = Number(invoice.total);
 
     // ── Company DV (antes del CUFE para usar supplierNitClean) ────────────
     // company.nit puede venir como "900987654" o "900987654-1" — solo usar los dígitos base
@@ -314,12 +314,12 @@ export class InvoicesService {
     const idTypeMap: Record<string, string> = { NIT: '31', CC: '13', CE: '22', PASSPORT: '21', TI: '12' };
     const custIdType = idTypeMap[customer.documentType || 'CC'] || '13';
     // custId: quitar DV si viene como "900108281-1" o "900108281-1" — usar solo NIT base
-    const custIdRaw  = customer.documentNumber || customer.taxId || '222222222222';
+    const custIdRaw = customer.documentNumber || customer.taxId || '222222222222';
     // Strip hyphen-and-digit suffix (DV) for NIT: "900108281-1" → "900108281"
     const custIdBase = custIdType === '31' ? custIdRaw.replace(/-\d$/, '').replace(/\D/g, '').slice(0, 9) : custIdRaw.replace(/-\d$/, '');
-    const custId     = custIdBase;
+    const custId = custIdBase;
     // FAK24: DV obligatorio cuando schemeName=31. Calcular siempre desde el NIT limpio.
-    const custDv     = custIdType === '31' ? this.calcDv(custIdBase.replace(/[^0-9]/g, '').slice(0, 9)) : '';
+    const custDv = custIdType === '31' ? this.calcDv(custIdBase.replace(/[^0-9]/g, '').slice(0, 9)) : '';
     const nitCustomerClean = custIdBase.replace(/[^0-9]/g, '');
 
     // ── CUFE — SHA-384 per Anexo Técnico DIAN v1.9 §11.2 ─────────────────
@@ -336,19 +336,19 @@ export class InvoicesService {
     const ssc = this.calcSoftwareSecurityCode(softwareId, softwarePin, fullNumber);
 
     // ── Numbering range data ──────────────────────────────────────────────
-    const resolucion   = company.dianResolucion   || '18760000001';
-    const dianPrefix   = company.dianPrefijo      || prefix;
-    const rangoDesde   = String(company.dianRangoDesde || 1);
-    const rangoHasta   = String(company.dianRangoHasta || 5000000);
+    const resolucion = company.dianResolucion || '18760000001';
+    const dianPrefix = company.dianPrefijo || prefix;
+    const rangoDesde = String(company.dianRangoDesde || 1);
+    const rangoHasta = String(company.dianRangoHasta || 5000000);
     // Fechas de la resolución: vienen de la DB como Date (ej. 2019-01-19T00:00:00Z).
     // toColombiaDate restaría 5h → 2019-01-18. Para fechas de autorización usamos
     // directamente el valor ISO sin corrección de zona (son fechas de calendario, no timestamps).
     const toDateOnly = (d: Date) => d.toISOString().split('T')[0];
-    const fechaDesde   = company.dianFechaDesde ? toDateOnly(new Date(company.dianFechaDesde)) : '2019-01-19';
-    const fechaHasta   = company.dianFechaHasta ? toDateOnly(new Date(company.dianFechaHasta)) : '2030-01-19';
+    const fechaDesde = company.dianFechaDesde ? toDateOnly(new Date(company.dianFechaDesde)) : '2019-01-19';
+    const fechaHasta = company.dianFechaHasta ? toDateOnly(new Date(company.dianFechaHasta)) : '2030-01-19';
 
     // ── Build UBL 2.1 XML ────────────────────────────────────────────────
-    this.logger.log(`[DIAN] Generating XML for ${fullNumber} CUFE=${cufe.slice(0,16)}…`);
+    this.logger.log(`[DIAN] Generating XML for ${fullNumber} CUFE=${cufe.slice(0, 16)}…`);
     // ── CustomizationID: 05=bienes, 01=consumidor final ──────────────────
     // Consumidor final: doc != NIT (CC, TI, CE, etc. — no tiene RUT)
     const isConsumidorFinal = custIdType !== '31';
@@ -395,19 +395,19 @@ export class InvoicesService {
       customizationId,
       paymentMeansCode,
       items: items.map((it: any, idx: number) => ({
-        lineId:    idx + 1,
+        lineId: idx + 1,
         description: it.description,
-        quantity:  Number(it.quantity),
-        unit:      it.unit || it.product?.unit || 'EA',
+        quantity: Number(it.quantity),
+        unit: it.unit || it.product?.unit || 'EA',
         unitPrice: Number(it.unitPrice),
-        taxRate:   Number(it.taxRate),
+        taxRate: Number(it.taxRate),
         taxAmount: Number(it.taxAmount),
-        discount:  Number(it.discount || 0),
+        discount: Number(it.discount || 0),
         // lineTotal = precio neto SIN IVA (UBL LineExtensionAmount y TaxableAmount)
         // it.total en la BD incluye IVA → usar total - taxAmount para obtener el neto
-        lineTotal:   Number(it.total) - Number(it.taxAmount),
-        sku:         it.product?.sku || it.description?.substring(0, 20) || String(idx + 1),
-        unspscCode:  it.product?.unspscCode ?? (it as any).unspscCode ?? null,
+        lineTotal: Number(it.total) - Number(it.taxAmount),
+        sku: it.product?.sku || it.description?.substring(0, 20) || String(idx + 1),
+        unspscCode: it.product?.unspscCode ?? (it as any).unspscCode ?? null,
       })),
     });
     const certPem = this.normalizePem(company.dianCertificate);
@@ -422,17 +422,17 @@ export class InvoicesService {
     const xmlFileName = `${supplierNitClean}${fullNumber}.xml`;
     const zipFileName = `${supplierNitClean}${fullNumber}.zip`;
     this.logger.log(`[DIAN] Compressing ${xmlFileName} → ${zipFileName}`);
-    const zipBuffer  = await this.createZip(xmlFileName, xmlSigned);
-    const zipBase64  = zipBuffer.toString('base64');
+    const zipBuffer = await this.createZip(xmlFileName, xmlSigned);
+    const zipBase64 = zipBuffer.toString('base64');
 
     // ── Save XML before network call ──────────────────────────────────────
     await this.prisma.invoice.update({
       where: { id: invoiceId },
       data: {
-        dianCufe:    cufe,
-        dianStatus:  'PENDING',
+        dianCufe: cufe,
+        dianStatus: 'PENDING',
         dianAttempts: { increment: 1 },
-        xmlContent:  xmlUnsigned,
+        xmlContent: xmlUnsigned,
         xmlSigned,
       } as any,
     });
@@ -453,7 +453,7 @@ export class InvoicesService {
       this.logger.error(`[DIAN] SOAP call failed: ${err.message}`);
       await this.prisma.invoice.update({
         where: { id: invoiceId },
-        data:  { dianStatus: 'ERROR', dianStatusMsg: err.message, dianErrors: null } as any,
+        data: { dianStatus: 'ERROR', dianStatusMsg: err.message, dianErrors: null } as any,
       });
       throw new BadRequestException(`Error de comunicación con DIAN: ${err.message}`);
     }
@@ -464,13 +464,13 @@ export class InvoicesService {
     const updated = await this.prisma.invoice.update({
       where: { id: invoiceId },
       data: {
-        status:          newStatus,
-        dianStatus:      soapResult.zipKey ? 'SENT' : 'ERROR',
-        dianZipKey:      soapResult.zipKey   || null,
-        dianQrCode:      cufe ? `https://catalogo-vpfe-hab.dian.gov.co/document/searchqr?documentkey=${cufe}` : null,
-        dianSentAt:      new Date(),
-        dianStatusMsg:   sendErrors.length > 0 ? sendErrors.join('; ') : null,
-        dianErrors:      sendErrors.length > 0 ? JSON.stringify(sendErrors) : null,
+        status: newStatus,
+        dianStatus: soapResult.zipKey ? 'SENT' : 'ERROR',
+        dianZipKey: soapResult.zipKey || null,
+        dianQrCode: cufe ? `https://catalogo-vpfe-hab.dian.gov.co/document/searchqr?documentkey=${cufe}` : null,
+        dianSentAt: new Date(),
+        dianStatusMsg: sendErrors.length > 0 ? sendErrors.join('; ') : null,
+        dianErrors: sendErrors.length > 0 ? JSON.stringify(sendErrors) : null,
       } as any,
     });
 
@@ -489,13 +489,13 @@ export class InvoicesService {
     if (!invoice) throw new NotFoundException('Factura no encontrada');
 
     const zipKey = invoice.dianZipKey;
-    const cufe   = invoice.dianCufe;
+    const cufe = invoice.dianCufe;
     if (!zipKey && !cufe) throw new BadRequestException('La factura no tiene un ZipKey o CUFE para consultar');
 
     const isTestMode = invoice.company?.dianTestMode !== false;
-    const wsUrl      = isTestMode ? DIAN_WS_HAB : DIAN_WS_PROD;
-    const certPem    = invoice.company?.dianCertificate;
-    const keyPem     = invoice.company?.dianCertificateKey;
+    const wsUrl = isTestMode ? DIAN_WS_HAB : DIAN_WS_PROD;
+    const certPem = invoice.company?.dianCertificate;
+    const keyPem = invoice.company?.dianCertificateKey;
 
     let result: DianStatusResult;
     if (zipKey) {
@@ -517,13 +517,13 @@ export class InvoicesService {
     return this.prisma.invoice.update({
       where: { id: invoiceId },
       data: {
-        status:          newInvoiceStatus,
-        dianStatus:      result.statusCode,
-        dianStatusCode:  result.statusCode,
-        dianStatusMsg:   result.statusMessage || result.statusDescription || null,
-        dianErrors:      statusErrors.length > 0 ? JSON.stringify(statusErrors) : null,
-        dianXmlBase64:   result.xmlBase64 || null,
-        dianResponseAt:  new Date(),
+        status: newInvoiceStatus,
+        dianStatus: result.statusCode,
+        dianStatusCode: result.statusCode,
+        dianStatusMsg: result.statusMessage || result.statusDescription || null,
+        dianErrors: statusErrors.length > 0 ? JSON.stringify(statusErrors) : null,
+        dianXmlBase64: result.xmlBase64 || null,
+        dianResponseAt: new Date(),
       } as any,
     });
   }
@@ -536,7 +536,7 @@ export class InvoicesService {
     if (!invoice) throw new NotFoundException('Factura no encontrada');
     if (!invoice.xmlSigned) throw new BadRequestException('XML aún no generado para esta factura');
     return {
-      xml:      invoice.xmlSigned,
+      xml: invoice.xmlSigned,
       filename: `${invoice.prefix}${invoice.invoiceNumber}.xml`,
     };
   }
@@ -559,32 +559,32 @@ export class InvoicesService {
     const o = overrides ?? {};
 
     // ── Datos de prueba hardcodeados (ambiente habilitación DIAN) ────────────
-    const softwareId   = DIAN_SOFTWARE_ID;
-    const softwarePin  = DIAN_SOFTWARE_PIN;
-    const testSetId    = DIAN_TEST_SET_ID;
+    const softwareId = DIAN_SOFTWARE_ID;
+    const softwarePin = DIAN_SOFTWARE_PIN;
+    const testSetId = DIAN_TEST_SET_ID;
     const claveTecnica = DIAN_TECH_KEY_HAB;
 
     // Empresa facturadora — usar el NIT registrado en el catálogo DIAN HAB
-    const nitEmpresa  = (o.nitEmpresa ?? '900987654').replace(/\D/g, '');
-    const dvEmpresa   = this.calcDv(nitEmpresa);
+    const nitEmpresa = (o.nitEmpresa ?? '900987654').replace(/\D/g, '');
+    const dvEmpresa = this.calcDv(nitEmpresa);
 
     // Cliente de prueba
-    const nitCliente  = (o.nitCliente ?? '900000001').replace(/\D/g, '');
+    const nitCliente = (o.nitCliente ?? '900000001').replace(/\D/g, '');
 
     // Número de factura en rango habilitación (990000001 – 995000000)
-    const numFactura  = o.numFactura ?? 'SETP990000001';
-    const prefix      = numFactura.replace(/\d.*$/, '') || 'SETP';
+    const numFactura = o.numFactura ?? 'SETP990000001';
+    const prefix = numFactura.replace(/\d.*$/, '') || 'SETP';
 
     // Valores monetarios
-    const subtotal    = o.subtotal ?? 1000000;   // $1.000.000 COP
-    const iva         = o.iva ?? 190000;         // 19% IVA
-    const total       = subtotal + iva;
+    const subtotal = o.subtotal ?? 1000000;   // $1.000.000 COP
+    const iva = o.iva ?? 190000;         // 19% IVA
+    const total = subtotal + iva;
 
     // Fechas en horario Colombia (UTC-5)
-    const now         = new Date();
-    const issueDate   = this.toColombiaDate(now);
-    const issueTime   = this.toColombiaTime(now);
-    const dueDate     = issueDate;               // contado
+    const now = new Date();
+    const issueDate = this.toColombiaDate(now);
+    const issueTime = this.toColombiaTime(now);
+    const dueDate = issueDate;               // contado
 
     // ── Calcular CUFE ────────────────────────────────────────────────────────
     const { cufe, cufeInput } = this.calcCufeWithInput({
@@ -609,50 +609,50 @@ export class InvoicesService {
       currency: 'COP',
       cufe, cufeInput, ssc, softwareId,
       // Datos de resolución de prueba DIAN habilitación
-      resolucion:  '18760000001',
-      rangoDesde:  '990000000',
-      rangoHasta:  '995000000',
-      fechaDesde:  '2019-01-19',
-      fechaHasta:  '2030-01-19',
+      resolucion: '18760000001',
+      rangoDesde: '990000000',
+      rangoHasta: '995000000',
+      fechaDesde: '2019-01-19',
+      fechaHasta: '2030-01-19',
       // Empresa
-      supplierNit:        nitEmpresa,
-      supplierDv:         dvEmpresa,
-      supplierName:       'EMPRESA DEMO BECCAFACT SAS',
-      supplierAddress:    'Calle 100 No 10-20',
-      supplierCity:       'Bogotá',
-      supplierCityCode:   '11001',
+      supplierNit: nitEmpresa,
+      supplierDv: dvEmpresa,
+      supplierName: 'EMPRESA DEMO BECCAFACT SAS',
+      supplierAddress: 'Calle 100 No 10-20',
+      supplierCity: 'Bogotá',
+      supplierCityCode: '11001',
       supplierDepartment: 'Cundinamarca',
-      supplierDeptCode:   '11',
-      supplierCountry:    'CO',
-      supplierPhone:      '6011234567',
-      supplierEmail:      'facturacion@beccafact.co',
+      supplierDeptCode: '11',
+      supplierCountry: 'CO',
+      supplierPhone: '6011234567',
+      supplierEmail: 'facturacion@beccafact.co',
       // Cliente de prueba
-      custIdType:  '31',
-      custDv:      this.calcDv(nitCliente),
-      custId:      nitCliente,
-      custName:    'CLIENTE PRUEBA SAS',
+      custIdType: '31',
+      custDv: this.calcDv(nitCliente),
+      custId: nitCliente,
+      custName: 'CLIENTE PRUEBA SAS',
       custAddress: 'Carrera 7 No 32-00',
-      custCity:    'Bogotá',
+      custCity: 'Bogotá',
       custCityCode: '11001',
       custCountry: 'CO',
-      custDepartment:'Bogotá',
-      custDeptCode:'11',
-      custEmail:   'compras@clienteprueba.co',
-      customizationId:   '05',
-      paymentMeansCode:  '10',
+      custDepartment: 'Bogotá',
+      custDeptCode: '11',
+      custEmail: 'compras@clienteprueba.co',
+      customizationId: '05',
+      paymentMeansCode: '10',
       // Totales
       subtotal, taxIva: iva, taxInc: 0, taxIca: 0, total,
       // Una sola línea de detalle
       items: [{
-        lineId:      1,
+        lineId: 1,
         description: 'Servicio de software BeccaFact (prueba habilitación)',
-        quantity:    1,
-        unit:        'EA',
-        unitPrice:   subtotal,
-        taxRate:     19,
-        taxAmount:   iva,
-        discount:    0,
-        lineTotal:   subtotal,
+        quantity: 1,
+        unit: 'EA',
+        unitPrice: subtotal,
+        taxRate: 19,
+        taxAmount: iva,
+        discount: 0,
+        lineTotal: subtotal,
       }],
     });
 
@@ -661,46 +661,46 @@ export class InvoicesService {
     const xmlSigned = this.signXmlPlaceholder(
       xmlUnsigned,
       o.certPem ?? '',
-      o.keyPem  ?? '',
+      o.keyPem ?? '',
       issueDateTimePreview,
     );
 
     // ── Comprimir y codificar ────────────────────────────────────────────────
     const xmlFileName = `${nitEmpresa}${numFactura}.xml`;
     const zipFileName = `${nitEmpresa}${numFactura}.zip`;
-    const zipBuffer   = await this.createZip(xmlFileName, xmlSigned);
-    const zipBase64   = zipBuffer.toString('base64');
+    const zipBuffer = await this.createZip(xmlFileName, xmlSigned);
+    const zipBase64 = zipBuffer.toString('base64');
 
     // ── Construir SOAP Envelope listo para SoapUI ────────────────────────────
     const actionUri = 'http://wcf.dian.colombia/IWcfDianCustomerServices/SendTestSetAsync';
-    const wsUrl     = DIAN_WS_HAB;
+    const wsUrl = DIAN_WS_HAB;
     const { randomBytes: rb, createHash: cH, createSign: cS } = require('crypto');
 
     // Timestamps WS-Security
-    const tsNow     = new Date();
-    const created   = tsNow.toISOString().replace(/\.\d{3}Z$/, '.000Z');
-    const expires   = new Date(tsNow.getTime() + 5 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, '.000Z');
-    const rnd       = () => rb(8).toString('hex').toUpperCase();
-    const tsId      = `TS-${rnd()}`;
-    const bstId     = `X509-${rnd()}`;
-    const sigId     = `SIG-${rnd()}`;
-    const kiId      = `KI-${rnd()}`;
-    const strId     = `STR-${rnd()}`;
-    const toId      = `id-${rnd()}`;
+    const tsNow = new Date();
+    const created = tsNow.toISOString().replace(/\.\d{3}Z$/, '.000Z');
+    const expires = new Date(tsNow.getTime() + 5 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, '.000Z');
+    const rnd = () => rb(8).toString('hex').toUpperCase();
+    const tsId = `TS-${rnd()}`;
+    const bstId = `X509-${rnd()}`;
+    const sigId = `SIG-${rnd()}`;
+    const kiId = `KI-${rnd()}`;
+    const strId = `STR-${rnd()}`;
+    const toId = `id-${rnd()}`;
 
     const effectiveCert = o.certPem ?? '';
-    const effectiveKey  = o.keyPem  ?? '';
-    const certBase64    = effectiveCert
+    const effectiveKey = o.keyPem ?? '';
+    const certBase64 = effectiveCert
       .replace(/-----BEGIN CERTIFICATE-----/g, '')
       .replace(/-----END CERTIFICATE-----/g, '')
       .replace(/\s/g, '');
 
     // Namespaces
     const EXC_C14N_UI = 'http://www.w3.org/2001/10/xml-exc-c14n#';
-    const WSU_NS_UI   = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd';
-    const WSSE_NS_UI  = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd';
-    const DS_NS_UI    = 'http://www.w3.org/2000/09/xmldsig#';
-    const WSA_NS_UI   = 'http://www.w3.org/2005/08/addressing';
+    const WSU_NS_UI = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd';
+    const WSSE_NS_UI = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd';
+    const DS_NS_UI = 'http://www.w3.org/2000/09/xmldsig#';
+    const WSA_NS_UI = 'http://www.w3.org/2005/08/addressing';
 
     // Digest de wsa:To con InclusiveNamespaces PrefixList="soap wcf"
     const toForDigest =
@@ -716,19 +716,19 @@ export class InvoicesService {
     // SignedInfo con InclusiveNamespaces
     const siBody =
       `<ds:SignedInfo xmlns:ds="${DS_NS_UI}">` +
-        `<ds:CanonicalizationMethod Algorithm="${EXC_C14N_UI}">` +
-          `<ec:InclusiveNamespaces PrefixList="wsa soap wcf" xmlns:ec="${EXC_C14N_UI}"/>` +
-        `</ds:CanonicalizationMethod>` +
-        `<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>` +
-        `<ds:Reference URI="#${toId}">` +
-          `<ds:Transforms>` +
-            `<ds:Transform Algorithm="${EXC_C14N_UI}">` +
-              `<ec:InclusiveNamespaces PrefixList="soap wcf" xmlns:ec="${EXC_C14N_UI}"/>` +
-            `</ds:Transform>` +
-          `</ds:Transforms>` +
-          `<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>` +
-          `<ds:DigestValue>${toDigestUI}</ds:DigestValue>` +
-        `</ds:Reference>` +
+      `<ds:CanonicalizationMethod Algorithm="${EXC_C14N_UI}">` +
+      `<ec:InclusiveNamespaces PrefixList="wsa soap wcf" xmlns:ec="${EXC_C14N_UI}"/>` +
+      `</ds:CanonicalizationMethod>` +
+      `<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>` +
+      `<ds:Reference URI="#${toId}">` +
+      `<ds:Transforms>` +
+      `<ds:Transform Algorithm="${EXC_C14N_UI}">` +
+      `<ec:InclusiveNamespaces PrefixList="soap wcf" xmlns:ec="${EXC_C14N_UI}"/>` +
+      `</ds:Transform>` +
+      `</ds:Transforms>` +
+      `<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>` +
+      `<ds:DigestValue>${toDigestUI}</ds:DigestValue>` +
+      `</ds:Reference>` +
       `</ds:SignedInfo>`;
     const signerSoap = cS('RSA-SHA256');
     signerSoap.update(siBody, 'utf8');
@@ -739,35 +739,35 @@ export class InvoicesService {
       ' xmlns:soap="http://www.w3.org/2003/05/soap-envelope"' +
       ' xmlns:wcf="http://wcf.dian.colombia">' +
       `<soap:Header xmlns:wsa="${WSA_NS_UI}">` +
-        `<wsse:Security xmlns:wsse="${WSSE_NS_UI}" xmlns:wsu="${WSU_NS_UI}">` +
-          `<wsu:Timestamp wsu:Id="${tsId}">` +
-            `<wsu:Created>${created}</wsu:Created>` +
-            `<wsu:Expires>${expires}</wsu:Expires>` +
-          `</wsu:Timestamp>` +
-          `<wsse:BinarySecurityToken` +
-            ` EncodingType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary"` +
-            ` ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"` +
-            ` wsu:Id="${bstId}"` +
-          `>${certBase64}</wsse:BinarySecurityToken>` +
-          `<ds:Signature Id="${sigId}" xmlns:ds="${DS_NS_UI}">` +
-            siBody +
-            `<ds:SignatureValue>${sigValueSoap}</ds:SignatureValue>` +
-            `<ds:KeyInfo Id="${kiId}">` +
-              `<wsse:SecurityTokenReference wsu:Id="${strId}">` +
-                `<wsse:Reference URI="#${bstId}" ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"/>` +
-              `</wsse:SecurityTokenReference>` +
-            `</ds:KeyInfo>` +
-          `</ds:Signature>` +
-        `</wsse:Security>` +
-        `<wsa:Action>${actionUri}</wsa:Action>` +
-        `<wsa:To wsu:Id="${toId}" xmlns:wsu="${WSU_NS_UI}">${wsUrl}</wsa:To>` +
+      `<wsse:Security xmlns:wsse="${WSSE_NS_UI}" xmlns:wsu="${WSU_NS_UI}">` +
+      `<wsu:Timestamp wsu:Id="${tsId}">` +
+      `<wsu:Created>${created}</wsu:Created>` +
+      `<wsu:Expires>${expires}</wsu:Expires>` +
+      `</wsu:Timestamp>` +
+      `<wsse:BinarySecurityToken` +
+      ` EncodingType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary"` +
+      ` ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"` +
+      ` wsu:Id="${bstId}"` +
+      `>${certBase64}</wsse:BinarySecurityToken>` +
+      `<ds:Signature Id="${sigId}" xmlns:ds="${DS_NS_UI}">` +
+      siBody +
+      `<ds:SignatureValue>${sigValueSoap}</ds:SignatureValue>` +
+      `<ds:KeyInfo Id="${kiId}">` +
+      `<wsse:SecurityTokenReference wsu:Id="${strId}">` +
+      `<wsse:Reference URI="#${bstId}" ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"/>` +
+      `</wsse:SecurityTokenReference>` +
+      `</ds:KeyInfo>` +
+      `</ds:Signature>` +
+      `</wsse:Security>` +
+      `<wsa:Action>${actionUri}</wsa:Action>` +
+      `<wsa:To wsu:Id="${toId}" xmlns:wsu="${WSU_NS_UI}">${wsUrl}</wsa:To>` +
       `</soap:Header>` +
       `<soap:Body>` +
-        `<wcf:SendTestSetAsync>` +
-          `<wcf:fileName>${zipFileName}</wcf:fileName>` +
-          `<wcf:contentFile>${zipBase64}</wcf:contentFile>` +
-          `<wcf:testSetId>${testSetId}</wcf:testSetId>` +
-        `</wcf:SendTestSetAsync>` +
+      `<wcf:SendTestSetAsync>` +
+      `<wcf:fileName>${zipFileName}</wcf:fileName>` +
+      `<wcf:contentFile>${zipBase64}</wcf:contentFile>` +
+      `<wcf:testSetId>${testSetId}</wcf:testSetId>` +
+      `</wcf:SendTestSetAsync>` +
       `</soap:Body>` +
       `</soap:Envelope>`;
 
@@ -780,7 +780,7 @@ export class InvoicesService {
         paso4: `Endpoint: ${wsUrl}`,
         paso5: `Content-Type header: application/soap+xml; charset=utf-8; action="${actionUri}"`,
         paso6: 'Envía la petición y espera la respuesta con b:ZipKey',
-        nota:  'El certificado actual es auto-firmado (prueba local). Reemplaza con cert real de CA ONAC para que DIAN acepte la firma.',
+        nota: 'El certificado actual es auto-firmado (prueba local). Reemplaza con cert real de CA ONAC para que DIAN acepte la firma.',
       },
       // ── Datos del documento ──────────────────────────────────────────────
       documento: {
@@ -810,10 +810,10 @@ export class InvoicesService {
       xmlSigned,
       // ── Configuración SoapUI (headers) ───────────────────────────────────
       soapUiConfig: {
-        endpoint:    wsUrl,
+        endpoint: wsUrl,
         contentType: `application/soap+xml; charset=utf-8; action="${actionUri}"`,
-        method:      'POST',
-        wsdl:        `${wsUrl}?wsdl`,
+        method: 'POST',
+        wsdl: `${wsUrl}?wsdl`,
       },
     };
   }
@@ -854,7 +854,7 @@ export class InvoicesService {
   // Dígito de verificación NIT
   calcDv(nit: string): string {
     const n = nit.replace(/\D/g, '');
-    const f = [3,7,13,17,19,23,29,37,41,43,47];
+    const f = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47];
     let sum = 0;
     [...n].reverse().forEach((d, i) => { if (i < f.length) sum += parseInt(d) * f[i]; });
     const r = sum % 11;
@@ -883,7 +883,7 @@ export class InvoicesService {
     paymentMeansCode?: string;   // '10' contado | '41' crédito | '42' transferencia | '48' tarj.crédito | '54' tarj.débito
     items: Array<{ lineId: number; description: string; quantity: number; unit: string; unitPrice: number; taxRate: number; taxAmount: number; discount: number; lineTotal: number; sku?: string; unspscCode?: string | null }>;
   }): string {
-    const x = (s: string) => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const x = (s: string) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const isHab = d.profileExecutionId === '2';
 
     // ── CustomizationID según tipo de operación ───────────────────────────
@@ -904,7 +904,7 @@ export class InvoicesService {
         const existing = taxGroupsMap.get(key);
         if (existing) {
           existing.taxableAmt += it.lineTotal;
-          existing.taxAmt     += it.taxAmount;
+          existing.taxAmt += it.taxAmount;
         } else {
           taxGroupsMap.set(key, { taxId: '01', taxName: 'IVA', percent: it.taxRate, taxableAmt: it.lineTotal, taxAmt: it.taxAmount });
         }
@@ -1113,8 +1113,8 @@ URL=https://catalogo-vpfe${isHab ? '-hab' : ''}.dian.gov.co/Document/FindDocumen
             <cbc:RegistrationName>${x(d.custName)}</cbc:RegistrationName>
             <cbc:CompanyID schemeAgencyID="195" schemeAgencyName="CO, DIAN (Dirección de Impuestos y Aduanas Nacionales)"${d.custDv ? ` schemeID="${d.custDv}"` : ''} schemeName="${d.custIdType}">${d.custId}</cbc:CompanyID>
             ${d.custIdType !== '31'
-              ? `<cbc:TaxLevelCode listName="49">R-99-PN</cbc:TaxLevelCode>`
-              : `<cbc:TaxLevelCode listName="48">${d.custTaxLevelCode && d.custTaxLevelCode !== 'ZZ' && d.custTaxLevelCode !== 'O-99' ? d.custTaxLevelCode : 'O-13'}</cbc:TaxLevelCode>`}
+        ? `<cbc:TaxLevelCode listName="49">R-99-PN</cbc:TaxLevelCode>`
+        : `<cbc:TaxLevelCode listName="48">${d.custTaxLevelCode && d.custTaxLevelCode !== 'ZZ' && d.custTaxLevelCode !== 'O-99' ? d.custTaxLevelCode : 'O-13'}</cbc:TaxLevelCode>`}
             <cac:RegistrationAddress>
                <cbc:ID>${d.custCityCode || '11001'}</cbc:ID>
                <cbc:CityName>${x(d.custCity)}</cbc:CityName>
@@ -1129,25 +1129,25 @@ URL=https://catalogo-vpfe${isHab ? '-hab' : ''}.dian.gov.co/Document/FindDocumen
                </cac:Country>
             </cac:RegistrationAddress>
             ${d.custIdType !== '31'
-              ? `<cac:TaxScheme><cbc:ID>ZZ</cbc:ID><cbc:Name>No aplica</cbc:Name></cac:TaxScheme>`
-              : `<cac:TaxScheme><cbc:ID>01</cbc:ID><cbc:Name>IVA</cbc:Name></cac:TaxScheme>`}
+        ? `<cac:TaxScheme><cbc:ID>ZZ</cbc:ID><cbc:Name>No aplica</cbc:Name></cac:TaxScheme>`
+        : `<cac:TaxScheme><cbc:ID>01</cbc:ID><cbc:Name>IVA</cbc:Name></cac:TaxScheme>`}
          </cac:PartyTaxScheme>
          <cac:PartyLegalEntity>
             <cbc:RegistrationName>${x(d.custName)}</cbc:RegistrationName>
             <cbc:CompanyID schemeAgencyID="195" schemeAgencyName="CO, DIAN (Dirección de Impuestos y Aduanas Nacionales)"${d.custDv ? ` schemeID="${d.custDv}"` : ''} schemeName="${d.custIdType}">${d.custId}</cbc:CompanyID>
             ${d.custIdType !== '31' ? (() => {
-              // FAK61: persona natural (CC/CE/TI/Pasaporte) → obligatorio <cac:Person>
-              // Descomponer "JUAN CARLOS PÉREZ MORALES" → FirstName [MiddleName] FamilyName
-              const parts = (d.custName || '').trim().split(/\s+/);
-              const fn = x(parts[0] || '');
-              const mn = parts.length > 2 ? x(parts.slice(1, -1).join(' ')) : '';
-              const ln = x(parts.length > 1 ? parts[parts.length - 1] : '');
-              return `<cac:Person>
+        // FAK61: persona natural (CC/CE/TI/Pasaporte) → obligatorio <cac:Person>
+        // Descomponer "JUAN CARLOS PÉREZ MORALES" → FirstName [MiddleName] FamilyName
+        const parts = (d.custName || '').trim().split(/\s+/);
+        const fn = x(parts[0] || '');
+        const mn = parts.length > 2 ? x(parts.slice(1, -1).join(' ')) : '';
+        const ln = x(parts.length > 1 ? parts[parts.length - 1] : '');
+        return `<cac:Person>
                <cbc:FirstName>${fn}</cbc:FirstName>${mn ? `
                <cbc:MiddleName>${mn}</cbc:MiddleName>` : ''}
                <cbc:FamilyName>${ln}</cbc:FamilyName>
             </cac:Person>`;
-            })() : ''}
+      })() : ''}
          </cac:PartyLegalEntity>
          <cac:Contact>
             <cbc:ElectronicMail>${d.custEmail}</cbc:ElectronicMail>
@@ -1217,7 +1217,7 @@ ${itemsXml}
     return withNs.replace(/<((?:ds|xades|xades141|sts):[A-Za-z]+)([^>]*)\/>/g, '<$1$2></$1>');
   }
 
-    // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
   // XAdES-BES SIGNATURE — estructura exacta según ejemplos DIAN v1.9
   // 3 References: (1) doc enveloped, (2) KeyInfo, (3) SignedProperties
   // ══════════════════════════════════════════════════════════════════════════
@@ -1235,28 +1235,28 @@ ${itemsXml}
   }
 
   private normalizePem(pem: string): string {
-  return pem
-    .replace(/\\n/g, '\n')  // Convierte los literales \n a saltos de línea
-    .replace(/\r/g, '')      // Quita CR si viene de Windows
-    .trim();                 // Quita espacios al inicio y final
+    return pem
+      .replace(/\\n/g, '\n')  // Convierte los literales \n a saltos de línea
+      .replace(/\r/g, '')      // Quita CR si viene de Windows
+      .trim();                 // Quita espacios al inicio y final
   }
 
   private signXmlPlaceholder(xml: string, certPem: string, keyPem: string, issueDateTime?: string): string {
     // ── Limpiar Bag Attributes que genera openssl pkcs12 ─────────────────────
     // Los certs de GSE/Andes vienen con "Bag Attributes\n  friendlyName:..." antes del PEM
     const rawCert = certPem;
-    const rawKey  = keyPem;
+    const rawKey = keyPem;
 
     // Detectar si la key es PKCS8 (BEGIN PRIVATE KEY) o PKCS1 (BEGIN RSA PRIVATE KEY)
     const keyType = rawKey.includes('BEGIN RSA PRIVATE KEY') ? 'RSA PRIVATE KEY' : 'PRIVATE KEY';
     const effectiveCert = this.cleanPem(rawCert, 'CERTIFICATE');
-    const effectiveKey  = this.cleanPem(rawKey, keyType);
+    const effectiveKey = this.cleanPem(rawKey, keyType);
 
     try {
       const { createSign, X509Certificate, randomUUID } = require('crypto');
 
       // Dos UUIDs distintos, igual que en el ejemplo DIAN
-      const sigId     = randomUUID();
+      const sigId = randomUUID();
       const keyInfoId = randomUUID();
       // Formato: 2026-03-10T15:30:00-05:00 (hora Colombia)
       // FAD09e: SigningTime DEBE coincidir con IssueDate+IssueTime del XML
@@ -1268,9 +1268,9 @@ ${itemsXml}
         .replace(/-----BEGIN CERTIFICATE-----/g, '')
         .replace(/-----END CERTIFICATE-----/g, '')
         .replace(/\s/g, '');
-      const certDer    = Buffer.from(certBase64, 'base64');
+      const certDer = Buffer.from(certBase64, 'base64');
       const certDigest = createHash('sha256').update(certDer).digest('base64');
-      const cert       = new X509Certificate(effectiveCert);
+      const cert = new X509Certificate(effectiveCert);
 
       // X509IssuerName en formato RFC 2253 sin espacio después de coma — como en los ejemplos DIAN:
       // "C=CO,L=Bogota D.C.,O=Andes SCD.,OU=...,CN=...,emailAddress=..."
@@ -1292,11 +1292,11 @@ ${itemsXml}
       // elemento en su contexto de namespaces heredados del documento.
       // Ref verificada contra Combustible.xml y Consumidor Final.xml de DIAN.
       const signedPropsXml =
-`<xades:SignedProperties Id="xmldsig-${sigId}-signedprops"><xades:SignedSignatureProperties><xades:SigningTime>${signingTime}</xades:SigningTime><xades:SigningCertificate><xades:Cert><xades:CertDigest><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>${certDigest}</ds:DigestValue></xades:CertDigest><xades:IssuerSerial><ds:X509IssuerName>${issuerName}</ds:X509IssuerName><ds:X509SerialNumber>${serialDec}</ds:X509SerialNumber></xades:IssuerSerial></xades:Cert></xades:SigningCertificate><xades:SignaturePolicyIdentifier><xades:SignaturePolicyId><xades:SigPolicyId><xades:Identifier>https://facturaelectronica.dian.gov.co/politicadefirma/v1/politicadefirmav2.pdf</xades:Identifier></xades:SigPolicyId><xades:SigPolicyHash><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>dMoMvtcG5aIzgYo0tIsSQeVJBDnUnfSOfBpxXrmor0Y=</ds:DigestValue></xades:SigPolicyHash></xades:SignaturePolicyId></xades:SignaturePolicyIdentifier><xades:SignerRole><xades:ClaimedRoles><xades:ClaimedRole>supplier</xades:ClaimedRole></xades:ClaimedRoles></xades:SignerRole></xades:SignedSignatureProperties></xades:SignedProperties>`;
+        `<xades:SignedProperties Id="xmldsig-${sigId}-signedprops"><xades:SignedSignatureProperties><xades:SigningTime>${signingTime}</xades:SigningTime><xades:SigningCertificate><xades:Cert><xades:CertDigest><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>${certDigest}</ds:DigestValue></xades:CertDigest><xades:IssuerSerial><ds:X509IssuerName>${issuerName}</ds:X509IssuerName><ds:X509SerialNumber>${serialDec}</ds:X509SerialNumber></xades:IssuerSerial></xades:Cert></xades:SigningCertificate><xades:SignaturePolicyIdentifier><xades:SignaturePolicyId><xades:SigPolicyId><xades:Identifier>https://facturaelectronica.dian.gov.co/politicadefirma/v1/politicadefirmav2.pdf</xades:Identifier></xades:SigPolicyId><xades:SigPolicyHash><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>dMoMvtcG5aIzgYo0tIsSQeVJBDnUnfSOfBpxXrmor0Y=</ds:DigestValue></xades:SigPolicyHash></xades:SignaturePolicyId></xades:SignaturePolicyIdentifier><xades:SignerRole><xades:ClaimedRoles><xades:ClaimedRole>supplier</xades:ClaimedRole></xades:ClaimedRoles></xades:SignerRole></xades:SignedSignatureProperties></xades:SignedProperties>`;
 
       // ── KeyInfo XML (digest como Ref 2) ───────────────────────────────────
       const keyInfoXml =
-`<ds:KeyInfo Id="xmldsig-${keyInfoId}-keyinfo"><ds:X509Data><ds:X509Certificate>${certBase64}</ds:X509Certificate></ds:X509Data></ds:KeyInfo>`;
+        `<ds:KeyInfo Id="xmldsig-${keyInfoId}-keyinfo"><ds:X509Data><ds:X509Certificate>${certBase64}</ds:X509Certificate></ds:X509Data></ds:KeyInfo>`;
 
       // ── Digests C14N Inclusive ────────────────────────────────────────────────
       // La DIAN verifica cada Reference aplicando C14N Inclusive al elemento en su
@@ -1311,20 +1311,20 @@ ${itemsXml}
       // C14N del documento = quitar declaración XML <?xml...?> + expandir self-closing tags.
       // El xml que recibimos tiene <!-- SIGNATURE_PLACEHOLDER --> → lo vaciamos antes de C14N.
       const xmlForDoc = xml.replace('<!-- SIGNATURE_PLACEHOLDER -->', '');
-      const xmlC14n   = xmlForDoc
+      const xmlC14n = xmlForDoc
         .replace(/^<\?xml[^?]+\?>\s*/s, '')                          // quitar declaración XML
         .replace(/<([A-Za-z][A-Za-z0-9:_.-]*)([^>]*)\/>/g, '<$1$2></$1>'); // expandir self-closing
       const docDigest = createHash('sha256').update(Buffer.from(xmlC14n, 'utf8')).digest('base64');
 
       // keyInfoDigest: elemento <ds:KeyInfo> canonicalizado
       // KeyInfo no tiene elementos self-closing → toC14nString solo agrega NS
-      const keyInfoC14n    = this.toC14nString(keyInfoXml, '<ds:KeyInfo ');
-      const keyInfoDigest  = createHash('sha256').update(Buffer.from(keyInfoC14n, 'utf8')).digest('base64');
+      const keyInfoC14n = this.toC14nString(keyInfoXml, '<ds:KeyInfo ');
+      const keyInfoDigest = createHash('sha256').update(Buffer.from(keyInfoC14n, 'utf8')).digest('base64');
 
       // propsDigest: elemento <xades:SignedProperties> canonicalizado
       // SignedProperties tiene <ds:DigestMethod .../> → toC14nString expande self-closing
       const signedPropsC14n = this.toC14nString(signedPropsXml, '<xades:SignedProperties ');
-      const propsDigest     = createHash('sha256').update(Buffer.from(signedPropsC14n, 'utf8')).digest('base64');
+      const propsDigest = createHash('sha256').update(Buffer.from(signedPropsC14n, 'utf8')).digest('base64');
 
       // ── SignedInfo — 3 referencias exactamente como DIAN ─────────────────
       // Contenido del SignedInfo (idéntico en versión a firmar y versión a insertar)
@@ -1349,7 +1349,7 @@ ${itemsXml}
 
       // ── Bloque Signature final ────────────────────────────────────────────
       const sigBlock =
-`<ds:Signature Id="xmldsig-${sigId}">
+        `<ds:Signature Id="xmldsig-${sigId}">
 ${signedInfoXml}
 <ds:SignatureValue Id="xmldsig-${sigId}-sigvalue">
 ${sigValue}
@@ -1373,8 +1373,8 @@ ${keyInfoXml}
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
       const archive = (archiver as any)('zip', { zlib: { level: 9 } });
-      archive.on('data',  (c: Buffer) => chunks.push(c));
-      archive.on('end',   () => resolve(Buffer.concat(chunks)));
+      archive.on('data', (c: Buffer) => chunks.push(c));
+      archive.on('end', () => resolve(Buffer.concat(chunks)));
       archive.on('error', reject);
       archive.append(Buffer.from(content, 'utf8'), { name: filename });
       archive.finalize();
@@ -1420,13 +1420,13 @@ ${keyInfoXml}
 
   private parseStatusResponse(raw: string): DianStatusResult {
     return {
-      isValid:           this.extractTag(raw, 'b:IsValid') === 'true',
-      statusCode:        this.extractTag(raw, 'b:StatusCode'),
+      isValid: this.extractTag(raw, 'b:IsValid') === 'true',
+      statusCode: this.extractTag(raw, 'b:StatusCode'),
       statusDescription: this.extractTag(raw, 'b:StatusDescription'),
-      statusMessage:     this.extractTag(raw, 'b:StatusMessage'),
-      xmlBase64:         this.extractTag(raw, 'b:XmlBase64Bytes'),
-      trackId:           this.extractTag(raw, 'b:XmlDocumentKey') || this.extractTag(raw, 'b:xmlDocumentKey'),
-      errorMessages:     this.extractAllTags(raw, 'c:string'),
+      statusMessage: this.extractTag(raw, 'b:StatusMessage'),
+      xmlBase64: this.extractTag(raw, 'b:XmlBase64Bytes'),
+      trackId: this.extractTag(raw, 'b:XmlDocumentKey') || this.extractTag(raw, 'b:xmlDocumentKey'),
+      errorMessages: this.extractAllTags(raw, 'c:string'),
       raw,
     };
   }
@@ -1451,12 +1451,12 @@ ${keyInfoXml}
     // Con certificado real → BinarySecurityToken + Timestamp + Signature
     try {
       const { createSign } = require('crypto');
-      const now     = new Date();
+      const now = new Date();
       const created = now.toISOString().replace(/\.\d{3}Z$/, '.000Z');
       const expires = new Date(now.getTime() + 5 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, '.000Z');
-      const tsId    = `TS-${randomBytes(8).toString('hex')}`;
-      const bstId   = `BST-${randomBytes(8).toString('hex')}`;
-      const sigId   = `SIG-${randomBytes(8).toString('hex')}`;
+      const tsId = `TS-${randomBytes(8).toString('hex')}`;
+      const bstId = `BST-${randomBytes(8).toString('hex')}`;
+      const sigId = `SIG-${randomBytes(8).toString('hex')}`;
 
       const certBase64 = certPem
         .replace(/-----BEGIN CERTIFICATE-----/g, '')
@@ -1464,7 +1464,7 @@ ${keyInfoXml}
         .replace(/\s/g, '');
 
       const timestampXml = `<wsu:Timestamp xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd" wsu:Id="${tsId}"><wsu:Created>${created}</wsu:Created><wsu:Expires>${expires}</wsu:Expires></wsu:Timestamp>`;
-      const tsDigest     = createHash('sha256').update(timestampXml, 'utf8').digest('base64');
+      const tsDigest = createHash('sha256').update(timestampXml, 'utf8').digest('base64');
 
       const signedInfoXml = `<ds:SignedInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/><ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/><ds:Reference URI="#${tsId}"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>${tsDigest}</ds:DigestValue></ds:Reference></ds:SignedInfo>`;
 
@@ -1539,7 +1539,7 @@ ${keyInfoXml}
     const allNs = { ...inheritedNs, ...ownNs };
 
     // Prefijos visiblemente usados: prefijo del element + prefijos en atributos
-    const tagMatch   = elementXml.match(/^<(\w+):/);
+    const tagMatch = elementXml.match(/^<(\w+):/);
     const elemPrefix = tagMatch?.[1] ?? '';
     const usedByElem = new Set<string>();
     if (elemPrefix) usedByElem.add(elemPrefix);
@@ -1576,23 +1576,23 @@ ${keyInfoXml}
    */
   private soapCall(wsUrl: string, soapBody: string, action: string, certPem: string, keyPem: string): Promise<string> {
     const effectiveCert = this.cleanPem(certPem, 'CERTIFICATE');
-    const effectiveKey  = this.cleanPem(
+    const effectiveKey = this.cleanPem(
       keyPem,
       keyPem.includes('BEGIN RSA PRIVATE KEY') ? 'RSA PRIVATE KEY' : 'PRIVATE KEY',
     );
 
     const actionUri = `http://wcf.dian.colombia/IWcfDianCustomerServices/${action}`;
-    const now     = new Date();
+    const now = new Date();
     const created = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
     const expires = new Date(now.getTime() + 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-    const rand  = () => randomBytes(17).toString('hex').toUpperCase();
-    const tsId  = `TS-${rand()}`;
+    const rand = () => randomBytes(17).toString('hex').toUpperCase();
+    const tsId = `TS-${rand()}`;
     const bstId = `X509-${rand()}`;
     const sigId = `SIG-${rand()}`;
-    const kiId  = `KI-${rand()}`;
+    const kiId = `KI-${rand()}`;
     const strId = `STR-${rand()}`;
-    const toId  = `id-${rand()}`;
+    const toId = `id-${rand()}`;
 
     const certBase64 = effectiveCert
       .replace(/-----BEGIN CERTIFICATE-----/g, '')
@@ -1600,19 +1600,19 @@ ${keyInfoXml}
       .replace(/\s/g, '');
 
     const SOAP_NS = 'http://www.w3.org/2003/05/soap-envelope';
-    const WCF_NS  = 'http://wcf.dian.colombia';
-    const WSA_NS  = 'http://www.w3.org/2005/08/addressing';
-    const WSU_NS  = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd';
+    const WCF_NS = 'http://wcf.dian.colombia';
+    const WSA_NS = 'http://www.w3.org/2005/08/addressing';
+    const WSU_NS = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd';
     const WSSE_NS = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd';
-    const DS_NS   = 'http://www.w3.org/2000/09/xmldsig#';
-    const EC_NS   = 'http://www.w3.org/2001/10/xml-exc-c14n#';
+    const DS_NS = 'http://www.w3.org/2000/09/xmldsig#';
+    const EC_NS = 'http://www.w3.org/2001/10/xml-exc-c14n#';
 
     // Namespaces heredados del contexto del Envelope (los que están en scope cuando
     // el servidor canonicaliza wsa:To y ds:SignedInfo)
     const envelopeNs: Record<string, string> = { soap: SOAP_NS, wcf: WCF_NS };
-    const headerNs:   Record<string, string> = { ...envelopeNs, wsa: WSA_NS };
+    const headerNs: Record<string, string> = { ...envelopeNs, wsa: WSA_NS };
     const securityNs: Record<string, string> = { ...headerNs, wsse: WSSE_NS, wsu: WSU_NS };
-    const sigNs:      Record<string, string> = { ...securityNs, ds: DS_NS };
+    const sigNs: Record<string, string> = { ...securityNs, ds: DS_NS };
 
     // ── 1. Digest de wsa:To con ExcC14N, InclusiveNamespaces="soap wcf" ───────
     // El elemento tiene wsu:Id (usa wsu:) y xmlns:wsu inline.
@@ -1630,49 +1630,49 @@ ${keyInfoXml}
     //   4. Sin whitespace extra entre elementos
     const signedInfoC14n =
       `<ds:SignedInfo` +
-        ` xmlns:ds="${DS_NS}"` +
-        ` xmlns:soap="${SOAP_NS}"` +
-        ` xmlns:wcf="${WCF_NS}"` +
-        ` xmlns:wsa="${WSA_NS}">` +
-        `<ds:CanonicalizationMethod Algorithm="${EC_NS}">` +
-          `<ec:InclusiveNamespaces xmlns:ec="${EC_NS}" PrefixList="wsa soap wcf">` +
-          `</ec:InclusiveNamespaces>` +
-        `</ds:CanonicalizationMethod>` +
-        `<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256">` +
-        `</ds:SignatureMethod>` +
-        `<ds:Reference URI="#${toId}">` +
-          `<ds:Transforms>` +
-            `<ds:Transform Algorithm="${EC_NS}">` +
-              `<ec:InclusiveNamespaces xmlns:ec="${EC_NS}" PrefixList="soap wcf">` +
-              `</ec:InclusiveNamespaces>` +
-            `</ds:Transform>` +
-          `</ds:Transforms>` +
-          `<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256">` +
-          `</ds:DigestMethod>` +
-          `<ds:DigestValue>${toDigest}</ds:DigestValue>` +
-        `</ds:Reference>` +
+      ` xmlns:ds="${DS_NS}"` +
+      ` xmlns:soap="${SOAP_NS}"` +
+      ` xmlns:wcf="${WCF_NS}"` +
+      ` xmlns:wsa="${WSA_NS}">` +
+      `<ds:CanonicalizationMethod Algorithm="${EC_NS}">` +
+      `<ec:InclusiveNamespaces xmlns:ec="${EC_NS}" PrefixList="wsa soap wcf">` +
+      `</ec:InclusiveNamespaces>` +
+      `</ds:CanonicalizationMethod>` +
+      `<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256">` +
+      `</ds:SignatureMethod>` +
+      `<ds:Reference URI="#${toId}">` +
+      `<ds:Transforms>` +
+      `<ds:Transform Algorithm="${EC_NS}">` +
+      `<ec:InclusiveNamespaces xmlns:ec="${EC_NS}" PrefixList="soap wcf">` +
+      `</ec:InclusiveNamespaces>` +
+      `</ds:Transform>` +
+      `</ds:Transforms>` +
+      `<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256">` +
+      `</ds:DigestMethod>` +
+      `<ds:DigestValue>${toDigest}</ds:DigestValue>` +
+      `</ds:Reference>` +
       `</ds:SignedInfo>`;
 
     // SignedInfo raw para el envelope (formato normal, sin expansión c14n)
     const signedInfoRaw =
       `<ds:SignedInfo>` +
-        `<ds:CanonicalizationMethod Algorithm="${EC_NS}">` +
-          `<ec:InclusiveNamespaces PrefixList="wsa soap wcf" xmlns:ec="${EC_NS}"/>` +
-        `</ds:CanonicalizationMethod>` +
-        `<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>` +
-        `<ds:Reference URI="#${toId}">` +
-          `<ds:Transforms>` +
-            `<ds:Transform Algorithm="${EC_NS}">` +
-              `<ec:InclusiveNamespaces PrefixList="soap wcf" xmlns:ec="${EC_NS}"/>` +
-            `</ds:Transform>` +
-          `</ds:Transforms>` +
-          `<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>` +
-          `<ds:DigestValue>${toDigest}</ds:DigestValue>` +
-        `</ds:Reference>` +
+      `<ds:CanonicalizationMethod Algorithm="${EC_NS}">` +
+      `<ec:InclusiveNamespaces PrefixList="wsa soap wcf" xmlns:ec="${EC_NS}"/>` +
+      `</ds:CanonicalizationMethod>` +
+      `<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>` +
+      `<ds:Reference URI="#${toId}">` +
+      `<ds:Transforms>` +
+      `<ds:Transform Algorithm="${EC_NS}">` +
+      `<ec:InclusiveNamespaces PrefixList="soap wcf" xmlns:ec="${EC_NS}"/>` +
+      `</ds:Transform>` +
+      `</ds:Transforms>` +
+      `<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>` +
+      `<ds:DigestValue>${toDigest}</ds:DigestValue>` +
+      `</ds:Reference>` +
       `</ds:SignedInfo>`;
 
     // ── 4. Firmar los bytes canonicalizados del SignedInfo ─────────────────────
-    const signer   = createSign('RSA-SHA256');
+    const signer = createSign('RSA-SHA256');
     signer.update(signedInfoC14n, 'utf8');
     const sigValue = signer.sign(effectiveKey, 'base64');
 
@@ -1680,28 +1680,28 @@ ${keyInfoXml}
     const envelope =
       `<soap:Envelope xmlns:soap="${SOAP_NS}" xmlns:wcf="${WCF_NS}">` +
       `<soap:Header xmlns:wsa="${WSA_NS}">` +
-        `<wsse:Security xmlns:wsse="${WSSE_NS}" xmlns:wsu="${WSU_NS}">` +
-          `<wsu:Timestamp wsu:Id="${tsId}">` +
-            `<wsu:Created>${created}</wsu:Created>` +
-            `<wsu:Expires>${expires}</wsu:Expires>` +
-          `</wsu:Timestamp>` +
-          `<wsse:BinarySecurityToken` +
-            ` EncodingType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary"` +
-            ` ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"` +
-            ` wsu:Id="${bstId}">${certBase64}</wsse:BinarySecurityToken>` +
-          `<ds:Signature Id="${sigId}" xmlns:ds="${DS_NS}">` +
-            signedInfoRaw +
-            `<ds:SignatureValue>${sigValue}</ds:SignatureValue>` +
-            `<ds:KeyInfo Id="${kiId}">` +
-              `<wsse:SecurityTokenReference wsu:Id="${strId}">` +
-                `<wsse:Reference URI="#${bstId}"` +
-                  ` ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"/>` +
-              `</wsse:SecurityTokenReference>` +
-            `</ds:KeyInfo>` +
-          `</ds:Signature>` +
-        `</wsse:Security>` +
-        `<wsa:Action>${actionUri}</wsa:Action>` +
-        `<wsa:To xmlns:wsu="${WSU_NS}" wsu:Id="${toId}">${wsUrl}</wsa:To>` +
+      `<wsse:Security xmlns:wsse="${WSSE_NS}" xmlns:wsu="${WSU_NS}">` +
+      `<wsu:Timestamp wsu:Id="${tsId}">` +
+      `<wsu:Created>${created}</wsu:Created>` +
+      `<wsu:Expires>${expires}</wsu:Expires>` +
+      `</wsu:Timestamp>` +
+      `<wsse:BinarySecurityToken` +
+      ` EncodingType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary"` +
+      ` ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"` +
+      ` wsu:Id="${bstId}">${certBase64}</wsse:BinarySecurityToken>` +
+      `<ds:Signature Id="${sigId}" xmlns:ds="${DS_NS}">` +
+      signedInfoRaw +
+      `<ds:SignatureValue>${sigValue}</ds:SignatureValue>` +
+      `<ds:KeyInfo Id="${kiId}">` +
+      `<wsse:SecurityTokenReference wsu:Id="${strId}">` +
+      `<wsse:Reference URI="#${bstId}"` +
+      ` ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"/>` +
+      `</wsse:SecurityTokenReference>` +
+      `</ds:KeyInfo>` +
+      `</ds:Signature>` +
+      `</wsse:Security>` +
+      `<wsa:Action>${actionUri}</wsa:Action>` +
+      `<wsa:To xmlns:wsu="${WSU_NS}" wsu:Id="${toId}">${wsUrl}</wsa:To>` +
       `</soap:Header>` +
       `<soap:Body>${soapBody}</soap:Body>` +
       `</soap:Envelope>`;
@@ -1710,26 +1710,26 @@ ${keyInfoXml}
     this.logger.debug(`[DIAN] siC14n: ${signedInfoC14n.slice(0, 200)}...`);
     this.logger.debug(`[DIAN] toDigest: ${toDigest}`);
     return new Promise((resolve, reject) => {
-      const u   = new URL(wsUrl);
+      const u = new URL(wsUrl);
       const lib = u.protocol === 'https:' ? https : http;
 
       const agent = u.protocol === 'https:'
         ? new (require('https').Agent)({
-            cert: effectiveCert,
-            key:  effectiveKey,
-            rejectUnauthorized: false,
-            keepAlive: false,
-          })
+          cert: effectiveCert,
+          key: effectiveKey,
+          rejectUnauthorized: false,
+          keepAlive: false,
+        })
         : undefined;
 
       const bodyBuf = Buffer.from(envelope, 'utf8');
       const opt = {
         hostname: u.hostname,
-        port:     u.port || (u.protocol === 'https:' ? 443 : 80),
-        path:     u.pathname + u.search,
-        method:   'POST',
+        port: u.port || (u.protocol === 'https:' ? 443 : 80),
+        path: u.pathname + u.search,
+        method: 'POST',
         headers: {
-          'Content-Type':   `application/soap+xml; charset=utf-8; action="${actionUri}"`,
+          'Content-Type': `application/soap+xml; charset=utf-8; action="${actionUri}"`,
           'Content-Length': bodyBuf.length,
         },
         agent,
@@ -1740,7 +1740,7 @@ ${keyInfoXml}
         let data = '';
         res.setEncoding('utf8');
         res.on('data', (chunk: string) => { data += chunk; });
-        res.on('end',  () => {
+        res.on('end', () => {
           this.logger.debug(`[DIAN SOAP] ${action} HTTP ${res.statusCode}:\n${data.slice(0, 600)}...`);
           resolve(data);
         });
@@ -1804,8 +1804,229 @@ ${keyInfoXml}
     });
     if (!last) return `${prefix}-0001`;
     const parts = last.invoiceNumber.split('-');
-    const num   = parseInt(parts[parts.length - 1] ?? '0') + 1;
+    const num = parseInt(parts[parts.length - 1] ?? '0') + 1;
     return `${prefix}-${String(num).padStart(4, '0')}`;
+  }
+
+
+  async generatePdf(companyId: string, invoiceId: string): Promise<Buffer> {
+    const invoice = await this.findOne(companyId, invoiceId);
+
+    // Fetch company info for header
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { name: true, nit: true, razonSocial: true, email: true, phone: true, address: true, city: true },
+    });
+
+    const fmtCOP = (v: any) =>
+      new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(Number(v));
+
+    const fmtDate = (d: any) =>
+      d ? new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+
+    const typeLabel = (t: string) =>
+      ({ VENTA: 'FACTURA DE VENTA', NOTA_CREDITO: 'NOTA CRÉDITO', NOTA_DEBITO: 'NOTA DÉBITO' }[t] ?? t);
+
+    const statusLabel = (s: string) =>
+      ({ DRAFT: 'BORRADOR', SENT_DIAN: 'ENVIADA DIAN', ACCEPTED_DIAN: 'ACEPTADA DIAN', PAID: 'PAGADA', CANCELLED: 'ANULADA', OVERDUE: 'VENCIDA' }[s] ?? s);
+
+    // Build items rows HTML
+    const itemRows = (invoice.items as any[]).map((item, i) => `
+      <tr class="${i % 2 === 0 ? 'row-even' : 'row-odd'}">
+        <td class="td-center">${i + 1}</td>
+        <td>${item.description}</td>
+        <td class="td-center">${Number(item.quantity)}</td>
+        <td class="td-right">${fmtCOP(item.unitPrice)}</td>
+        <td class="td-center">${Number(item.taxRate)}%</td>
+        <td class="td-center">${Number(item.discount)}%</td>
+        <td class="td-right"><strong>${fmtCOP(item.total)}</strong></td>
+      </tr>
+    `).join('');
+
+    const isDraft = invoice.status === 'DRAFT';
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Factura ${invoice.invoiceNumber}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'Arial', sans-serif; font-size: 13px; color: #1e293b; background: #fff; padding: 32px; }
+  .watermark { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) rotate(-35deg);
+    font-size:90px; font-weight:900; color:rgba(0,0,0,0.05); pointer-events:none; z-index:0;
+    white-space:nowrap; letter-spacing:8px; }
+  .content { position:relative; z-index:1; }
+
+  /* Header */
+  .inv-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:28px; border-bottom:3px solid #1a407e; padding-bottom:20px; }
+  .company-block h1 { font-size:20px; font-weight:900; color:#1a407e; letter-spacing:1px; margin-bottom:4px; }
+  .company-block p { font-size:11.5px; color:#64748b; margin:2px 0; }
+  .inv-title-block { text-align:right; }
+  .inv-type { font-size:16px; font-weight:800; color:#1a407e; letter-spacing:2px; margin-bottom:6px; }
+  .inv-number { font-size:26px; font-weight:900; color:#0f172a; font-family:monospace; }
+  .inv-date { font-size:12px; color:#64748b; margin-top:4px; }
+  .status-badge { display:inline-block; margin-top:8px; padding:3px 12px; border-radius:99px;
+    font-size:11px; font-weight:700; letter-spacing:.05em; }
+  .status-draft { background:#f3f4f6; color:#6b7280; border:1px solid #d1d5db; }
+  .status-accepted { background:#dcfce7; color:#166534; }
+  .status-paid { background:#dcfce7; color:#166534; }
+  .status-sent { background:#dbeafe; color:#1e40af; }
+  .status-cancelled { background:#fee2e2; color:#991b1b; }
+
+  /* Client + info grid */
+  .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; }
+  .info-box { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px 16px; }
+  .info-box h4 { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#94a3b8; margin-bottom:10px; }
+  .info-row { display:flex; justify-content:space-between; margin-bottom:5px; }
+  .info-row span { font-size:12px; color:#94a3b8; }
+  .info-row strong { font-size:12px; color:#1e293b; text-align:right; max-width:200px; }
+
+  /* Items table */
+  .items-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em;
+    color:#94a3b8; margin-bottom:8px; }
+  table { width:100%; border-collapse:collapse; margin-bottom:20px; }
+  thead tr { background:#1a407e; }
+  thead th { padding:9px 10px; font-size:11px; font-weight:700; color:#fff; text-align:left; letter-spacing:.04em; }
+  .td-center { text-align:center; }
+  .td-right { text-align:right; }
+  tbody tr { border-bottom:1px solid #f0f4f8; }
+  .row-even td { background:#fff; }
+  .row-odd td { background:#f8fafc; }
+  td { padding:9px 10px; font-size:12.5px; color:#374151; vertical-align:middle; }
+  tbody tr:last-child { border-bottom:2px solid #e2e8f0; }
+
+  /* Totals */
+  .totals-wrap { display:flex; justify-content:flex-end; margin-bottom:24px; }
+  .totals-box { min-width:280px; }
+  .tot-row { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid #f0f4f8; }
+  .tot-row span { font-size:13px; color:#64748b; }
+  .tot-row strong { font-size:13px; color:#1e293b; }
+  .tot-total { border-top:2px solid #1a407e !important; border-bottom:none !important;
+    margin-top:4px; padding-top:10px !important; }
+  .tot-total span, .tot-total strong { font-size:16px; font-weight:800; color:#1a407e; }
+
+  /* Notes + DIAN */
+  .notes-box { background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:12px 16px; margin-bottom:16px; }
+  .notes-box h4 { font-size:10px; font-weight:700; text-transform:uppercase; color:#92400e; margin-bottom:6px; }
+  .notes-box p { font-size:12px; color:#78350f; }
+  .dian-box { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:12px 16px; margin-bottom:16px; }
+  .dian-box h4 { font-size:10px; font-weight:700; text-transform:uppercase; color:#166534; margin-bottom:6px; }
+  .dian-box p { font-size:11px; color:#166534; word-break:break-all; }
+
+  /* Footer */
+  .inv-footer { border-top:1px solid #e2e8f0; padding-top:16px; display:flex; justify-content:space-between; }
+  .footer-left p { font-size:11px; color:#94a3b8; margin:2px 0; }
+  .footer-right { text-align:right; }
+  .footer-right p { font-size:11px; color:#94a3b8; }
+  .powered { font-size:10px; color:#c7d9f5; margin-top:4px; }
+</style>
+</head>
+<body>
+${isDraft ? '<div class="watermark">BORRADOR</div>' : ''}
+<div class="content">
+
+  <!-- Header -->
+  <div class="inv-header">
+    <div class="company-block">
+      <h1>${company?.name ?? 'BeccaFact'}</h1>
+      <p>${company?.razonSocial ?? ''}</p>
+      <p>NIT: ${company?.nit ?? '—'}</p>
+      ${company?.email ? `<p>${company.email}</p>` : ''}
+      ${company?.phone ? `<p>${company.phone}</p>` : ''}
+      ${company?.address ? `<p>${company.address}${company.city ? ', ' + company.city : ''}</p>` : ''}
+    </div>
+    <div class="inv-title-block">
+      <div class="inv-type">${typeLabel(invoice.type)}</div>
+      <div class="inv-number">${invoice.invoiceNumber}</div>
+      <div class="inv-date">Emisión: ${fmtDate(invoice.issueDate)}</div>
+      ${invoice.dueDate ? `<div class="inv-date">Vencimiento: ${fmtDate(invoice.dueDate)}</div>` : ''}
+      <span class="status-badge status-${isDraft ? 'draft' : invoice.status === 'PAID' ? 'paid' : invoice.status === 'ACCEPTED_DIAN' ? 'accepted' : invoice.status === 'SENT_DIAN' ? 'sent' : invoice.status === 'CANCELLED' ? 'cancelled' : 'draft'}">
+        ${statusLabel(invoice.status)}
+      </span>
+    </div>
+  </div>
+
+  <!-- Info Grid -->
+  <div class="info-grid">
+    <div class="info-box">
+      <h4>Cliente / Receptor</h4>
+      <div class="info-row"><span>Nombre</span><strong>${(invoice.customer as any).name}</strong></div>
+      <div class="info-row"><span>Documento</span><strong>${(invoice.customer as any).documentNumber}</strong></div>
+      ${(invoice.customer as any).email ? `<div class="info-row"><span>Email</span><strong>${(invoice.customer as any).email}</strong></div>` : ''}
+      ${(invoice.customer as any).phone ? `<div class="info-row"><span>Teléfono</span><strong>${(invoice.customer as any).phone}</strong></div>` : ''}
+      ${(invoice.customer as any).address ? `<div class="info-row"><span>Dirección</span><strong>${(invoice.customer as any).address}</strong></div>` : ''}
+    </div>
+    <div class="info-box">
+      <h4>Información de Pago</h4>
+      <div class="info-row"><span>Moneda</span><strong>${invoice.currency}</strong></div>
+      <div class="info-row"><span>Subtotal</span><strong>${fmtCOP(invoice.subtotal)}</strong></div>
+      <div class="info-row"><span>IVA</span><strong>${fmtCOP(invoice.taxAmount)}</strong></div>
+      <div class="info-row"><span>Descuento</span><strong>${fmtCOP(invoice.discountAmount)}</strong></div>
+      <div class="info-row"><span>Total</span><strong style="color:#1a407e;font-size:14px">${fmtCOP(invoice.total)}</strong></div>
+    </div>
+  </div>
+
+  <!-- Items -->
+  <div class="items-title">Detalle de productos / servicios</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:40px" class="td-center">#</th>
+        <th>Descripción</th>
+        <th style="width:70px" class="td-center">Cant.</th>
+        <th style="width:110px" class="td-right">Precio unit.</th>
+        <th style="width:65px" class="td-center">IVA</th>
+        <th style="width:65px" class="td-center">Desc.</th>
+        <th style="width:120px" class="td-right">Total</th>
+      </tr>
+    </thead>
+    <tbody>${itemRows}</tbody>
+  </table>
+
+  <!-- Totals -->
+  <div class="totals-wrap">
+    <div class="totals-box">
+      <div class="tot-row"><span>Subtotal</span><strong>${fmtCOP(invoice.subtotal)}</strong></div>
+      <div class="tot-row"><span>IVA</span><strong>${fmtCOP(invoice.taxAmount)}</strong></div>
+      ${Number(invoice.discountAmount) > 0 ? `<div class="tot-row"><span>Descuento</span><strong>-${fmtCOP(invoice.discountAmount)}</strong></div>` : ''}
+      <div class="tot-row tot-total"><span>TOTAL</span><strong>${fmtCOP(invoice.total)}</strong></div>
+    </div>
+  </div>
+
+  ${invoice.notes ? `
+  <div class="notes-box">
+    <h4>Notas / Observaciones</h4>
+    <p>${invoice.notes}</p>
+  </div>` : ''}
+
+  ${invoice.dianCufe ? `
+  <div class="dian-box">
+    <h4>Información DIAN</h4>
+    <p>CUFE: ${invoice.dianCufe}</p>
+    ${invoice.dianQrCode ? `<p>QR: ${invoice.dianQrCode}</p>` : ''}
+  </div>` : ''}
+
+  <!-- Footer -->
+  <div class="inv-footer">
+    <div class="footer-left">
+      <p>Generado el ${new Date().toLocaleString('es-CO')}</p>
+      ${isDraft ? '<p style="color:#dc2626;font-weight:700">⚠ Documento en borrador — no válido como factura oficial</p>' : ''}
+    </div>
+    <div class="footer-right">
+      <p class="powered">Generado por BeccaFact · Colombia</p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>`;
+
+    // Return HTML as Buffer — the controller sends it with PDF content-type
+    // For real PDF generation add puppeteer/wkhtmltopdf; for now returns the HTML
+    // which browsers render as a PDF-like document when opened in a tab or iframe
+    return Buffer.from(html, 'utf-8');
   }
 }
 

@@ -1,6 +1,7 @@
 import {
   Controller, Get, Post, Patch, Body, Param, Query,
   UseGuards, ParseUUIDPipe, HttpCode, HttpStatus, Res,
+  StreamableFile,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
@@ -125,6 +126,22 @@ export class InvoicesController {
     @Body('reason') reason: string,
   ) {
     return this.invoicesService.cancel(companyId, id, reason);
+  }
+
+   @Get(':id/pdf')
+  @ApiOperation({ summary: 'Previsualización HTML de la factura (renderizable como PDF)' })
+  async getPdf(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const buffer = await this.invoicesService.generatePdf(companyId, id);
+    res.set({
+      'Content-Type':        'text/html; charset=utf-8',
+      'Content-Disposition': `inline; filename="factura-${id}.html"`,
+      'Cache-Control':       'no-cache',
+    });
+    return new StreamableFile(buffer);
   }
 
   @Patch(':id/paid')
