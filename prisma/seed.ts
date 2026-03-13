@@ -15,6 +15,81 @@ function calcDv(nit: string): string {
   return rem > 1 ? String(11 - rem) : String(rem);
 }
 
+// ─── Certificado real BECCASOFT SAS (GSE / Andes SCD) ────────────────────────
+// NIT: 902043550  |  CN: BECCASOFT SAS
+// Válido: 2026-03-10 → 2027-03-10  |  P12 password: Sirweb123*
+const BECCASOFT_CERT = 
+`-----BEGIN CERTIFICATE-----
+MIIHFDCCBPygAwIBAgIKUeH3Tk2JcQEdvDANBgkqhkiG9w0BAQsFADCBhjEeMBwG
+CSqGSIb3DQEJARYPaW5mb0Bnc2UuY29tLmNvMSUwIwYDVQQDExxBdXRvcmlkYWQg
+U3Vib3JkaW5hZGEgMDEgR1NFMQwwCgYDVQQLEwNQS0kxDDAKBgNVBAoTA0dTRTEU
+MBIGA1UEBxMLQm9nb3RhIEQuQy4xCzAJBgNVBAYTAkNPMB4XDTI2MDMxMDE1Mjgx
+NloXDTI3MDMxMDE1MzgxNFowgeYxGjAYBgNVBAkMEUNSIDNBIE4gMTcgU1VSIDk5
+MSMwIQYDVQQNDBpGRVBKIEdTRSBDTCA3NyA3IDQ0IE9GIDcwMTEVMBMGA1UECAwM
+Q1VORElOQU1BUkNBMREwDwYDVQQHDAhNT1NRVUVSQTELMAkGA1UEBhMCQ08xFjAU
+BgNVBAMMDUJFQ0NBU09GVCBTQVMxGTAXBgorBgEEAaRmAQMCDAk5MDIwNDM1NTAx
+DDAKBgNVBCkMA05JVDESMBAGA1UEBRMJOTAyMDQzNTUwMRcwFQYDVQQLDA5BRE1J
+TklTVFJBQ0lPTjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJAFC0lu
+oG387TMIQ5hFxpF498QFzpTA6q79akA5Xl0IU3KjTd0HfLcD3cp705z0T6iI9Jp8
+YyLM4SfNMFTlYdR0fDK6ZW7FLWNo5mWF4klIiV1cR3ikT5z6MLuX1/UsR7FXcq8F
+oW7NokWtZ3nbkHzhgkCCAbxc4XDsBRJQruqdktunVRpgYrdJHjf8wQwvXVMJwd6e
+GB1vuu+aIEHj1K7f7DZDXPpQhCRzSFjsgC8M13pvmeecjq+wsMaBGm6t0oa46dkR
+eF1TSJyN7PoY/K9C7pTM8XCbOkl9L9Feb73Y02DRZGU8lHNdYNbp1ctes3i/mfHJ
+9hBkJckrqKwp03MCAwEAAaOCAiAwggIcMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgw
+FoAUQbzUOXi4g6MXGgiaqbgEAgkt2JkwaAYIKwYBBQUHAQEEXDBaMDIGCCsGAQUF
+BzAChiZodHRwczovL2NlcnRzMi5nc2UuY29tLmNvL0NBX1NVQjAxLmNydDAkBggr
+BgEFBQcwAYYYaHR0cHM6Ly9vY3NwMi5nc2UuY29tLmNvMGwGA1UdEQRlMGOBFmJl
+Y2Nhc29mdC5jb0BnbWFpbC5jb22GSWh0dHBzOi8vZ3NlLmNvbS5jby9kb2N1bWVu
+dG9zL2NlcnRpZmljYWNpb25lcy9hY3JlZGl0YWNpb24vMTYtRUNELTAwMS5wZGYw
+gYMGA1UdIAR8MHoweAYLKwYBBAGB8yABBBIwaTBnBggrBgEFBQcCARZbaHR0cHM6
+Ly9nc2UuY29tLmNvL2RvY3VtZW50b3MvY2FsaWRhZC9EUEMvRGVjbGFyYWNpb25f
+ZGVfUHJhY3RpY2FzX2RlX0NlcnRpZmljYWNpb25fVjIwLnBkZjAnBgNVHSUEIDAe
+BggrBgEFBQcDAgYIKwYBBQUHAwQGCCsGAQUFBwMBMDUGA1UdHwQuMCwwKqAooCaG
+JGh0dHBzOi8vY3JsMi5nc2UuY29tLmNvL0NBX1NVQjAxLmNybDAdBgNVHQ4EFgQU
+rYnksSvVrSbCqJGEP9bXp6exYj8wDgYDVR0PAQH/BAQDAgTwMA0GCSqGSIb3DQEB
+CwUAA4ICAQCFZ3+HRJUwKyBJNGQzpXMbMtSn/pgLzoByHcv94InwVwdepfdrpy18
+j8h/UoX7akjHC8vOeuwlHXHG61x6NxUWoRXGljDm63iBbTIJFWRPcNR2Mne1Eauv
+JafQEkhCSHN2SC7c6yirnmfVV6L7JuUMDzaNBULO+/qkp2eATheDrjvsgMRx+KhX
+lt2gGChr4oFFuTVvXsH7WIC3jJfpbEXw2/4iVFoSBSkT/J+CAnRpYd0Ol7YhlXjj
+oTm5b96r8L6ANgk+vJaajfZlIfvkqRyFZmRxwcUgvGEuvPDbSwlpMycsPadqDx7g
+V8sr6gfNCrgUJ3Qm1fdT0DzCEcrAKBc4M3oy84dkmhjh5+JQRCDG0VVxSGlYFSe4
+639HOT4xgokMHtHZ3bzVdt+fR6a8qyTI/MNjcItoTpVvGMSEc1/RM2E7mPkrrxO1
+284vb26uc8QJUFhXwHqGDT2T5KxysXsoRWqYk7VkdiXP6BfiG55SJG23qR/jc41N
+JG7f4C/D6CYNZSzaKrywC7wqCXh0Y55MLeQ2ejzJeXkeKh0PlpRhFmtctgrOtq4J
+Qu/HDAruh+P5ig1o7lpBUd+f4Q93n52OJKi5hfcZI4hLaf6whMa1HL2p86V/L8fw
+QoMhE14yDzMpSY75w55sFax4UVXWOf/8LCjpzTRqBSeAHmDXPvFW9Q==
+-----END CERTIFICATE-----`;
+
+const BECCASOFT_KEY = 
+`-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCQBQtJbqBt/O0z
+CEOYRcaRePfEBc6UwOqu/WpAOV5dCFNyo03dB3y3A93Ke9Oc9E+oiPSafGMizOEn
+zTBU5WHUdHwyumVuxS1jaOZlheJJSIldXEd4pE+c+jC7l9f1LEexV3KvBaFuzaJF
+rWd525B84YJAggG8XOFw7AUSUK7qnZLbp1UaYGK3SR43/MEML11TCcHenhgdb7rv
+miBB49Su3+w2Q1z6UIQkc0hY7IAvDNd6b5nnnI6vsLDGgRpurdKGuOnZEXhdU0ic
+jez6GPyvQu6UzPFwmzpJfS/RXm+92NNg0WRlPJRzXWDW6dXLXrN4v5nxyfYQZCXJ
+K6isKdNzAgMBAAECggEAIgq/Lz1R+I2Xd7+VUrHzjME+N3xz5x9umaxW6BVnY7Ar
+IWbOaddyOERWsZzxWSE6jwjIYJfUSw6IjgLnULnjlPdvwAHlJfi/kMbj5s1tvorB
+xWqhjjewhddxm3X52v77d0THW+2Fyg4bNEMXuWsXzRz0z9CrHl4J/8oaLMkbf2Mh
+VCsjWJsfFkEal0s1Hw0rRxT+Xl7WwWdhbY8ZhrfkZvG8BL+aZ6MelXKYaiMfnKHK
+FziOnWq9BgzEJAsMaXc60UbXE3ln+WkrEK5xQD8oTJjGlyNoVJ395iAgxJvg+9C/
+Hkjrdz2pWhq/MARNjXdjIxEUyaxbMEd1VmZx+7xjuQKBgQDnHGZ2+Ss6D16HkcYp
+CShc4pvkt2Y5iwG9VFx/YkCw5ZOgRT61QugOMQ+EYDNbiNRrqe2LJHT1NS9whxAq
+O4bbuFTqckCsMETL41lvtszOX/GhIeFyzXJ2ey/Eqw5e1enJ55TMaF3p+t04Ravf
+g58ID4IOq/pE+mqsxIim1ScIfwKBgQCfh5ZH2ViYVJ+hXi5S9ouuavifeSIA+XtY
+oY+11Moa/1GAu7In/DIriuUD9q6BNsOnq6Uch1edsjM2ndEC5f/gRfW7cVFo7O82
+cSk4SiYlbE1uszi2Lg147QX2jGoeCE/lNzMDTZzEnkbb5FNFU518AgAnQ1i5r2vz
+5956GDcbDQKBgHddosqGLT5im8dXkkq1kSRQYoZB90l3M2HPRasBWzpCiPn5accD
+FInn6wTLDxuS02v8K1V3cfUIEEWFbOLzNdccILeqZR7KG25XMWVSu/tHcKxxrFi4
+Jgtt2qEwXE69G3AN7TuaGA92Y3Xh/kCGYcgvAlSDnNKtqBUtuQq6AtwPAoGAW6b2
+PAku0TWtEHSfgKKM1YQ3msdpNc4fg2guvHSoOKJ/HMq5LCfEWyfNM13CHBJujiIb
+FizbtYnvym0Y6+VgAGWxLCOKdhHJzSluWRygldeHFRZ6epAyxUrHpkI9pUt5O2Nf
+N4KbkoqsgyDGhonnbJtpoyUaEHQsPVD1jIflAPECgYEAkZelDkhJ6gyEkQZx670T
+HQ+45xhr120tT8i+Q+kfaiW3cd/82HnBzPkw5R3/w0PUUzrucOH5ocsE9l/66JuB
+UvrkuLpY3kyzMbi+jIHfxTin61QR8ApNwkCGDAgUKT2yddGJSNXzUtun1z6Q2ROg
+1W5XLXwQQb45aUUlloPA1Qc=
+-----END PRIVATE KEY-----`;
+
 async function main() {
   console.log('🌱 Iniciando seed de BeccaFact...');
 
@@ -248,68 +323,103 @@ async function main() {
   }
   console.log(`  ✅ Super Admin: ${superAdmin.email}`);
 
-  // ─── EMPRESA DEMO ─────────────────────────────────────────────────────────────
-  // NIT real del set de pruebas DIAN: 902043550-6 con DV calculado
+  // ─── EMPRESA DEMO — BECCASOFT SAS ─────────────────────────────────────────────
+  // CAMBIOS vs seed original:
+  //   ✅ NIT: '902043550' (sin DV, sin guión) — el DV se pone en @schemeID del XML
+  //   ✅ razonSocial: 'BECCASOFT SAS' exacto del RUT → resuelve FAJ43b
+  //   ✅ Dirección real según certificado GSE (Mosquera, Cundinamarca)
+  //   ✅ cityCode/departmentCode del emisor (DIVIPOLA) → resuelve FAK08/FAK28/FAK32
+  //   ✅ dianFechaDesde/Hasta como new Date() (no string) → resuelve FAB07b/FAB08b
+  //   ✅ dianCertificate / dianCertificateKey con PEM real → resuelve ZE02
+  //   ✅ Suscripción: create-only sin upsert roto
+  const BECCASOFT_NIT = '902043550';
+  const BECCASOFT_DV  = calcDv(BECCASOFT_NIT); // → '1'
+
   const empresarialPlan = await prisma.plan.findUnique({ where: { name: 'EMPRESARIAL' } });
   const adminRole       = await prisma.role.findUnique({ where: { name: 'ADMIN' } });
   const operatorRole    = await prisma.role.findUnique({ where: { name: 'OPERATOR' } });
 
-  const demoCompany = await prisma.company.upsert({
-    where: { nit: '902043550-6' },
-    update: {},
-    create: {
-      name:        'Empresa Demo BeccaFact',
-      nit:         '902043550-6',
-      razonSocial: 'EMPRESA DEMO BECCAFACT S.A.S.',
-      email:       'demo@empresademo.com',
-      phone:       '6015551234',
-      address:     'Calle 72 # 12-34',
-      city:        'Bogotá, D.C.',
-      department:  'Bogotá',
-      country:     'CO',
-      status:      'ACTIVE',
-      dianTestMode: true
-      // Campos DIAN adicionales (guardados via `as any` en el service)
-      // Se inyectan aquí para que el XML quede correcto desde el primer envío
-    } as any,
+  // Buscar la empresa por cualquiera de los NITs que pudo haber tenido
+  let demoCompany = await prisma.company.findFirst({
+    where: { nit: { in: ['902043550', '902043550-1', '902043550-6', '900987654-1'] } },
   });
 
-  // Actualizar campos DIAN extra que el service lee via `as any`
+  if (!demoCompany) {
+    demoCompany = await prisma.company.create({
+      data: {
+        name:        'BECCASOFT SAS',
+        nit:         BECCASOFT_NIT,
+        razonSocial: 'BECCASOFT SAS',
+        email:       'beccasoft.co@gmail.com',
+        phone:       '3214567890',
+        address:     'CR 3A N 17 SUR 99',
+        city:        'Mosquera',
+        department:  'Cundinamarca',
+        country:     'CO',
+        status:      'ACTIVE',
+        dianTestMode: true,
+      } as any,
+    });
+  }
+
+  // Actualizar TODOS los campos DIAN en un solo update
   await prisma.company.update({
     where: { id: demoCompany.id },
     data: {
-      // Resolución habilitación DIAN set de pruebas
-      dianResolucion:  '18760000001',
-      dianFechaDesde:  '2019-01-19',
-      dianFechaHasta:  '2030-01-19',
-      dianRangoDesde:  990000000,
-      dianRangoHasta:  995000000,
-      dianPrefijo:      'SETP',
-      dianSoftwareId:  '8c2e43bd-9d57-4144-b0af-8876de5917a8',
-      dianSoftwarePin: '12345',
-      dianTestSetId:'aa87ad48-5975-46d1-b0d5-f8ed563a528e',
-      dianClaveTecnica:'fc8eac422eba16e22ffd8c6f94b3f40a6e38162c',      
-      // Ubicación DIVIPOLA — Bogotá D.C.
-      // cityCode y departmentCode son campos `as any` → se pasan en `data as any`
-      cityCode:        '11001',    // DIVIPOLA: Bogotá
-      departmentCode:  '11',       // ISO 3166-2:CO-DC
+      // ── Datos reales BECCASOFT SAS ────────────────────────────────────
+      name:        'BECCASOFT SAS',
+      nit:         BECCASOFT_NIT,   // NIT sin DV (FAK24 — el DV se calcula en el service)
+      razonSocial: 'BECCASOFT SAS', // nombre exacto del RUT (FAJ43b)
+      email:       'beccasoft.co@gmail.com',
+      phone:       '3214567890',
+      address:     'CR 3A N 17 SUR 99',
+      city:        'Mosquera',
+      department:  'Cundinamarca',
+      country:     'CO',
+      dianTestMode: true,
+
+      // ── Ubicación DIVIPOLA (tabla 13.4.3) — FAK08/FAK28/FAK32 ────────
+      cityCode:       '25473', // DIVIPOLA: Mosquera, Cundinamarca
+      departmentCode: '25',    // ISO 3166-2:CO — Cundinamarca
+
+      // ── Resolución habilitación DIAN (set de pruebas) ─────────────────
+      dianResolucion: '18760000001',
+      dianPrefijo:    'SETP',
+      dianRangoDesde: 990000000,
+      dianRangoHasta: 995000000,
+      // ✅ FIX: new Date() en lugar de string — Prisma necesita Date para TIMESTAMPTZ
+      dianFechaDesde: '2019-01-19',
+      dianFechaHasta: '2030-01-19',
+
+      // ── Credenciales software DIAN ────────────────────────────────────
+      dianSoftwareId:   '8c2e43bd-9d57-4144-b0af-8876de5917a8',
+      dianSoftwarePin:  '12345',
+      dianTestSetId:    'aa87ad48-5975-46d1-b0d5-f8ed563a528e',
+      dianClaveTecnica: 'fc8eac422eba16e22ffd8c6f94b3f40a6e38162c',
+
+      // ── Certificado digital real GSE (NIT 902043550) — ZE02/FAD09e ───
+      // PEM con saltos de línea reales. El service usa normalizePem().
+      dianCertificate:    BECCASOFT_CERT,
+      dianCertificateKey: BECCASOFT_KEY,
     } as any,
   });
 
+  console.log(`  ✅ Empresa: BECCASOFT SAS (NIT ${BECCASOFT_NIT}-${BECCASOFT_DV})`);
+
+  // Suscripción: solo crear si no existe
   if (empresarialPlan) {
-    await prisma.subscription.upsert({
-      where: {
-        id: (await prisma.subscription.findFirst({ where: { companyId: demoCompany.id } }))?.id ?? 'nonexistent',
-      },
-      update: {},
-      create: {
-        companyId: demoCompany.id,
-        planId:    empresarialPlan.id,
-        status:    'ACTIVE',
-        startDate: new Date(),
-        endDate:   new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
-      },
-    });
+    const existingSub = await prisma.subscription.findFirst({ where: { companyId: demoCompany.id } });
+    if (!existingSub) {
+      await prisma.subscription.create({
+        data: {
+          companyId: demoCompany.id,
+          planId:    empresarialPlan.id,
+          status:    'ACTIVE',
+          startDate: new Date(),
+          endDate:   new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
+        },
+      });
+    }
   }
 
   // ─── USUARIOS DEMO ────────────────────────────────────────────────────────────
@@ -318,12 +428,12 @@ async function main() {
     where: { email: 'admin@empresademo.com' },
     update: {},
     create: {
-      email:      'admin@empresademo.com',
-      password:   adminPassword,
-      firstName:  'Carlos',
-      lastName:   'Rodríguez',
-      companyId:  demoCompany.id,
-      isActive:   true,
+      email:     'admin@empresademo.com',
+      password:  adminPassword,
+      firstName: 'Carlos',
+      lastName:  'Rodríguez',
+      companyId: demoCompany.id,
+      isActive:  true,
     },
   });
   if (adminRole) {
@@ -356,29 +466,25 @@ async function main() {
   }
 
   // ─── CLIENTES DEMO ────────────────────────────────────────────────────────────
-  // Todos los campos que el service lee para construir el XML UBL son incluidos.
+  // CAMBIOS vs seed original:
+  //   ✅ documentNumber: NIT SIN DV y SIN guión (ej: '800200300' no '800200300-5')
+  //      El DV se calcula automáticamente en el service con calcDv() y se pone
+  //      en CompanyID/@schemeID del XML → resuelve FAK24 / FAK24b
+  //   ✅ update: ahora también actualiza name, city, department, address
+  //      para que re-ejecutar el seed corrija datos existentes
   //
-  // Campos clave por tipo de persona:
-  //   Persona Jurídica (NIT):
-  //     - documentType: 'NIT', schemeID DIAN = '31'
-  //     - AdditionalAccountID = '1'
-  //     - TaxLevelCode listName="04" → O-99  (responsabilidad DIAN tabla 13.2.6.2)
-  //     - TaxScheme ID='01' Name='IVA'
-  //     - RegistrationAddress con ID (DIVIPOLA), CityName, CountrySubentity,
-  //       CountrySubentityCode, AddressLine/Line, Country/IdentificationCode
-  //
-  //   Persona Natural (CC):
-  //     - documentType: 'CC', schemeID DIAN = '13'
-  //     - AdditionalAccountID = '2'
-  //     - TaxLevelCode listName="49" → R-99-PN
-  //     - TaxScheme ID='ZZ' Name='No aplica'
-  //     - RegistrationAddress (igual que jurídica)
+  // Campos clave por tipo de persona para el XML UBL (Anexo Técnico v1.9):
+  //   NIT → schemeID=31 | AdditionalAccountID=1 | TaxLevelCode listName="04" O-99
+  //         TaxScheme ID='01' Name='IVA'
+  //   CC  → schemeID=13 | AdditionalAccountID=2 | TaxLevelCode listName="49" R-99-PN
+  //         TaxScheme ID='ZZ' Name='No aplica'
+  //   RegistrationAddress: cityCode (DIVIPOLA), city, CountrySubentityCode (2 dígitos)
 
   const demoCustomers = [
-    // ── Persona Jurídica NIT ──────────────────────────────────────────────
+    // ── Persona Jurídica NIT ───────────────────────────────────────────────────
     {
       documentType:   'NIT' as const,
-      documentNumber: '800200300-5',
+      documentNumber: '800200300',      // ✅ SIN DV, SIN guión
       name:           'DISTRIBUIDORA NACIONAL S.A.S.',
       email:          'compras@distribuidora.com',
       phone:          '6012223344',
@@ -386,13 +492,13 @@ async function main() {
       city:           'Bogotá, D.C.',
       department:     'Bogotá',
       country:        'CO',
-      cityCode:       '11001',   // DIVIPOLA Bogotá
-      departmentCode: '11',      // ISO 3166-2:CO-DC
+      cityCode:       '11001',          // DIVIPOLA Bogotá (tabla 13.4.3)
+      departmentCode: '11',             // ISO 3166-2:CO-DC (tabla 13.4.2)
       creditDays:     30,
     },
     {
       documentType:   'NIT' as const,
-      documentNumber: '860001234-2',
+      documentNumber: '860001234',      // ✅ SIN DV, SIN guión
       name:           'COMERCIALIZADORA DEL VALLE LTDA',
       email:          'facturas@covalle.com',
       phone:          '6024456677',
@@ -400,13 +506,13 @@ async function main() {
       city:           'Cali',
       department:     'Valle del Cauca',
       country:        'CO',
-      cityCode:       '76001',   // DIVIPOLA Cali
-      departmentCode: '76',      // ISO 3166-2:CO-VAC
+      cityCode:       '76001',          // DIVIPOLA Cali
+      departmentCode: '76',             // ISO 3166-2:CO-VAC
       creditDays:     60,
     },
     {
       documentType:   'NIT' as const,
-      documentNumber: '901234567-3',
+      documentNumber: '901234567',      // ✅ SIN DV, SIN guión
       name:           'TECH SOLUTIONS COLOMBIA S.A.S.',
       email:          'admin@techsol.co',
       phone:          '6013334455',
@@ -420,7 +526,7 @@ async function main() {
     },
     {
       documentType:   'NIT' as const,
-      documentNumber: '890903938-8',
+      documentNumber: '890903938',      // ✅ SIN DV, SIN guión
       name:           'BANCOLOMBIA S.A.',
       email:          'servicios@bancolombia.com.co',
       phone:          '6044441111',
@@ -428,14 +534,13 @@ async function main() {
       city:           'Medellín',
       department:     'Antioquia',
       country:        'CO',
-      cityCode:       '05001',   // DIVIPOLA Medellín
-      departmentCode: '05',      // ISO 3166-2:CO-ANT
+      cityCode:       '05001',          // DIVIPOLA Medellín
+      departmentCode: '05',             // ISO 3166-2:CO-ANT
       creditDays:     0,
     },
     {
       documentType:   'NIT' as const,
-      documentNumber: '900108281-1',
-      // Exactamente el mismo cliente del XML de ejemplo de la Caja de Herramientas (Genérica.xml)
+      documentNumber: '900108281',      // ✅ SIN DV, SIN guión
       name:           'OPTICAS GMO COLOMBIA S.A.S.',
       email:          'compras@opticasgmo.com',
       phone:          '6013005500',
@@ -447,7 +552,7 @@ async function main() {
       departmentCode: '11',
       creditDays:     30,
     },
-    // ── Persona Natural CC ───────────────────────────────────────────────
+    // ── Persona Natural CC ────────────────────────────────────────────────────
     {
       documentType:   'CC' as const,
       documentNumber: '12345678',
@@ -488,10 +593,22 @@ async function main() {
           documentNumber: customerData.documentNumber,
         },
       },
-      update: { cityCode, departmentCode } as any,
+      // ✅ FIX: update también actualiza todos los campos importantes
+      update: {
+        name:           customerData.name,
+        email:          customerData.email,
+        phone:          customerData.phone,
+        address:        customerData.address,
+        city:           customerData.city,
+        department:     customerData.department,
+        country:        customerData.country,
+        cityCode,
+        departmentCode,
+      } as any,
       create: { ...customerData, companyId: demoCompany.id, cityCode, departmentCode } as any,
     });
   }
+  console.log(`  ✅ ${demoCustomers.length} clientes con DIVIPOLA, departmentCode y NIT sin DV`);
 
   // ─── CATEGORÍAS ───────────────────────────────────────────────────────────────
   const categories = ['Tecnología', 'Servicios Profesionales', 'Papelería y Suministros', 'Muebles y Enseres'];
@@ -506,30 +623,28 @@ async function main() {
   }
 
   // ─── PRODUCTOS DEMO ───────────────────────────────────────────────────────────
-  // Campos clave para que el XML sea aceptado por la DIAN:
+  // CAMBIOS vs seed original:
+  //   ✅ SRV-003: añadido unspscCode '43232700' (faltaba → FAZ09)
+  //   ✅ update: ahora actualiza unit + unspscCode + price/taxRate para corregir
+  //      productos existentes al re-ejecutar el seed
   //
-  //   unit:        Código UNece tabla 13.3.6 de la Caja de Herramientas
-  //                  EA  = "cada" (artículo físico individual)
-  //                  NIU = "número de unidades internacionales" (licencias, accesos)
-  //                  HUR = "hora" (servicios por tiempo)
-  //                  NAR = "número de artículos" (resmas, cajas de unidades)
-  //                  ZZ  = "mutuamente definido" (cuando no aplica otro)
+  // unit: código UNece tabla 13.3.6 — el service lo guarda en invoice_items.unit
+  //   EA  = "cada"  (artículo físico individual)
+  //   HUR = "hora"  (servicios por tiempo)
+  //   NIU = "número de unidades internacionales" (licencias, accesos)
+  //   NAR = "número de artículos" (resmas, cajas)
   //
-  //   unspscCode:  Código UNSPSC (tabla 13.3.5 schemeID='001', schemeName='UNSPSC')
-  //                Requerido para regla FAZ09 ("identificación del bien o servicio")
-  //                Se enviará en <cac:AdditionalItemIdentification> del XML.
-  //                Tomado del clasificador incluido en la Caja de Herramientas:
-  //                  43211503 = Laptops / computadores portátiles
-  //                  43211708 = Monitores de computador
-  //                  81111500 = Servicios de consultoría en TI
-  //                  44111500 = Papel de oficina (resmas, papel continuo)
-  //                  56101520 = Sillas de oficina ergonómicas
-  //                  43211507 = Computadores de escritorio
-  //                  43222641 = Routers/acces points
-  //                  81111811 = Soporte técnico en sitio
-  //
-  //   taxRate:     19 % IVA para bienes y servicios gravados (tabla 13.3.11)
-  //   taxType:     'IVA' → TaxScheme ID='01' Name='IVA'
+  // unspscCode: tabla 13.3.5 (schemeID='001', schemeName='UNSPSC') → FAZ09
+  //   43211503 = Laptops / computadores portátiles
+  //   43211708 = Monitores de computador
+  //   81111500 = Servicios de consultoría en TI
+  //   44111500 = Papel de oficina
+  //   56101520 = Sillas de oficina ergonómicas
+  //   43211503 = Laptops HP (mismo código)
+  //   81111811 = Soporte técnico en sitio
+  //   43222641 = Routers / access points
+  //   43232700 = Software de seguridad
+  //   44122008 = Carpetas / archivadores
 
   const demoProducts = [
     {
@@ -540,10 +655,10 @@ async function main() {
       price:       2500000,
       cost:        1800000,
       stock:       15,
-      unit:        'EA',          // unitCode UNece "cada"
+      unit:        'EA',
       taxRate:     19,
       taxType:     'IVA',
-      unspscCode:  '43211503',   // Laptops
+      unspscCode:  '43211503',
     },
     {
       sku:         'MON-001',
@@ -556,7 +671,7 @@ async function main() {
       unit:        'EA',
       taxRate:     19,
       taxType:     'IVA',
-      unspscCode:  '43211708',   // Monitores
+      unspscCode:  '43211708',
     },
     {
       sku:         'SRV-001',
@@ -566,10 +681,10 @@ async function main() {
       price:       150000,
       cost:        80000,
       stock:       0,
-      unit:        'HUR',        // hora
+      unit:        'HUR',
       taxRate:     19,
       taxType:     'IVA',
-      unspscCode:  '81111500',   // Consultoría TI
+      unspscCode:  '81111500',
     },
     {
       sku:         'PAP-001',
@@ -579,10 +694,10 @@ async function main() {
       price:       18000,
       cost:        12000,
       stock:       120,
-      unit:        'NAR',        // número de artículos (resmas)
+      unit:        'NAR',
       taxRate:     19,
       taxType:     'IVA',
-      unspscCode:  '44111500',   // Papel de oficina
+      unspscCode:  '44111500',
     },
     {
       sku:         'MUE-001',
@@ -595,7 +710,7 @@ async function main() {
       unit:        'EA',
       taxRate:     19,
       taxType:     'IVA',
-      unspscCode:  '56101520',   // Sillas de oficina
+      unspscCode:  '56101520',
     },
     {
       sku:         'LAP-002',
@@ -608,7 +723,7 @@ async function main() {
       unit:        'EA',
       taxRate:     19,
       taxType:     'IVA',
-      unspscCode:  '43211503',   // Laptops
+      unspscCode:  '43211503',
     },
     {
       sku:         'SRV-002',
@@ -618,10 +733,10 @@ async function main() {
       price:       120000,
       cost:        60000,
       stock:       0,
-      unit:        'HUR',        // hora
+      unit:        'HUR',
       taxRate:     19,
       taxType:     'IVA',
-      unspscCode:  '81111811',   // Soporte técnico en sitio
+      unspscCode:  '81111811',
     },
     {
       sku:         'RED-001',
@@ -634,7 +749,7 @@ async function main() {
       unit:        'EA',
       taxRate:     19,
       taxType:     'IVA',
-      unspscCode:  '43222641',   // Routers/access points
+      unspscCode:  '43222641',
     },
     {
       sku:         'SRV-003',
@@ -644,9 +759,10 @@ async function main() {
       price:       85000,
       cost:        40000,
       stock:       0,
-      unit:        'NIU',        // número de unidades internacionales (licencias)
+      unit:        'NIU',
       taxRate:     19,
       taxType:     'IVA',
+      unspscCode:  '43232700',  // ✅ FIX: faltaba en el seed original → FAZ09
     },
     {
       sku:         'PAP-002',
@@ -659,7 +775,7 @@ async function main() {
       unit:        'EA',
       taxRate:     19,
       taxType:     'IVA',
-      unspscCode:  '44122008',   // Carpetas / archivadores
+      unspscCode:  '44122008',
     },
   ];
 
@@ -667,29 +783,40 @@ async function main() {
     const { unspscCode, ...productData } = product as any;
     await prisma.product.upsert({
       where: { companyId_sku: { companyId: demoCompany.id, sku: productData.sku } },
-      update: { unspscCode } as any,
+      // ✅ FIX: update incluye unit + unspscCode para corregir registros existentes
+      update: {
+        unit:       productData.unit,
+        unspscCode,
+        price:      productData.price,
+        cost:       productData.cost,
+        taxRate:    productData.taxRate,
+      } as any,
       create: { ...productData, companyId: demoCompany.id, unspscCode } as any,
     });
   }
+  console.log(`  ✅ ${demoProducts.length} productos con UNSPSC y unidad UNece`);
 
-  console.log(`\n  ✅ Empresa Demo: ${demoCompany.name}`);
-  console.log(`  ✅ Admin demo:   admin@empresademo.com / Admin@123456!`);
-  console.log(`  ✅ Operador:     operador@empresademo.com / Oper@123456!`);
-  console.log(`  ✅ ${demoProducts.length} productos con código UNSPSC y unidad UNece`);
-  console.log(`  ✅ ${demoCustomers.length} clientes con DIVIPOLA y campos DIAN`);
+  console.log(`\n  ✅ Empresa:  BECCASOFT SAS (NIT ${BECCASOFT_NIT}-${BECCASOFT_DV})`);
+  console.log(`  ✅ Admin:    admin@empresademo.com / Admin@123456!`);
+  console.log(`  ✅ Operador: operador@empresademo.com / Oper@123456!`);
 
   console.log('\n🎉 Seed completado exitosamente!\n');
   console.log('📋 Credenciales:');
   console.log('  Super Admin: superadmin@beccafact.com / BeccaFact@2025!');
   console.log('  Admin Demo:  admin@empresademo.com / Admin@123456!');
   console.log('  Operador:    operador@empresademo.com / Oper@123456!');
-  console.log('\n📌 Datos DIAN en clientes:');
-  console.log('  - cityCode (DIVIPOLA), departmentCode (ISO 3166-2:CO)');
-  console.log('  - NIT → schemeID=31, AdditionalAccountID=1, TaxLevelCode listName=04');
-  console.log('  - CC  → schemeID=13, AdditionalAccountID=2, TaxLevelCode listName=49');
-  console.log('\n📌 Datos DIAN en productos:');
+  console.log('\n🏢 Empresa:');
+  console.log(`  BECCASOFT SAS | NIT ${BECCASOFT_NIT}-${BECCASOFT_DV} | Mosquera, Cundinamarca`);
+  console.log('  cityCode=25473 | departmentCode=25 | Certificado GSE 2026→2027 ✅');
+  console.log('\n📌 Datos DIAN — clientes:');
+  console.log('  - documentNumber: NIT SIN DV (el DV se calcula en el service → FAK24)');
+  console.log('  - cityCode (DIVIPOLA): 11001=Bogotá, 05001=Medellín, 76001=Cali');
+  console.log('  - departmentCode: 11=Bogotá, 05=Antioquia, 76=Valle del Cauca');
+  console.log('  - NIT → AdditionalAccountID=1, TaxLevelCode listName="04" O-99');
+  console.log('  - CC  → AdditionalAccountID=2, TaxLevelCode listName="49" R-99-PN');
+  console.log('\n📌 Datos DIAN — productos:');
   console.log('  - unit: EA/HUR/NIU/NAR (tabla 13.3.6 UNece)');
-  console.log('  - unspscCode (tabla 13.3.5 UNSPSC schemeID=001)');
+  console.log('  - unspscCode (tabla 13.3.5 UNSPSC schemeID=001) → resuelve FAZ09');
   console.log('  - taxType: IVA → TaxScheme ID=01 Name=IVA');
 }
 

@@ -103,7 +103,7 @@ export class InvoicesService {
       include: {
         customer: true,
         items: {
-          include: { product: { select: { id: true, name: true, sku: true, unspscCode: true } } },
+          include: { product: { select: { id: true, name: true, sku: true, unit: true, unspscCode: true } } },
           orderBy: { position: 'asc' },
         },
       },
@@ -121,6 +121,16 @@ export class InvoicesService {
     });
     if (!customer) throw new NotFoundException('Cliente no encontrado');
 
+    // Pre-cargar productos para obtener unit y unspscCode (DIAN XML)
+    const productIds = dto.items.map(i => i.productId).filter(Boolean) as string[];
+    const products = productIds.length > 0
+      ? await this.prisma.product.findMany({
+          where: { id: { in: productIds }, companyId },
+          select: { id: true, unit: true, sku: true },
+        })
+      : [];
+    const productMap = new Map(products.map(p => [p.id, p]));
+
     let subtotal = 0;
     let taxAmount = 0;
     const itemsWithTotals = dto.items.map((item, index) => {
@@ -131,6 +141,9 @@ export class InvoicesService {
       const lineTotal     = lineAfterDiscount + lineTax;
       subtotal  += lineAfterDiscount;
       taxAmount += lineTax;
+      // unit: usar el del producto si existe, luego el del DTO, default 'EA' (tabla 13.3.6 UNece)
+      const prod = item.productId ? productMap.get(item.productId) : undefined;
+      const unit = (item as any).unit || prod?.unit || 'EA';
       return {
         productId:   item.productId ?? null,
         description: item.description,
@@ -141,7 +154,8 @@ export class InvoicesService {
         discount:    item.discount ?? 0,
         total:       lineTotal,
         position:    index + 1,
-      };
+        unit,
+      } as any;
     });
 
     const total = subtotal + taxAmount;
@@ -208,7 +222,14 @@ export class InvoicesService {
   async sendToDian(companyId: string, invoiceId: string) {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id: invoiceId, companyId, deletedAt: null },
-      include: { customer: true, items: true, company: true },
+      include: {
+        customer: true,
+        company:  true,
+        items: {
+          include: { product: { select: { id: true, sku: true, unit: true, unspscCode: true } } },
+          orderBy: { position: 'asc' },
+        },
+      },
     });
     if (!invoice) throw new NotFoundException('Factura no encontrada');
     if (invoice.status !== 'DRAFT') throw new BadRequestException('Solo se pueden enviar facturas en estado DRAFT');
@@ -251,9 +272,27 @@ export class InvoicesService {
     const fullNumber = `${prefix}${numericPart}`;
 
     // ── Dates with Bogotá offset ──────────────────────────────────────────
-    const issueDateObj = new Date(invoice.issueDate);
-    const issueDate    = this.toColombiaDate(issueDateObj);
-    const issueTime    = this.toColombiaTime(issueDateObj);
+    // FAD09e/ZE02: SigningTime DEBE ser idéntico a IssueDate+IssueTime del XML.
+    //
+    // Problema raíz: cuando se crea una factura con solo fecha ("2026-03-12"),
+    // Prisma guarda 2026-03-12T00:00:00.000Z (medianoche UTC).
+    // toColombiaDate(medianoche UTC) = 2026-03-11 (¡un día antes! UTC-5)
+    // toColombiaTime(medianoche UTC) = "19:00:00-05:00"
+    // Pero la firma ocurre con new Date() real → SigningTime distinto → FAD09e.
+    //
+    // Solución:
+    // 1. issueDate: se lee de la BD como string ISO y se trunca a YYYY-MM-DD
+    //    SIN restar offset (la fecha del documento es un dato de negocio, no timestamp).
+    // 2. issueTime: se usa new Date() en el momento del envío a DIAN.
+    //    La firma usará exactamente este mismo valor → IssueTime == SigningTime.
+    const nowForIssue  = new Date();  // momento exacto de generación/envío
+    // Extraer fecha del documento directamente del string ISO sin ajuste de zona
+    // invoice.issueDate puede ser Date o string "2026-03-12" / "2026-03-12T00:00:00.000Z"
+    const issueDateRaw = invoice.issueDate instanceof Date
+      ? invoice.issueDate.toISOString()
+      : String(invoice.issueDate);
+    const issueDate = issueDateRaw.substring(0, 10);         // "2026-03-12" siempre correcto
+    const issueTime = this.toColombiaTime(nowForIssue);       // hora actual Colombia == SigningTime
 
     // ── Tax breakdown ─────────────────────────────────────────────────────
     const taxIva  = Number(invoice.taxAmount);   // code 01 IVA
@@ -270,9 +309,14 @@ export class InvoicesService {
     // ── Customer ID type (DIAN codes) ────────────────────────────────────
     const idTypeMap: Record<string, string> = { NIT: '31', CC: '13', CE: '22', PASSPORT: '21', TI: '12' };
     const custIdType = idTypeMap[customer.documentType || 'CC'] || '13';
-    const custId     = customer.documentNumber || customer.taxId || '222222222222';
-    const custDv     = custIdType === '31' ? this.calcDv(custId.replace(/[^0-9]/g, '').slice(0,9)) : '';
-    const nitCustomerClean = custId.replace(/[^0-9]/g, '');
+    // custId: quitar DV si viene como "900108281-1" o "900108281-1" — usar solo NIT base
+    const custIdRaw  = customer.documentNumber || customer.taxId || '222222222222';
+    // Strip hyphen-and-digit suffix (DV) for NIT: "900108281-1" → "900108281"
+    const custIdBase = custIdType === '31' ? custIdRaw.replace(/-\d$/, '').replace(/\D/g, '').slice(0, 9) : custIdRaw.replace(/-\d$/, '');
+    const custId     = custIdBase;
+    // FAK24: DV obligatorio cuando schemeName=31. Calcular siempre desde el NIT limpio.
+    const custDv     = custIdType === '31' ? this.calcDv(custIdBase.replace(/[^0-9]/g, '').slice(0, 9)) : '';
+    const nitCustomerClean = custIdBase.replace(/[^0-9]/g, '');
 
     // ── CUFE — SHA-384 per Anexo Técnico DIAN v1.9 §11.2 ─────────────────
     const { cufe, cufeInput } = this.calcCufeWithInput({
@@ -339,6 +383,8 @@ export class InvoicesService {
       custAddress: customer.address || 'Sin dirección',
       custCity: customer.city || 'Bogotá',
       custCityCode: (customer as any).cityCode || '11001',
+      custDepartment: (customer as any).department || 'Bogotá',
+      custDeptCode: ((customer as any).departmentCode || '11').toString().replace(/^0+(?=\d{2})/, '') || '11',
       custCountry: customer.country || 'CO',
       custEmail: customer.email || 'cliente@example.com',
       customizationId,
@@ -347,7 +393,7 @@ export class InvoicesService {
         lineId:    idx + 1,
         description: it.description,
         quantity:  Number(it.quantity),
-        unit:      it.unit || 'EA',
+        unit:      it.unit || it.product?.unit || 'EA',
         unitPrice: Number(it.unitPrice),
         taxRate:   Number(it.taxRate),
         taxAmount: Number(it.taxAmount),
@@ -362,7 +408,9 @@ export class InvoicesService {
     const certPem = this.normalizePem(company.dianCertificate);
     const keyPem = this.normalizePem(company.dianCertificateKey);
     // ── Sign XML (XAdES-BES placeholder — real cert needed for production) ─
-    const xmlSigned = this.signXmlPlaceholder(xmlUnsigned,certPem,keyPem);
+    // issueDate + issueTime del XML → usados en SigningTime (FAD09e)
+    const issueDateTimeForSig = `${issueDate}T${issueTime.replace(/-05:00$/, '')}-05:00`;
+    const xmlSigned = this.signXmlPlaceholder(xmlUnsigned, certPem, keyPem, issueDateTimeForSig);
 
     // ── Compress to ZIP → Base64 ──────────────────────────────────────────
     // Anexo Técnico §15: fileName = {NitOFE}{CUFE}.zip
@@ -582,6 +630,8 @@ export class InvoicesService {
       custCity:    'Bogotá',
       custCityCode: '11001',
       custCountry: 'CO',
+      custDepartment:'Bogotá',
+      custDeptCode:'11',
       custEmail:   'compras@clienteprueba.co',
       customizationId:   '05',
       paymentMeansCode:  '10',
@@ -602,10 +652,12 @@ export class InvoicesService {
     });
 
     // ── Firmar XML ───────────────────────────────────────────────────────────
+    const issueDateTimePreview = `${issueDate}T${issueTime.replace(/-05:00$/, '')}-05:00`;
     const xmlSigned = this.signXmlPlaceholder(
       xmlUnsigned,
       o.certPem ?? '',
       o.keyPem  ?? '',
+      issueDateTimePreview,
     );
 
     // ── Comprimir y codificar ────────────────────────────────────────────────
@@ -819,7 +871,7 @@ export class InvoicesService {
     supplierDepartment: string; supplierDeptCode: string;
     supplierCountry: string; supplierPhone: string; supplierEmail: string;
     custIdType: string; custDv: string; custId: string;
-    custName: string; custAddress: string; custCity: string; custCityCode: string;
+    custName: string; custAddress: string; custCity: string; custCityCode: string; custDepartment: string; custDeptCode: string;
     custCountry: string; custEmail: string;
     // Nuevos campos de control
     customizationId?: string;    // '01' consumidor final | '05' bienes | '09' servicios | '10' mandatos  default='05'
@@ -836,10 +888,28 @@ export class InvoicesService {
     // ── PaymentMeansCode ──────────────────────────────────────────────────
     const paymentMeansCode = d.paymentMeansCode || '10';
 
-    // ── Base imponible real (solo líneas con IVA > 0) ─────────────────────
-    const taxableBase = d.items
-      .filter(it => it.taxRate > 0)
-      .reduce((sum, it) => sum + it.lineTotal, 0);
+    // ── Base imponible y TaxTotals agrupados por tasa (FAS01a/FAS01b) ──────
+    // La DIAN exige que haya exactamente un TaxTotal de cabecera por cada código
+    // de tributo presente en las líneas, con el mismo ID, Name y Percent.
+    interface TaxGroup { taxId: string; taxName: string; percent: number; taxableAmt: number; taxAmt: number; }
+    const taxGroupsMap = new Map<string, TaxGroup>();
+    for (const it of d.items) {
+      if (it.taxAmount > 0) {
+        const key = `${String(it.taxRate)}`; // agrupar por tasa (% IVA)
+        const existing = taxGroupsMap.get(key);
+        if (existing) {
+          existing.taxableAmt += it.lineTotal;
+          existing.taxAmt     += it.taxAmount;
+        } else {
+          taxGroupsMap.set(key, { taxId: '01', taxName: 'IVA', percent: it.taxRate, taxableAmt: it.lineTotal, taxAmt: it.taxAmount });
+        }
+      }
+    }
+    // Si no hay ningún grupo con IVA, crear un bloque 0.00 para cumplir estructura
+    const taxGroups: TaxGroup[] = taxGroupsMap.size > 0
+      ? Array.from(taxGroupsMap.values())
+      : [{ taxId: '01', taxName: 'IVA', percent: 0, taxableAmt: 0, taxAmt: 0 }];
+    const taxableBase = taxGroups.reduce((s, g) => s + g.taxableAmt, 0);
 
     // ── Items XML — con AllowanceCharge cuando hay descuento ──────────────
     const itemsXml = d.items.map(item => {
@@ -947,7 +1017,7 @@ URL=https://catalogo-vpfe${isHab ? '-hab' : ''}.dian.gov.co/Document/FindDocumen
    <ext:UBLExtension><ext:ExtensionContent><!-- SIGNATURE_PLACEHOLDER --></ext:ExtensionContent></ext:UBLExtension></ext:UBLExtensions>
    <cbc:UBLVersionID>UBL 2.1</cbc:UBLVersionID>
    <cbc:CustomizationID>${customizationId}</cbc:CustomizationID>
-   <cbc:ProfileID>DIAN 2.1</cbc:ProfileID>
+   <cbc:ProfileID>DIAN 2.1: Factura Electrónica de Venta</cbc:ProfileID>
    <cbc:ProfileExecutionID>${d.profileExecutionId}</cbc:ProfileExecutionID>
    <cbc:ID>${d.fullNumber}</cbc:ID>
    <cbc:UUID schemeID="${d.profileExecutionId}" schemeName="CUFE-SHA384">${d.cufe}</cbc:UUID>
@@ -1023,6 +1093,8 @@ URL=https://catalogo-vpfe${isHab ? '-hab' : ''}.dian.gov.co/Document/FindDocumen
             <cac:Address>
                <cbc:ID>${d.custCityCode || '11001'}</cbc:ID>
                <cbc:CityName>${x(d.custCity)}</cbc:CityName>
+               <cbc:CountrySubentity>${x(d.custDepartment)}</cbc:CountrySubentity>
+               <cbc:CountrySubentityCode>${d.custDeptCode || '11'}</cbc:CountrySubentityCode>
                <cac:AddressLine>
                   <cbc:Line>${x(d.custAddress)}</cbc:Line>
                </cac:AddressLine>
@@ -1041,6 +1113,8 @@ URL=https://catalogo-vpfe${isHab ? '-hab' : ''}.dian.gov.co/Document/FindDocumen
             <cac:RegistrationAddress>
                <cbc:ID>${d.custCityCode || '11001'}</cbc:ID>
                <cbc:CityName>${x(d.custCity)}</cbc:CityName>
+               <cbc:CountrySubentity>${x(d.custDepartment)}</cbc:CountrySubentity>
+               <cbc:CountrySubentityCode>${d.custDeptCode || '11'}</cbc:CountrySubentityCode>
                <cac:AddressLine>
                   <cbc:Line>${x(d.custAddress)}</cbc:Line>
                </cac:AddressLine>
@@ -1050,12 +1124,25 @@ URL=https://catalogo-vpfe${isHab ? '-hab' : ''}.dian.gov.co/Document/FindDocumen
                </cac:Country>
             </cac:RegistrationAddress>
             ${d.custIdType !== '31'
-              ? `<cac:TaxScheme><cbc:ID>ZY</cbc:ID><cbc:Name>No causa</cbc:Name></cac:TaxScheme>`
+              ? `<cac:TaxScheme><cbc:ID>ZZ</cbc:ID><cbc:Name>No aplica</cbc:Name></cac:TaxScheme>`
               : `<cac:TaxScheme><cbc:ID>01</cbc:ID><cbc:Name>IVA</cbc:Name></cac:TaxScheme>`}
          </cac:PartyTaxScheme>
          <cac:PartyLegalEntity>
             <cbc:RegistrationName>${x(d.custName)}</cbc:RegistrationName>
             <cbc:CompanyID schemeAgencyID="195" schemeAgencyName="CO, DIAN (Dirección de Impuestos y Aduanas Nacionales)"${d.custDv ? ` schemeID="${d.custDv}"` : ''} schemeName="${d.custIdType}">${d.custId}</cbc:CompanyID>
+            ${d.custIdType !== '31' ? (() => {
+              // FAK61: persona natural (CC/CE/TI/Pasaporte) → obligatorio <cac:Person>
+              // Descomponer "JUAN CARLOS PÉREZ MORALES" → FirstName [MiddleName] FamilyName
+              const parts = (d.custName || '').trim().split(/\s+/);
+              const fn = x(parts[0] || '');
+              const mn = parts.length > 2 ? x(parts.slice(1, -1).join(' ')) : '';
+              const ln = x(parts.length > 1 ? parts[parts.length - 1] : '');
+              return `<cac:Person>
+               <cbc:FirstName>${fn}</cbc:FirstName>${mn ? `
+               <cbc:MiddleName>${mn}</cbc:MiddleName>` : ''}
+               <cbc:FamilyName>${ln}</cbc:FamilyName>
+            </cac:Person>`;
+            })() : ''}
          </cac:PartyLegalEntity>
          <cac:Contact>
             <cbc:ElectronicMail>${d.custEmail}</cbc:ElectronicMail>
@@ -1067,48 +1154,20 @@ URL=https://catalogo-vpfe${isHab ? '-hab' : ''}.dian.gov.co/Document/FindDocumen
       <cbc:PaymentMeansCode>${paymentMeansCode}</cbc:PaymentMeansCode>
       <cbc:PaymentDueDate>${d.dueDate}</cbc:PaymentDueDate>
    </cac:PaymentMeans>
-   <cac:TaxTotal>
-      <cbc:TaxAmount currencyID="${d.currency}">${d.taxIva.toFixed(2)}</cbc:TaxAmount>
+${taxGroups.map(g => `   <cac:TaxTotal>
+      <cbc:TaxAmount currencyID="${d.currency}">${g.taxAmt.toFixed(2)}</cbc:TaxAmount>
       <cac:TaxSubtotal>
-         <cbc:TaxableAmount currencyID="${d.currency}">${(taxableBase > 0 ? taxableBase : d.subtotal).toFixed(2)}</cbc:TaxableAmount>
-         <cbc:TaxAmount currencyID="${d.currency}">${d.taxIva.toFixed(2)}</cbc:TaxAmount>
+         <cbc:TaxableAmount currencyID="${d.currency}">${g.taxableAmt.toFixed(2)}</cbc:TaxableAmount>
+         <cbc:TaxAmount currencyID="${d.currency}">${g.taxAmt.toFixed(2)}</cbc:TaxAmount>
          <cac:TaxCategory>
-            <cbc:Percent>19.00</cbc:Percent>
+            <cbc:Percent>${g.percent.toFixed(2)}</cbc:Percent>
             <cac:TaxScheme>
-               <cbc:ID>01</cbc:ID>
-               <cbc:Name>IVA</cbc:Name>
+               <cbc:ID>${g.taxId}</cbc:ID>
+               <cbc:Name>${g.taxName}</cbc:Name>
             </cac:TaxScheme>
          </cac:TaxCategory>
       </cac:TaxSubtotal>
-   </cac:TaxTotal>
-   <cac:TaxTotal>
-      <cbc:TaxAmount currencyID="${d.currency}">0.00</cbc:TaxAmount>
-      <cac:TaxSubtotal>
-         <cbc:TaxableAmount currencyID="${d.currency}">0.00</cbc:TaxableAmount>
-         <cbc:TaxAmount currencyID="${d.currency}">0.00</cbc:TaxAmount>
-         <cac:TaxCategory>
-            <cbc:Percent>0.00</cbc:Percent>
-            <cac:TaxScheme>
-               <cbc:ID>03</cbc:ID>
-               <cbc:Name>ICA</cbc:Name>
-            </cac:TaxScheme>
-         </cac:TaxCategory>
-      </cac:TaxSubtotal>
-   </cac:TaxTotal>
-   <cac:TaxTotal>
-      <cbc:TaxAmount currencyID="${d.currency}">0.00</cbc:TaxAmount>
-      <cac:TaxSubtotal>
-         <cbc:TaxableAmount currencyID="${d.currency}">0.00</cbc:TaxableAmount>
-         <cbc:TaxAmount currencyID="${d.currency}">0.00</cbc:TaxAmount>
-         <cac:TaxCategory>
-            <cbc:Percent>0.00</cbc:Percent>
-            <cac:TaxScheme>
-               <cbc:ID>04</cbc:ID>
-               <cbc:Name>Impuesto Nacional al Consumo</cbc:Name>
-            </cac:TaxScheme>
-         </cac:TaxCategory>
-      </cac:TaxSubtotal>
-   </cac:TaxTotal>
+   </cac:TaxTotal>`).join('\n')}
    <cac:LegalMonetaryTotal>
       <cbc:LineExtensionAmount currencyID="${d.currency}">${d.subtotal.toFixed(2)}</cbc:LineExtensionAmount>
       <cbc:TaxExclusiveAmount currencyID="${d.currency}">${(taxableBase > 0 ? taxableBase : d.subtotal).toFixed(2)}</cbc:TaxExclusiveAmount>
@@ -1146,7 +1205,7 @@ ${itemsXml}
     .trim();                 // Quita espacios al inicio y final
   }
 
-  private signXmlPlaceholder(xml: string, certPem: string, keyPem: string): string {
+  private signXmlPlaceholder(xml: string, certPem: string, keyPem: string, issueDateTime?: string): string {
     // ── Limpiar Bag Attributes que genera openssl pkcs12 ─────────────────────
     // Los certs de GSE/Andes vienen con "Bag Attributes\n  friendlyName:..." antes del PEM
     const rawCert = certPem;
@@ -1164,7 +1223,9 @@ ${itemsXml}
       const sigId     = randomUUID();
       const keyInfoId = randomUUID();
       // Formato: 2026-03-10T15:30:00-05:00 (hora Colombia)
-      const signingTime = new Date().toISOString().slice(0, 19) + '-05:00';
+      // FAD09e: SigningTime DEBE coincidir con IssueDate+IssueTime del XML
+      // Si se pasa issueDateTime lo usamos; si no, usamos now() como fallback
+      const signingTime = issueDateTime ?? (new Date().toISOString().slice(0, 19) + '-05:00');
 
       // ── Cert info ────────────────────────────────────────────────────────
       const certBase64 = effectiveCert

@@ -280,6 +280,7 @@ CREATE TABLE "invoice_items" (
     "taxAmount" DECIMAL(12,2) NOT NULL,
     "discount" DECIMAL(5,2) NOT NULL DEFAULT 0,
     "total" DECIMAL(12,2) NOT NULL,
+    "unit" TEXT,
     "position" INTEGER NOT NULL,
 
     CONSTRAINT "invoice_items_pkey" PRIMARY KEY ("id")
