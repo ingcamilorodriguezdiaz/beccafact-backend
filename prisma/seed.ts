@@ -494,6 +494,7 @@ async function main() {
       country:        'CO',
       cityCode:       '11001',          // DIVIPOLA Bogotá (tabla 13.4.3)
       departmentCode: '11',             // ISO 3166-2:CO-DC (tabla 13.4.2)
+      taxLevelCode:   'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
       creditDays:     30,
     },
     {
@@ -508,6 +509,7 @@ async function main() {
       country:        'CO',
       cityCode:       '76001',          // DIVIPOLA Cali
       departmentCode: '76',             // ISO 3166-2:CO-VAC
+      taxLevelCode:   'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
       creditDays:     60,
     },
     {
@@ -522,6 +524,7 @@ async function main() {
       country:        'CO',
       cityCode:       '11001',
       departmentCode: '11',
+      taxLevelCode:   'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
       creditDays:     30,
     },
     {
@@ -536,6 +539,7 @@ async function main() {
       country:        'CO',
       cityCode:       '05001',          // DIVIPOLA Medellín
       departmentCode: '05',             // ISO 3166-2:CO-ANT
+      taxLevelCode:   'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
       creditDays:     0,
     },
     {
@@ -550,6 +554,7 @@ async function main() {
       country:        'CO',
       cityCode:       '11001',
       departmentCode: '11',
+      taxLevelCode:   'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
       creditDays:     30,
     },
     // ── Persona Natural CC ────────────────────────────────────────────────────
@@ -565,6 +570,7 @@ async function main() {
       country:        'CO',
       cityCode:       '05001',
       departmentCode: '05',
+      taxLevelCode:   'ZZ',             // FAK26: persona natural sin responsabilidad fiscal
       creditDays:     0,
     },
     {
@@ -579,12 +585,13 @@ async function main() {
       country:        'CO',
       cityCode:       '11001',
       departmentCode: '11',
+      taxLevelCode:   'ZZ',             // FAK26: persona natural sin responsabilidad fiscal
       creditDays:     0,
     },
   ];
 
   for (const customer of demoCustomers) {
-    const { cityCode, departmentCode, ...customerData } = customer as any;
+    const { cityCode, departmentCode, taxLevelCode, ...customerData } = customer as any;
     await prisma.customer.upsert({
       where: {
         companyId_documentType_documentNumber: {
@@ -602,10 +609,11 @@ async function main() {
         city:           customerData.city,
         department:     customerData.department,
         country:        customerData.country,
+        taxLevelCode,   // FAK26: actualiza responsabilidad fiscal en re-seed
         cityCode,
         departmentCode,
       } as any,
-      create: { ...customerData, companyId: demoCompany.id, cityCode, departmentCode } as any,
+      create: { ...customerData, companyId: demoCompany.id, taxLevelCode, cityCode, departmentCode } as any,
     });
   }
   console.log(`  ✅ ${demoCustomers.length} clientes con DIVIPOLA, departmentCode y NIT sin DV`);

@@ -1,3 +1,6 @@
+// BeccaFact - Prisma Schema
+// Multi-tenant SaaS ERP for Colombia
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,17 +10,22 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PLANS & FEATURES
+// ─────────────────────────────────────────────────────────────────────────────
+
 model Plan {
-  id            String         @id @default(uuid())
-  name          String         @unique
-  displayName   String
-  description   String?
-  price         Decimal        @db.Decimal(12, 2)
-  currency      String         @default("COP")
-  isActive      Boolean        @default(true)
-  isCustom      Boolean        @default(false)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id          String   @id @default(uuid())
+  name        String   @unique // BASIC | EMPRESARIAL | CORPORATIVO
+  displayName String
+  description String?
+  price       Decimal  @db.Decimal(12, 2)
+  currency    String   @default("COP")
+  isActive    Boolean  @default(true)
+  isCustom    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
   features      PlanFeature[]
   subscriptions Subscription[]
 
@@ -25,31 +33,36 @@ model Plan {
 }
 
 model PlanFeature {
-  id     String  @id @default(uuid())
+  id     String @id @default(uuid())
   planId String
-  key    String
-  value  String
+  key    String // max_documents_per_month | max_products | max_integrations | storage_months | etc.
+  value  String // "300" | "unlimited" | "true" | "false"
   label  String?
-  plan   Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@unique([planId, key])
   @@map("plan_features")
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPANIES
+// ─────────────────────────────────────────────────────────────────────────────
+
 model Company {
-  id                 String            @id @default(uuid())
-  name               String
-  nit                String            @unique
-  razonSocial        String
-  email              String
-  phone              String?
-  address            String?
-  city               String?
-  department         String?
-  cityCode           String?
-  departmentCode     String?
-  country            String            @default("CO")
-  status             CompanyStatus     @default(ACTIVE)
+  id             String        @id @default(uuid())
+  name           String
+  nit            String        @unique
+  razonSocial    String
+  email          String
+  phone          String?
+  address        String?
+  city           String?
+  department     String?
+  cityCode       String?
+  departmentCode String?
+  country        String        @default("CO")
+  status         CompanyStatus @default(ACTIVE)
   dianTestMode       Boolean           @default(true)
   dianSoftwareId     String?
   dianSoftwarePin    String?
@@ -63,67 +76,92 @@ model Company {
   dianFechaHasta     String?
   dianCertificate    String?
   dianCertificateKey String?
-  logoUrl            String?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  deletedAt          DateTime?
-  auditLogs          AuditLog[]
-  categories         Category[]
-  customers          Customer[]
-  employees          employees[]
-  importJobs         ImportJob[]
-  integrations       Integration[]
-  invoices           Invoice[]
-  payroll_records    payroll_records[]
-  products           Product[]
-  subscriptions      Subscription[]
-  usageTracking      UsageTracking[]
-  users              User[]
+  logoUrl        String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
 
+  users          User[]
+  subscriptions  Subscription[]
+  products       Product[]
+  categories     Category[]
+  invoices       Invoice[]
+  customers      Customer[]
+  integrations   Integration[]
+  usageTracking  UsageTracking[]
+  auditLogs      AuditLog[]
+  importJobs     ImportJob[]
+  employees      employees[] 
+  payroll_records    payroll_records[]
   @@index([status])
   @@index([nit])
   @@map("companies")
 }
 
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+  TRIAL
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUBSCRIPTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
 model Subscription {
-  id           String             @id @default(uuid())
-  companyId    String
-  planId       String
-  status       SubscriptionStatus @default(ACTIVE)
-  startDate    DateTime
-  endDate      DateTime?
-  trialEndsAt  DateTime?
-  customLimits Json?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  company      Company            @relation(fields: [companyId], references: [id])
-  plan         Plan               @relation(fields: [planId], references: [id])
+  id               String             @id @default(uuid())
+  companyId        String
+  planId           String
+  status           SubscriptionStatus @default(ACTIVE)
+  startDate        DateTime
+  endDate          DateTime?
+  trialEndsAt      DateTime?
+  customLimits     Json?              // Override per-company limits
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  plan    Plan    @relation(fields: [planId], references: [id])
 
   @@index([companyId])
   @@index([status])
   @@map("subscriptions")
 }
 
+enum SubscriptionStatus {
+  ACTIVE
+  TRIAL
+  SUSPENDED
+  CANCELLED
+  EXPIRED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USERS & ROLES
+// ─────────────────────────────────────────────────────────────────────────────
+
 model User {
-  id           String      @id @default(uuid())
-  email        String      @unique
-  password     String
-  firstName    String
-  lastName     String
-  phone        String?
-  avatar       String?
-  isActive     Boolean     @default(true)
-  isSuperAdmin Boolean     @default(false)
-  companyId    String?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  deletedAt    DateTime?
-  lastLoginAt  DateTime?
-  refreshToken String?
-  auditLogs    AuditLog[]
-  importJobs   ImportJob[]
-  roles        UserRole[]
-  company      Company?    @relation(fields: [companyId], references: [id])
+  id             String    @id @default(uuid())
+  email          String    @unique
+  password       String
+  firstName      String
+  lastName       String
+  phone          String?
+  avatar         String?
+  isActive       Boolean   @default(true)
+  isSuperAdmin   Boolean   @default(false)
+  companyId      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+  lastLoginAt    DateTime?
+  refreshToken   String?   @db.Text
+
+  company        Company?         @relation(fields: [companyId], references: [id])
+  roles          UserRole[]
+  auditLogs      AuditLog[]
+  importJobs     ImportJob[]
 
   @@index([companyId])
   @@index([email])
@@ -131,12 +169,13 @@ model User {
 }
 
 model Role {
-  id          String           @id @default(uuid())
-  name        String           @unique
+  id          String   @id @default(uuid())
+  name        String   @unique // SUPER_ADMIN | ADMIN | MANAGER | OPERATOR | VIEWER
   displayName String
   description String?
-  isSystem    Boolean          @default(false)
-  createdAt   DateTime         @default(now())
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
   permissions RolePermission[]
   userRoles   UserRole[]
 
@@ -144,11 +183,12 @@ model Role {
 }
 
 model RolePermission {
-  id       String @id @default(uuid())
-  roleId   String
-  resource String
-  action   String
-  role     Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  id         String @id @default(uuid())
+  roleId     String
+  resource   String // invoices | products | customers | reports | etc.
+  action     String // create | read | update | delete | export | import
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@unique([roleId, resource, action])
   @@map("role_permissions")
@@ -159,27 +199,33 @@ model UserRole {
   userId    String
   roleId    String
   createdAt DateTime @default(now())
-  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@unique([userId, roleId])
   @@map("user_roles")
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PRODUCTS & CATEGORIES
+// ─────────────────────────────────────────────────────────────────────────────
+
 model Category {
-  id          String     @id @default(uuid())
+  id          String    @id @default(uuid())
   companyId   String
   name        String
   description String?
   parentId    String?
-  isActive    Boolean    @default(true)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
-  company     Company    @relation(fields: [companyId], references: [id])
-  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id])
-  children    Category[] @relation("CategoryTree")
-  products    Product[]
+
+  company  Company    @relation(fields: [companyId], references: [id])
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
+  products Product[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -192,7 +238,7 @@ model Product {
   categoryId   String?
   sku          String
   name         String
-  description  String?
+  description  String?       @db.Text
   price        Decimal       @db.Decimal(12, 2)
   cost         Decimal       @default(0) @db.Decimal(12, 2)
   stock        Int           @default(0)
@@ -200,22 +246,40 @@ model Product {
   unit         String        @default("UND")
   taxRate      Decimal       @default(19) @db.Decimal(5, 2)
   taxType      TaxType       @default(IVA)
+  unspscCode   String?
   status       ProductStatus @default(ACTIVE)
   imageUrl     String?
   barcode      String?
-  unspscCode   String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   deletedAt    DateTime?
-  invoiceItems InvoiceItem[]
-  category     Category?     @relation(fields: [categoryId], references: [id])
+
   company      Company       @relation(fields: [companyId], references: [id])
+  category     Category?     @relation(fields: [categoryId], references: [id])
+  invoiceItems InvoiceItem[]
 
   @@unique([companyId, sku])
   @@index([companyId])
   @@index([companyId, status])
   @@map("products")
 }
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  OUT_OF_STOCK
+}
+
+enum TaxType {
+  IVA
+  INC
+  ICA
+  NONE
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CUSTOMERS
+// ─────────────────────────────────────────────────────────────────────────────
 
 model Customer {
   id             String       @id @default(uuid())
@@ -234,131 +298,192 @@ model Customer {
   isActive       Boolean      @default(true)
   creditLimit    Decimal?     @db.Decimal(12, 2)
   creditDays     Int?
-  notes          String?
+  notes          String?      @db.Text
+  taxLevelCode   String? 
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   deletedAt      DateTime?
-  company        Company      @relation(fields: [companyId], references: [id])
-  invoices       Invoice[]
+
+  company  Company   @relation(fields: [companyId], references: [id])
+  invoices Invoice[]
 
   @@unique([companyId, documentType, documentNumber])
   @@index([companyId])
   @@map("customers")
 }
 
+enum DocumentType {
+  NIT
+  CC
+  CE
+  PASSPORT
+  TI
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INVOICES
+// ─────────────────────────────────────────────────────────────────────────────
+
 model Invoice {
-  id             String        @id @default(uuid())
-  companyId      String
-  customerId     String
-  invoiceNumber  String
-  prefix         String        @default("FV")
-  type           InvoiceType   @default(VENTA)
-  status         InvoiceStatus @default(DRAFT)
-  issueDate      DateTime
-  dueDate        DateTime?
-  subtotal       Decimal       @db.Decimal(12, 2)
-  taxAmount      Decimal       @db.Decimal(12, 2)
-  discountAmount Decimal       @default(0) @db.Decimal(12, 2)
-  total          Decimal       @db.Decimal(12, 2)
-  notes          String?
-  dianCufe       String?       @unique
-  dianQrCode     String?
-  dianStatus     String?
-  dianStatusCode String?
-  dianStatusMsg  String?
-  dianZipKey     String?
-  dianAttempts   Int           @default(0)
-  dianSentAt     DateTime?
-  dianResponseAt DateTime?
-  dianXmlBase64  String?
-  xmlContent     String?
-  xmlSigned      String?
-  pdfUrl         String?
-  xmlUrl         String?
-  currency       String        @default("COP")
-  exchangeRate   Decimal       @default(1) @db.Decimal(12, 4)
-  paymentMethod  String        @default("cash")
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  deletedAt      DateTime?
-  dianErrors     String?
-  items          InvoiceItem[]
-  company        Company       @relation(fields: [companyId], references: [id])
-  customer       Customer      @relation(fields: [customerId], references: [id])
+  id              String        @id @default(uuid())
+  companyId       String
+  customerId      String
+  invoiceNumber   String
+  prefix          String        @default("FV")
+  type            InvoiceType   @default(VENTA)
+  status          InvoiceStatus @default(DRAFT)
+  issueDate       DateTime
+  dueDate         DateTime?
+  subtotal        Decimal       @db.Decimal(12, 2)
+  taxAmount       Decimal       @db.Decimal(12, 2)
+  discountAmount  Decimal       @default(0) @db.Decimal(12, 2)
+  total           Decimal       @db.Decimal(12, 2)
+  notes           String?       @db.Text
+  dianCufe        String?       @unique
+  dianQrCode      String?       @db.Text
+  dianStatus      String?                        // raw DIAN status code stored for reference
+  dianStatusCode  String?                        // 00=aceptado, 99=rechazado, 66=no encontrado
+  dianStatusMsg   String?       @db.Text         // statusMessage / statusDescription from DIAN
+  dianErrors      String?       @db.Text         // JSON array: ErrorMessageList from GetStatusZip
+  dianZipKey      String?                        // trackId returned by SendTestSetAsync/SendBillAsync
+  dianXmlBase64   String?       @db.Text         // ApplicationResponse XML (base64) from DIAN
+  dianSentAt      DateTime?
+  dianResponseAt  DateTime?
+  dianAttempts    Int           @default(0)      // number of send attempts
+  xmlContent      String?
+  xmlSigned       String?       @db.Text         // signed UBL 2.1 XML sent to DIAN
+  pdfUrl          String?
+  xmlUrl          String?
+  currency        String        @default("COP")
+  exchangeRate    Decimal       @default(1) @db.Decimal(12, 4)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  company  Company       @relation(fields: [companyId], references: [id])
+  customer Customer      @relation(fields: [customerId], references: [id])
+  items    InvoiceItem[]
 
   @@unique([companyId, invoiceNumber])
   @@index([companyId])
   @@index([companyId, status])
   @@index([companyId, issueDate])
-  @@index([dianZipKey])
   @@map("invoices")
 }
 
 model InvoiceItem {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   invoiceId   String
   productId   String?
   description String
-  quantity    Decimal  @db.Decimal(12, 4)
-  unitPrice   Decimal  @db.Decimal(12, 2)
-  taxRate     Decimal  @db.Decimal(5, 2)
-  taxAmount   Decimal  @db.Decimal(12, 2)
-  discount    Decimal  @default(0) @db.Decimal(5, 2)
-  total       Decimal  @db.Decimal(12, 2)
-  unit        String?
+  quantity    Decimal @db.Decimal(12, 4)
+  unitPrice   Decimal @db.Decimal(12, 2)
+  taxRate     Decimal @db.Decimal(5, 2)
+  taxAmount   Decimal @db.Decimal(12, 2)
+  discount    Decimal @default(0) @db.Decimal(5, 2)
+  total       Decimal @db.Decimal(12, 2)
   position    Int
-  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  product     Product? @relation(fields: [productId], references: [id])
+
+  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
 
   @@index([invoiceId])
   @@map("invoice_items")
 }
 
+enum InvoiceType {
+  VENTA
+  NOTA_CREDITO
+  NOTA_DEBITO
+  SOPORTE_ADQUISICION
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT_DIAN
+  ACCEPTED_DIAN
+  REJECTED_DIAN
+  PAID
+  CANCELLED
+  OVERDUE
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INTEGRATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
 model Integration {
-  id         String            @id @default(uuid())
-  companyId  String
-  type       IntegrationType
-  name       String
-  config     Json
-  isActive   Boolean           @default(true)
-  lastSyncAt DateTime?
-  status     IntegrationStatus @default(PENDING)
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
-  company    Company           @relation(fields: [companyId], references: [id])
+  id          String            @id @default(uuid())
+  companyId   String
+  type        IntegrationType
+  name        String
+  config      Json
+  isActive    Boolean           @default(true)
+  lastSyncAt  DateTime?
+  status      IntegrationStatus @default(PENDING)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
 
   @@index([companyId])
   @@map("integrations")
 }
 
+enum IntegrationType {
+  DIAN
+  NOMINA
+  CONTABILIDAD
+  BANCOS
+  ECOMMERCE
+  CUSTOM
+}
+
+enum IntegrationStatus {
+  PENDING
+  ACTIVE
+  ERROR
+  SUSPENDED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USAGE TRACKING
+// ─────────────────────────────────────────────────────────────────────────────
+
 model UsageTracking {
-  id        String   @id @default(uuid())
-  companyId String
-  metric    String
-  value     Int      @default(0)
-  period    String
-  updatedAt DateTime @updatedAt
-  company   Company  @relation(fields: [companyId], references: [id])
+  id          String   @id @default(uuid())
+  companyId   String
+  metric      String   // documents_issued | products_created | storage_used
+  value       Int      @default(0)
+  period      String   // YYYY-MM
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
 
   @@unique([companyId, metric, period])
   @@index([companyId, period])
   @@map("usage_tracking")
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIT LOGS
+// ─────────────────────────────────────────────────────────────────────────────
+
 model AuditLog {
   id         String   @id @default(uuid())
   companyId  String?
   userId     String?
-  action     String
-  resource   String
+  action     String   // CREATE | UPDATE | DELETE | LOGIN | EXPORT | etc.
+  resource   String   // invoice | product | user | etc.
   resourceId String?
   before     Json?
   after      Json?
   ip         String?
   userAgent  String?
   createdAt  DateTime @default(now())
-  company    Company? @relation(fields: [companyId], references: [id])
-  user       User?    @relation(fields: [userId], references: [id])
+
+  company Company? @relation(fields: [companyId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
 
   @@index([companyId, createdAt])
   @@index([userId])
@@ -366,26 +491,31 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// IMPORT JOBS
+// ─────────────────────────────────────────────────────────────────────────────
+
 model ImportJob {
-  id            String        @id @default(uuid())
-  companyId     String
-  userId        String
-  type          String        @default("PRODUCTS")
-  status        ImportStatus  @default(PENDING)
-  fileName      String
-  fileUrl       String
-  totalRows     Int           @default(0)
-  processedRows Int           @default(0)
-  successRows   Int           @default(0)
-  errorRows     Int           @default(0)
-  reportUrl     String?
-  startedAt     DateTime?
-  completedAt   DateTime?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  errors        ImportError[]
-  company       Company       @relation(fields: [companyId], references: [id])
-  user          User          @relation(fields: [userId], references: [id])
+  id           String      @id @default(uuid())
+  companyId    String
+  userId       String
+  type         String      @default("PRODUCTS")
+  status       ImportStatus @default(PENDING)
+  fileName     String
+  fileUrl      String
+  totalRows    Int         @default(0)
+  processedRows Int        @default(0)
+  successRows  Int         @default(0)
+  errorRows    Int         @default(0)
+  reportUrl    String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  company Company       @relation(fields: [companyId], references: [id])
+  user    User          @relation(fields: [userId], references: [id])
+  errors  ImportError[]
 
   @@index([companyId])
   @@index([status])
@@ -393,19 +523,31 @@ model ImportJob {
 }
 
 model ImportError {
-  id          String    @id @default(uuid())
+  id         String   @id @default(uuid())
   importJobId String
-  rowNumber   Int
-  field       String?
-  value       String?
-  message     String
-  rawData     Json?
-  createdAt   DateTime  @default(now())
-  importJob   ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  rowNumber  Int
+  field      String?
+  value      String?
+  message    String
+  rawData    Json?
+  createdAt  DateTime @default(now())
+
+  importJob ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
 
   @@index([importJobId])
   @@map("import_errors")
 }
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  ERROR
+  CANCELLED
+}
+
+
+
 
 model employees {
   id              String   @id @default(uuid())
@@ -472,81 +614,4 @@ model payroll_records {
   @@unique([companyId, employeeId, period])
   @@index([companyId])
   @@index([companyId, period])
-}
-
-enum CompanyStatus {
-  ACTIVE
-  SUSPENDED
-  CANCELLED
-  TRIAL
-}
-
-enum SubscriptionStatus {
-  ACTIVE
-  TRIAL
-  SUSPENDED
-  CANCELLED
-  EXPIRED
-}
-
-enum ProductStatus {
-  ACTIVE
-  INACTIVE
-  OUT_OF_STOCK
-}
-
-enum TaxType {
-  IVA
-  INC
-  ICA
-  NONE
-}
-
-enum DocumentType {
-  NIT
-  CC
-  CE
-  PASSPORT
-  TI
-}
-
-enum InvoiceType {
-  VENTA
-  NOTA_CREDITO
-  NOTA_DEBITO
-  SOPORTE_ADQUISICION
-}
-
-enum InvoiceStatus {
-  DRAFT
-  SENT_DIAN
-  ACCEPTED_DIAN
-  REJECTED_DIAN
-  PAID
-  CANCELLED
-  OVERDUE
-}
-
-enum IntegrationType {
-  DIAN
-  NOMINA
-  CONTABILIDAD
-  BANCOS
-  ECOMMERCE
-  CUSTOM
-}
-
-enum IntegrationStatus {
-  PENDING
-  ACTIVE
-  ERROR
-  SUSPENDED
-}
-
-enum ImportStatus {
-  PENDING
-  PROCESSING
-  COMPLETED
-  ERROR
-  CANCELLED
 }

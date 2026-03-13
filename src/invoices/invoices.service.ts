@@ -145,17 +145,21 @@ export class InvoicesService {
       const prod = item.productId ? productMap.get(item.productId) : undefined;
       const unit = (item as any).unit || prod?.unit || 'EA';
       return {
-        productId:   item.productId ?? null,
-        description: item.description,
-        quantity:    item.quantity,
-        unitPrice:   item.unitPrice,
-        taxRate:     item.taxRate ?? 19,
-        taxAmount:   lineTax,
-        discount:    item.discount ?? 0,
-        total:       lineTotal,
-        position:    index + 1,
-        unit,
-      } as any;
+    description: item.description,
+    quantity: Number(item.quantity),
+    unitPrice: Number(item.unitPrice),
+    taxRate: Number(item.taxRate ?? 19),
+    taxAmount: lineTax,
+    discount: Number(item.discount ?? 0),
+    total: lineTotal,
+    position: index + 1,
+
+    ...(item.productId && {
+      product: {
+        connect: { id: item.productId }
+      }
+    })
+  }as any;
     });
 
     const total = subtotal + taxAmount;
@@ -387,6 +391,7 @@ export class InvoicesService {
       custDeptCode: ((customer as any).departmentCode || '11').toString().replace(/^0+(?=\d{2})/, '') || '11',
       custCountry: customer.country || 'CO',
       custEmail: customer.email || 'cliente@example.com',
+      custTaxLevelCode: (customer as any).taxLevelCode || null,
       customizationId,
       paymentMeansCode,
       items: items.map((it: any, idx: number) => ({
@@ -872,7 +877,7 @@ export class InvoicesService {
     supplierCountry: string; supplierPhone: string; supplierEmail: string;
     custIdType: string; custDv: string; custId: string;
     custName: string; custAddress: string; custCity: string; custCityCode: string; custDepartment: string; custDeptCode: string;
-    custCountry: string; custEmail: string;
+    custCountry: string; custEmail: string; custTaxLevelCode?: string | null;
     // Nuevos campos de control
     customizationId?: string;    // '01' consumidor final | '05' bienes | '09' servicios | '10' mandatos  default='05'
     paymentMeansCode?: string;   // '10' contado | '41' crédito | '42' transferencia | '48' tarj.crédito | '54' tarj.débito
@@ -960,10 +965,10 @@ export class InvoicesService {
          <cbc:Description>${x(item.description)}</cbc:Description>
          <cac:SellersItemIdentification>
             <cbc:ID>${item.sku || String(item.lineId)}</cbc:ID>
-         </cac:SellersItemIdentification>${item.unspscCode ? `
-         <cac:AdditionalItemIdentification>
-            <cbc:ID schemeAgencyID="10" schemeID="001" schemeName="UNSPSC">${item.unspscCode}</cbc:ID>
-         </cac:AdditionalItemIdentification>` : ''}
+         </cac:SellersItemIdentification>
+         <cac:StandardItemIdentification>
+            <cbc:ID schemeAgencyID="10" schemeID="${item.unspscCode ? '001' : '999'}" schemeName="${item.unspscCode ? 'UNSPSC' : 'Estandar de adopcion del contribuyente facturador'}">${item.unspscCode ?? (item.sku || String(item.lineId))}</cbc:ID>
+         </cac:StandardItemIdentification>
       </cac:Item>
       <cac:Price>
          <cbc:PriceAmount currencyID="${d.currency}">${grossUnitPrice.toFixed(2)}</cbc:PriceAmount>
@@ -1109,7 +1114,7 @@ URL=https://catalogo-vpfe${isHab ? '-hab' : ''}.dian.gov.co/Document/FindDocumen
             <cbc:CompanyID schemeAgencyID="195" schemeAgencyName="CO, DIAN (Dirección de Impuestos y Aduanas Nacionales)"${d.custDv ? ` schemeID="${d.custDv}"` : ''} schemeName="${d.custIdType}">${d.custId}</cbc:CompanyID>
             ${d.custIdType !== '31'
               ? `<cbc:TaxLevelCode listName="49">R-99-PN</cbc:TaxLevelCode>`
-              : `<cbc:TaxLevelCode listName="04">O-99</cbc:TaxLevelCode>`}
+              : `<cbc:TaxLevelCode listName="48">${d.custTaxLevelCode && d.custTaxLevelCode !== 'ZZ' && d.custTaxLevelCode !== 'O-99' ? d.custTaxLevelCode : 'O-13'}</cbc:TaxLevelCode>`}
             <cac:RegistrationAddress>
                <cbc:ID>${d.custCityCode || '11001'}</cbc:ID>
                <cbc:CityName>${x(d.custCity)}</cbc:CityName>
@@ -1181,7 +1186,38 @@ ${itemsXml}
 </Invoice>`;
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  /**
+   * Canonicaliza un fragmento XML aplicando C14N Inclusive manualmente:
+   * 1. Inserta los 9 namespaces del Invoice root en el tag de apertura
+   * 2. Expande los self-closing tags (<foo/> → <foo></foo>)
+   * La DIAN verifica los digests y la firma sobre contenido C14N Inclusive,
+   * que requiere ambas transformaciones para producir el hash correcto.
+   */
+  private toC14nString(fragment: string, openTag: string): string {
+    const INVOICE_NS =
+      ` xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"` +
+      ` xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"` +
+      ` xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"` +
+      ` xmlns:ds="http://www.w3.org/2000/09/xmldsig#"` +
+      ` xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2"` +
+      ` xmlns:sts="dian:gov:co:facturaelectronica:Structures-2-1"` +
+      ` xmlns:xades="http://uri.etsi.org/01903/v1.3.2#"` +
+      ` xmlns:xades141="http://uri.etsi.org/01903/v1.4.1#"` +
+      ` xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"`;
+    // Extraer el nombre del tag (e.g. '<ds:KeyInfo ' → 'ds:KeyInfo')
+    // para construir un regex que funcione tanto con atributos (<ds:KeyInfo Id="...">)
+    // como sin atributos (<ds:SignedInfo>)
+    const tagName = openTag.replace(/^</, '').replace(/[\s>].*$/, '');
+    // Insertar INVOICE_NS justo antes del primer espacio o '>' después del nombre del tag
+    const withNs = fragment.replace(
+      new RegExp(`(<${tagName})([ >])`),
+      `$1${INVOICE_NS}$2`,
+    );
+    // C14N Inclusive convierte self-closing <ds:Foo attr="x"/> → <ds:Foo attr="x"></ds:Foo>
+    return withNs.replace(/<((?:ds|xades|xades141|sts):[A-Za-z]+)([^>]*)\/>/g, '<$1$2></$1>');
+  }
+
+    // ══════════════════════════════════════════════════════════════════════════
   // XAdES-BES SIGNATURE — estructura exacta según ejemplos DIAN v1.9
   // 3 References: (1) doc enveloped, (2) KeyInfo, (3) SignedProperties
   // ══════════════════════════════════════════════════════════════════════════
@@ -1262,18 +1298,53 @@ ${itemsXml}
       const keyInfoXml =
 `<ds:KeyInfo Id="xmldsig-${keyInfoId}-keyinfo"><ds:X509Data><ds:X509Certificate>${certBase64}</ds:X509Certificate></ds:X509Data></ds:KeyInfo>`;
 
-      // ── Digests sobre strings raw ─────────────────────────────────────────
-      const docDigest     = createHash('sha256').update(Buffer.from(xml, 'utf8')).digest('base64');
-      const keyInfoDigest = createHash('sha256').update(Buffer.from(keyInfoXml, 'utf8')).digest('base64');
-      const propsDigest   = createHash('sha256').update(Buffer.from(signedPropsXml, 'utf8')).digest('base64');
+      // ── Digests C14N Inclusive ────────────────────────────────────────────────
+      // La DIAN verifica cada Reference aplicando C14N Inclusive al elemento en su
+      // contexto dentro del documento. C14N Inclusive:
+      //   1. Hereda los namespaces del elemento raíz Invoice (9 namespaces)
+      //   2. Convierte self-closing tags <foo/> → <foo></foo>
+      // toC14nString() aplica ambas transformaciones sin necesitar un parser XML.
+
+      // docDigest: URI="" con transform enveloped-signature + C14N Inclusive
+      // La DIAN aplica: (1) quitar <ds:Signature> del árbol (deja ExtensionContent vacío),
+      // (2) C14N Inclusive del documento resultante.
+      // C14N del documento = quitar declaración XML <?xml...?> + expandir self-closing tags.
+      // El xml que recibimos tiene <!-- SIGNATURE_PLACEHOLDER --> → lo vaciamos antes de C14N.
+      const xmlForDoc = xml.replace('<!-- SIGNATURE_PLACEHOLDER -->', '');
+      const xmlC14n   = xmlForDoc
+        .replace(/^<\?xml[^?]+\?>\s*/s, '')                          // quitar declaración XML
+        .replace(/<([A-Za-z][A-Za-z0-9:_.-]*)([^>]*)\/>/g, '<$1$2></$1>'); // expandir self-closing
+      const docDigest = createHash('sha256').update(Buffer.from(xmlC14n, 'utf8')).digest('base64');
+
+      // keyInfoDigest: elemento <ds:KeyInfo> canonicalizado
+      // KeyInfo no tiene elementos self-closing → toC14nString solo agrega NS
+      const keyInfoC14n    = this.toC14nString(keyInfoXml, '<ds:KeyInfo ');
+      const keyInfoDigest  = createHash('sha256').update(Buffer.from(keyInfoC14n, 'utf8')).digest('base64');
+
+      // propsDigest: elemento <xades:SignedProperties> canonicalizado
+      // SignedProperties tiene <ds:DigestMethod .../> → toC14nString expande self-closing
+      const signedPropsC14n = this.toC14nString(signedPropsXml, '<xades:SignedProperties ');
+      const propsDigest     = createHash('sha256').update(Buffer.from(signedPropsC14n, 'utf8')).digest('base64');
 
       // ── SignedInfo — 3 referencias exactamente como DIAN ─────────────────
-      const signedInfoXml =
-`<ds:SignedInfo><ds:CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/><ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/><ds:Reference Id="xmldsig-${sigId}-ref0" URI=""><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>${docDigest}</ds:DigestValue></ds:Reference><ds:Reference URI="#xmldsig-${keyInfoId}-keyinfo"><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>${keyInfoDigest}</ds:DigestValue></ds:Reference><ds:Reference Type="http://uri.etsi.org/01903#SignedProperties" URI="#xmldsig-${sigId}-signedprops"><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>${propsDigest}</ds:DigestValue></ds:Reference></ds:SignedInfo>`;
+      // Contenido del SignedInfo (idéntico en versión a firmar y versión a insertar)
+      const signedInfoContent =
+        `<ds:CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>` +
+        `<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>` +
+        `<ds:Reference Id="xmldsig-${sigId}-ref0" URI=""><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>${docDigest}</ds:DigestValue></ds:Reference>` +
+        `<ds:Reference URI="#xmldsig-${keyInfoId}-keyinfo"><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>${keyInfoDigest}</ds:DigestValue></ds:Reference>` +
+        `<ds:Reference Type="http://uri.etsi.org/01903#SignedProperties" URI="#xmldsig-${sigId}-signedprops"><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>${propsDigest}</ds:DigestValue></ds:Reference>`;
 
-      // ── Firma RSA-SHA256 ──────────────────────────────────────────────────
+      // Versión para FIRMAR: con todos los namespaces heredados del Invoice root (C14N Inclusive)
+      // Versión para INSERTAR en el XML: sin namespaces (los hereda del documento)
+      const signedInfoXml = `<ds:SignedInfo>${signedInfoContent}</ds:SignedInfo>`;
+
+      // Versión para FIRMAR: C14N Inclusive completo (NS heredados + self-closing expandidos)
+      const signedInfoC14n = this.toC14nString(signedInfoXml, '<ds:SignedInfo>');
+
+      // ── Firma RSA-SHA256 sobre el SignedInfo canonicalizado ───────────────
       const signer = createSign('RSA-SHA256');
-      signer.update(signedInfoXml, 'utf8');
+      signer.update(signedInfoC14n, 'utf8');  // ← firmar C14N correcto
       const sigValue = signer.sign(effectiveKey).toString('base64');
 
       // ── Bloque Signature final ────────────────────────────────────────────
