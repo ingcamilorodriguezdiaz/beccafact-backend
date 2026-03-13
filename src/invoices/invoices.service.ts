@@ -14,7 +14,7 @@ import * as https from 'https';
 import * as http from 'http';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
-
+import * as QRCode from 'qrcode';
 // ─────────────────────────────────────────────────────────────────────────────
 // DIAN Constants — BeccaFact Software propio
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1809,7 +1809,20 @@ ${keyInfoXml}
   }
 
 
+
+  // ── QR Code generator (TypeScript puro, sin dependencias) ─────────────────
+  // Soporta modo byte, versiones 1-10, ECC nivel M
+  // Suficiente para URLs DIAN de hasta ~174 caracteres
+  private async qrGenSvg(text: string): Promise<string> {
+    return QRCode.toString(text, {
+      type: 'svg',
+      width: 220,
+      margin: 2,
+    });
+  }
+
   async generatePdf(companyId: string, invoiceId: string): Promise<Buffer> {
+    
     const invoice = await this.findOne(companyId, invoiceId);
 
     // Fetch company info for header
@@ -1844,6 +1857,7 @@ ${keyInfoXml}
     `).join('');
 
     const isDraft = invoice.status === 'DRAFT';
+    const svgQR = await this.qrGenSvg(invoice.dianQrCode ?? '');
 
     const html = `<!DOCTYPE html>
 <html lang="es">
@@ -2004,8 +2018,13 @@ ${isDraft ? '<div class="watermark">BORRADOR</div>' : ''}
   ${invoice.dianCufe ? `
   <div class="dian-box">
     <h4>Información DIAN</h4>
-    <p>CUFE: ${invoice.dianCufe}</p>
-    ${invoice.dianQrCode ? `<p>QR: ${invoice.dianQrCode}</p>` : ''}
+    <div style="display:flex;align-items:flex-start;gap:20px;">
+      <div style="flex:1;min-width:0;">
+        <p style="font-size:10px;word-break:break-all;margin-bottom:6px;"><strong>CUFE:</strong> ${invoice.dianCufe}</p>
+        ${invoice.dianQrCode ? `<p style="font-size:10px;word-break:break-all;"><strong>URL:</strong> ${invoice.dianQrCode}</p>` : ''}
+      </div>
+      ${invoice.dianQrCode ? `<div style="flex-shrink:0;">${svgQR}</div>` : ''}
+    </div>
   </div>` : ''}
 
   <!-- Footer -->
