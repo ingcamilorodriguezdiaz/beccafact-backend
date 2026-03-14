@@ -14,7 +14,7 @@ import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
 @ApiTags('parameters')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Controller('parameters')
+@Controller({ path: 'parameters', version: '1' })
 export class ParametersController {
   constructor(private readonly parametersService: ParametersService) {}
 

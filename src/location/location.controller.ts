@@ -14,7 +14,7 @@ import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
 @ApiTags('location')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Controller('location')
+@Controller({ path: 'location', version: '1' })
 export class LocationController {
   constructor(private readonly locationService: LocationService) {}
 
