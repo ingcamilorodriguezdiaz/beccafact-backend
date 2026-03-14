@@ -367,6 +367,51 @@ CREATE TABLE "import_errors" (
 );
 
 -- CreateTable
+CREATE TABLE "parameters" (
+    "id" TEXT NOT NULL,
+    "category" TEXT NOT NULL,
+    "value" TEXT NOT NULL,
+    "label" TEXT,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "parameters_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "countries" (
+    "id" TEXT NOT NULL,
+    "code" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+
+    CONSTRAINT "countries_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "departments" (
+    "id" TEXT NOT NULL,
+    "code" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "countryCode" TEXT NOT NULL DEFAULT 'CO',
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+
+    CONSTRAINT "departments_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "municipalities" (
+    "id" TEXT NOT NULL,
+    "code" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "departmentCode" TEXT NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+
+    CONSTRAINT "municipalities_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "employees" (
     "id" TEXT NOT NULL,
     "companyId" TEXT NOT NULL,
@@ -534,6 +579,33 @@ CREATE INDEX "import_jobs_status_idx" ON "import_jobs"("status");
 CREATE INDEX "import_errors_importJobId_idx" ON "import_errors"("importJobId");
 
 -- CreateIndex
+CREATE INDEX "parameters_category_idx" ON "parameters"("category");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "countries_code_key" ON "countries"("code");
+
+-- CreateIndex
+CREATE INDEX "countries_code_idx" ON "countries"("code");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "departments_code_key" ON "departments"("code");
+
+-- CreateIndex
+CREATE INDEX "departments_code_idx" ON "departments"("code");
+
+-- CreateIndex
+CREATE INDEX "departments_countryCode_idx" ON "departments"("countryCode");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "municipalities_code_key" ON "municipalities"("code");
+
+-- CreateIndex
+CREATE INDEX "municipalities_code_idx" ON "municipalities"("code");
+
+-- CreateIndex
+CREATE INDEX "municipalities_departmentCode_idx" ON "municipalities"("departmentCode");
+
+-- CreateIndex
 CREATE INDEX "employees_companyId_idx" ON "employees"("companyId");
 
 -- CreateIndex
@@ -619,6 +691,12 @@ ALTER TABLE "import_jobs" ADD CONSTRAINT "import_jobs_userId_fkey" FOREIGN KEY (
 
 -- AddForeignKey
 ALTER TABLE "import_errors" ADD CONSTRAINT "import_errors_importJobId_fkey" FOREIGN KEY ("importJobId") REFERENCES "import_jobs"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "departments" ADD CONSTRAINT "departments_countryCode_fkey" FOREIGN KEY ("countryCode") REFERENCES "countries"("code") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "municipalities" ADD CONSTRAINT "municipalities_departmentCode_fkey" FOREIGN KEY ("departmentCode") REFERENCES "departments"("code") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "employees" ADD CONSTRAINT "employees_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "companies"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

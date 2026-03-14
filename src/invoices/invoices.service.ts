@@ -310,8 +310,13 @@ export class InvoicesService {
     const supplierNitClean = company.nit.replace(/[^0-9]/g, '').slice(0, 9); // 9 dígitos NIT Colombia
     const supplierDv = this.calcDv(supplierNitClean);
 
+    const documentTypes = await this.prisma.parameter.findFirst({
+      where: { category: "DOCUMENT_TYPES" }
+    });
     // ── Customer ID type (DIAN codes) ────────────────────────────────────
-    const idTypeMap: Record<string, string> = { NIT: '31', CC: '13', CE: '22', PASSPORT: '21', TI: '12' };
+    const idTypeMap: Record<string, string> = JSON.parse(
+      documentTypes?.value || '{"CC":"13"}'
+    );
     const custIdType = idTypeMap[customer.documentType || 'CC'] || '13';
     // custId: quitar DV si viene como "900108281-1" o "900108281-1" — usar solo NIT base
     const custIdRaw = customer.documentNumber || customer.taxId || '222222222222';
@@ -1822,7 +1827,7 @@ ${keyInfoXml}
   }
 
   async generatePdf(companyId: string, invoiceId: string): Promise<Buffer> {
-    
+
     const invoice = await this.findOne(companyId, invoiceId);
 
     // Fetch company info for header

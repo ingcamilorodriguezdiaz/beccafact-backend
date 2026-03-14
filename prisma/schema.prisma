@@ -549,6 +549,69 @@ enum ImportStatus {
 
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PARAMETERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Parameter {
+  id        String   @id @default(uuid())
+  category     String
+  value     String
+  label     String?
+  isActive  Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@map("parameters")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GEOGRAPHIC LOCATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Country {
+  id          String   @id @default(uuid())
+  code        String   @unique // ISO 3166-1 alpha-2: CO, US, MX ...
+  name        String
+  isActive    Boolean  @default(true)
+
+  departments Department[]
+
+  @@index([code])
+  @@map("countries")
+}
+
+model Department {
+  id          String   @id @default(uuid())
+  code        String   @unique // DIVIPOLA 2 dígitos: 05, 11, 25 ...
+  name        String
+  countryCode String   @default("CO")
+  isActive    Boolean  @default(true)
+
+  country       Country      @relation(fields: [countryCode], references: [code])
+  municipalities Municipality[]
+
+  @@index([code])
+  @@index([countryCode])
+  @@map("departments")
+}
+
+model Municipality {
+  id             String   @id @default(uuid())
+  code           String   @unique // DIVIPOLA 5 dígitos: 05001, 11001, 25473 ...
+  name           String
+  departmentCode String   // primeros 2 dígitos del código municipal
+  isActive       Boolean  @default(true)
+
+  department Department @relation(fields: [departmentCode], references: [code])
+
+  @@index([code])
+  @@index([departmentCode])
+  @@map("municipalities")
+}
+
 model employees {
   id              String   @id @default(uuid())
   companyId       String

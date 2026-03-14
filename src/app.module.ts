@@ -17,6 +17,8 @@ import { PayrollModule } from './payroll/payroll.module';
 import { SuperAdminModule } from './super-admin/super-admin.module';
 import { PrismaModule } from './config/prisma.module';
 import { CategoriesModule } from './categories/categories.module';
+import { LocationModule } from './location/location.module';
+import { ParametersModule } from './parameter/parameters.module';
 
 @Module({
   imports: [
@@ -60,7 +62,9 @@ import { CategoriesModule } from './categories/categories.module';
     SuperAdminModule,
     CarteraModule,
     PayrollModule,
-    CategoriesModule
+    CategoriesModule,
+    LocationModule,
+    ParametersModule
   ],
 })
 export class AppModule {}
