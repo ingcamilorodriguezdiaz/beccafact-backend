@@ -18,8 +18,8 @@ function calcDv(nit: string): string {
 // ─── Certificado real BECCASOFT SAS (GSE / Andes SCD) ────────────────────────
 // NIT: 902043550  |  CN: BECCASOFT SAS
 // Válido: 2026-03-10 → 2027-03-10  |  P12 password: Sirweb123*
-const BECCASOFT_CERT = 
-`-----BEGIN CERTIFICATE-----
+const BECCASOFT_CERT =
+  `-----BEGIN CERTIFICATE-----
 MIIHFDCCBPygAwIBAgIKUeH3Tk2JcQEdvDANBgkqhkiG9w0BAQsFADCBhjEeMBwG
 CSqGSIb3DQEJARYPaW5mb0Bnc2UuY29tLmNvMSUwIwYDVQQDExxBdXRvcmlkYWQg
 U3Vib3JkaW5hZGEgMDEgR1NFMQwwCgYDVQQLEwNQS0kxDDAKBgNVBAoTA0dTRTEU
@@ -60,8 +60,8 @@ Qu/HDAruh+P5ig1o7lpBUd+f4Q93n52OJKi5hfcZI4hLaf6whMa1HL2p86V/L8fw
 QoMhE14yDzMpSY75w55sFax4UVXWOf/8LCjpzTRqBSeAHmDXPvFW9Q==
 -----END CERTIFICATE-----`;
 
-const BECCASOFT_KEY = 
-`-----BEGIN PRIVATE KEY-----
+const BECCASOFT_KEY =
+  `-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCQBQtJbqBt/O0z
 CEOYRcaRePfEBc6UwOqu/WpAOV5dCFNyo03dB3y3A93Ke9Oc9E+oiPSafGMizOEn
 zTBU5WHUdHwyumVuxS1jaOZlheJJSIldXEd4pE+c+jC7l9f1LEexV3KvBaFuzaJF
@@ -225,17 +225,17 @@ async function main() {
       description: 'Para pequeñas empresas que inician con facturación electrónica',
       price: 89000,
       features: [
-        { key: 'max_documents_per_month', value: '300',   label: '300 documentos/mes' },
-        { key: 'has_invoices',            value: 'true',  label: 'Facturación básica DIAN' },
-        { key: 'has_inventory',           value: 'false', label: 'Sin inventario' },
-        { key: 'has_cartera',             value: 'false', label: 'Sin cartera' },
-        { key: 'has_payroll',             value: 'false', label: 'Sin nómina' },
-        { key: 'max_integrations',        value: '1',     label: '1 integración' },
-        { key: 'storage_months',          value: '12',    label: '12 meses almacenamiento' },
-        { key: 'max_products',            value: '100',   label: '100 productos' },
-        { key: 'bulk_import',             value: 'false', label: 'Sin importación masiva' },
-        { key: 'has_integrations',        value: 'true',  label: '1 integración activa' },
-        { key: 'max_users',               value: '3',     label: '3 usuarios' },
+        { key: 'max_documents_per_month', value: '300', label: '300 documentos/mes' },
+        { key: 'has_invoices', value: 'true', label: 'Facturación básica DIAN' },
+        { key: 'has_inventory', value: 'false', label: 'Sin inventario' },
+        { key: 'has_cartera', value: 'false', label: 'Sin cartera' },
+        { key: 'has_payroll', value: 'false', label: 'Sin nómina' },
+        { key: 'max_integrations', value: '1', label: '1 integración' },
+        { key: 'storage_months', value: '12', label: '12 meses almacenamiento' },
+        { key: 'max_products', value: '100', label: '100 productos' },
+        { key: 'bulk_import', value: 'false', label: 'Sin importación masiva' },
+        { key: 'has_integrations', value: 'true', label: '1 integración activa' },
+        { key: 'max_users', value: '3', label: '3 usuarios' },
       ],
     },
     {
@@ -244,17 +244,17 @@ async function main() {
       description: 'Para empresas en crecimiento con necesidades completas',
       price: 249000,
       features: [
-        { key: 'max_documents_per_month', value: '2000',  label: '2.000 documentos/mes' },
-        { key: 'has_invoices',            value: 'true',  label: 'Todos los documentos DIAN' },
-        { key: 'has_inventory',           value: 'true',  label: 'Inventario completo' },
-        { key: 'has_cartera',             value: 'true',  label: 'Cartera y cobranza' },
-        { key: 'has_payroll',             value: 'true',  label: 'Nómina electrónica' },
-        { key: 'max_integrations',        value: '5',     label: '5 integraciones' },
-        { key: 'storage_months',          value: '60',    label: '5 años almacenamiento' },
-        { key: 'max_products',            value: '5000',  label: '5.000 productos' },
-        { key: 'bulk_import',             value: 'true',  label: 'Importación masiva estándar' },
-        { key: 'has_integrations',        value: 'true',  label: '5 integraciones activas' },
-        { key: 'max_users',               value: '15',    label: '15 usuarios' },
+        { key: 'max_documents_per_month', value: '2000', label: '2.000 documentos/mes' },
+        { key: 'has_invoices', value: 'true', label: 'Todos los documentos DIAN' },
+        { key: 'has_inventory', value: 'true', label: 'Inventario completo' },
+        { key: 'has_cartera', value: 'true', label: 'Cartera y cobranza' },
+        { key: 'has_payroll', value: 'true', label: 'Nómina electrónica' },
+        { key: 'max_integrations', value: '5', label: '5 integraciones' },
+        { key: 'storage_months', value: '60', label: '5 años almacenamiento' },
+        { key: 'max_products', value: '5000', label: '5.000 productos' },
+        { key: 'bulk_import', value: 'true', label: 'Importación masiva estándar' },
+        { key: 'has_integrations', value: 'true', label: '5 integraciones activas' },
+        { key: 'max_users', value: '15', label: '15 usuarios' },
       ],
     },
     {
@@ -264,19 +264,19 @@ async function main() {
       price: 749000,
       features: [
         { key: 'max_documents_per_month', value: 'unlimited', label: 'Documentos ilimitados' },
-        { key: 'has_invoices',            value: 'true',       label: 'Todos los documentos DIAN' },
-        { key: 'has_inventory',           value: 'true',       label: 'Inventario avanzado multi-sede' },
-        { key: 'has_cartera',             value: 'true',       label: 'Cartera y cobranza avanzada' },
-        { key: 'has_payroll',             value: 'true',       label: 'Nómina electrónica completa' },
-        { key: 'max_integrations',        value: 'unlimited',  label: 'Integraciones ilimitadas' },
-        { key: 'storage_months',          value: 'unlimited',  label: 'Almacenamiento ilimitado' },
-        { key: 'max_products',            value: 'unlimited',  label: 'Productos ilimitados' },
-        { key: 'bulk_import',             value: 'true',       label: 'Importación masiva avanzada' },
-        { key: 'has_integrations',        value: 'true',       label: 'Integraciones ilimitadas' },
-        { key: 'max_users',               value: 'unlimited',  label: 'Usuarios ilimitados' },
-        { key: 'has_sla',                 value: 'true',       label: 'SLA contractual 99.9%' },
-        { key: 'has_multicompany',        value: 'true',       label: 'Multiempresa avanzado' },
-        { key: 'priority_support',        value: 'true',       label: 'Soporte prioritario 24/7' },
+        { key: 'has_invoices', value: 'true', label: 'Todos los documentos DIAN' },
+        { key: 'has_inventory', value: 'true', label: 'Inventario avanzado multi-sede' },
+        { key: 'has_cartera', value: 'true', label: 'Cartera y cobranza avanzada' },
+        { key: 'has_payroll', value: 'true', label: 'Nómina electrónica completa' },
+        { key: 'max_integrations', value: 'unlimited', label: 'Integraciones ilimitadas' },
+        { key: 'storage_months', value: 'unlimited', label: 'Almacenamiento ilimitado' },
+        { key: 'max_products', value: 'unlimited', label: 'Productos ilimitados' },
+        { key: 'bulk_import', value: 'true', label: 'Importación masiva avanzada' },
+        { key: 'has_integrations', value: 'true', label: 'Integraciones ilimitadas' },
+        { key: 'max_users', value: 'unlimited', label: 'Usuarios ilimitados' },
+        { key: 'has_sla', value: 'true', label: 'SLA contractual 99.9%' },
+        { key: 'has_multicompany', value: 'true', label: 'Multiempresa avanzado' },
+        { key: 'priority_support', value: 'true', label: 'Soporte prioritario 24/7' },
       ],
     },
   ];
@@ -333,11 +333,11 @@ async function main() {
   //   ✅ dianCertificate / dianCertificateKey con PEM real → resuelve ZE02
   //   ✅ Suscripción: create-only sin upsert roto
   const BECCASOFT_NIT = '902043550';
-  const BECCASOFT_DV  = calcDv(BECCASOFT_NIT); // → '1'
+  const BECCASOFT_DV = calcDv(BECCASOFT_NIT); // → '1'
 
   const empresarialPlan = await prisma.plan.findUnique({ where: { name: 'EMPRESARIAL' } });
-  const adminRole       = await prisma.role.findUnique({ where: { name: 'ADMIN' } });
-  const operatorRole    = await prisma.role.findUnique({ where: { name: 'OPERATOR' } });
+  const adminRole = await prisma.role.findUnique({ where: { name: 'ADMIN' } });
+  const operatorRole = await prisma.role.findUnique({ where: { name: 'OPERATOR' } });
 
   // Buscar la empresa por cualquiera de los NITs que pudo haber tenido
   let demoCompany = await prisma.company.findFirst({
@@ -347,16 +347,16 @@ async function main() {
   if (!demoCompany) {
     demoCompany = await prisma.company.create({
       data: {
-        name:        'BECCASOFT SAS',
-        nit:         BECCASOFT_NIT,
+        name: 'BECCASOFT SAS',
+        nit: BECCASOFT_NIT,
         razonSocial: 'BECCASOFT SAS',
-        email:       'beccasoft.co@gmail.com',
-        phone:       '3214567890',
-        address:     'CR 3A N 17 SUR 99',
-        city:        'Mosquera',
-        department:  'Cundinamarca',
-        country:     'CO',
-        status:      'ACTIVE',
+        email: 'beccasoft.co@gmail.com',
+        phone: '3214567890',
+        address: 'CR 3A N 17 SUR 99',
+        city: 'Mosquera',
+        department: 'Cundinamarca',
+        country: 'CO',
+        status: 'ACTIVE',
         dianTestMode: true,
       } as any,
     });
@@ -367,24 +367,24 @@ async function main() {
     where: { id: demoCompany.id },
     data: {
       // ── Datos reales BECCASOFT SAS ────────────────────────────────────
-      name:        'BECCASOFT SAS',
-      nit:         BECCASOFT_NIT,   // NIT sin DV (FAK24 — el DV se calcula en el service)
+      name: 'BECCASOFT SAS',
+      nit: BECCASOFT_NIT,   // NIT sin DV (FAK24 — el DV se calcula en el service)
       razonSocial: 'BECCASOFT SAS', // nombre exacto del RUT (FAJ43b)
-      email:       'beccasoft.co@gmail.com',
-      phone:       '3214567890',
-      address:     'CR 3A N 17 SUR 99',
-      city:        'Mosquera',
-      department:  'Cundinamarca',
-      country:     'CO',
+      email: 'beccasoft.co@gmail.com',
+      phone: '3214567890',
+      address: 'CR 3A N 17 SUR 99',
+      city: 'Mosquera',
+      department: 'Cundinamarca',
+      country: 'CO',
       dianTestMode: true,
 
       // ── Ubicación DIVIPOLA (tabla 13.4.3) — FAK08/FAK28/FAK32 ────────
-      cityCode:       '25473', // DIVIPOLA: Mosquera, Cundinamarca
+      cityCode: '25473', // DIVIPOLA: Mosquera, Cundinamarca
       departmentCode: '25',    // ISO 3166-2:CO — Cundinamarca
 
       // ── Resolución habilitación DIAN (set de pruebas) ─────────────────
       dianResolucion: '18760000001',
-      dianPrefijo:    'SETP',
+      dianPrefijo: 'SETP',
       dianRangoDesde: 990000000,
       dianRangoHasta: 995000000,
       // ✅ FIX: new Date() en lugar de string — Prisma necesita Date para TIMESTAMPTZ
@@ -392,14 +392,14 @@ async function main() {
       dianFechaHasta: '2030-01-19',
 
       // ── Credenciales software DIAN ────────────────────────────────────
-      dianSoftwareId:   '8c2e43bd-9d57-4144-b0af-8876de5917a8',
-      dianSoftwarePin:  '12345',
-      dianTestSetId:    'aa87ad48-5975-46d1-b0d5-f8ed563a528e',
+      dianSoftwareId: '8c2e43bd-9d57-4144-b0af-8876de5917a8',
+      dianSoftwarePin: '12345',
+      dianTestSetId: 'aa87ad48-5975-46d1-b0d5-f8ed563a528e',
       dianClaveTecnica: 'fc8eac422eba16e22ffd8c6f94b3f40a6e38162c',
 
       // ── Certificado digital real GSE (NIT 902043550) — ZE02/FAD09e ───
       // PEM con saltos de línea reales. El service usa normalizePem().
-      dianCertificate:    BECCASOFT_CERT,
+      dianCertificate: BECCASOFT_CERT,
       dianCertificateKey: BECCASOFT_KEY,
     } as any,
   });
@@ -413,10 +413,10 @@ async function main() {
       await prisma.subscription.create({
         data: {
           companyId: demoCompany.id,
-          planId:    empresarialPlan.id,
-          status:    'ACTIVE',
+          planId: empresarialPlan.id,
+          status: 'ACTIVE',
           startDate: new Date(),
-          endDate:   new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
+          endDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
         },
       });
     }
@@ -428,12 +428,12 @@ async function main() {
     where: { email: 'admin@empresademo.com' },
     update: {},
     create: {
-      email:     'admin@empresademo.com',
-      password:  adminPassword,
+      email: 'admin@empresademo.com',
+      password: adminPassword,
       firstName: 'Carlos',
-      lastName:  'Rodríguez',
+      lastName: 'Rodríguez',
       companyId: demoCompany.id,
-      isActive:  true,
+      isActive: true,
     },
   });
   if (adminRole) {
@@ -449,12 +449,12 @@ async function main() {
     where: { email: 'operador@empresademo.com' },
     update: {},
     create: {
-      email:     'operador@empresademo.com',
-      password:  operPassword,
+      email: 'operador@empresademo.com',
+      password: operPassword,
       firstName: 'María',
-      lastName:  'González',
+      lastName: 'González',
       companyId: demoCompany.id,
-      isActive:  true,
+      isActive: true,
     },
   });
   if (operatorRole) {
@@ -483,110 +483,110 @@ async function main() {
   const demoCustomers = [
     // ── Persona Jurídica NIT ───────────────────────────────────────────────────
     {
-      documentType:   'NIT' as const,
+      documentType: 'NIT' as const,
       documentNumber: '800200300',      // ✅ SIN DV, SIN guión
-      name:           'DISTRIBUIDORA NACIONAL S.A.S.',
-      email:          'compras@distribuidora.com',
-      phone:          '6012223344',
-      address:        'Carrera 15 # 93-47',
-      city:           'Bogotá, D.C.',
-      department:     'Bogotá',
-      country:        'CO',
-      cityCode:       '11001',          // DIVIPOLA Bogotá (tabla 13.4.3)
+      name: 'DISTRIBUIDORA NACIONAL S.A.S.',
+      email: 'compras@distribuidora.com',
+      phone: '6012223344',
+      address: 'Carrera 15 # 93-47',
+      city: 'Bogotá, D.C.',
+      department: 'Bogotá',
+      country: 'CO',
+      cityCode: '11001',          // DIVIPOLA Bogotá (tabla 13.4.3)
       departmentCode: '11',             // ISO 3166-2:CO-DC (tabla 13.4.2)
-      taxLevelCode:   'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
-      creditDays:     30,
+      taxLevelCode: 'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
+      creditDays: 30,
     },
     {
-      documentType:   'NIT' as const,
+      documentType: 'NIT' as const,
       documentNumber: '860001234',      // ✅ SIN DV, SIN guión
-      name:           'COMERCIALIZADORA DEL VALLE LTDA',
-      email:          'facturas@covalle.com',
-      phone:          '6024456677',
-      address:        'Calle 5 # 38-25 Piso 3',
-      city:           'Cali',
-      department:     'Valle del Cauca',
-      country:        'CO',
-      cityCode:       '76001',          // DIVIPOLA Cali
+      name: 'COMERCIALIZADORA DEL VALLE LTDA',
+      email: 'facturas@covalle.com',
+      phone: '6024456677',
+      address: 'Calle 5 # 38-25 Piso 3',
+      city: 'Cali',
+      department: 'Valle del Cauca',
+      country: 'CO',
+      cityCode: '76001',          // DIVIPOLA Cali
       departmentCode: '76',             // ISO 3166-2:CO-VAC
-      taxLevelCode:   'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
-      creditDays:     60,
+      taxLevelCode: 'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
+      creditDays: 60,
     },
     {
-      documentType:   'NIT' as const,
+      documentType: 'NIT' as const,
       documentNumber: '901234567',      // ✅ SIN DV, SIN guión
-      name:           'TECH SOLUTIONS COLOMBIA S.A.S.',
-      email:          'admin@techsol.co',
-      phone:          '6013334455',
-      address:        'Av. El Dorado # 68C-61 Of. 502',
-      city:           'Bogotá, D.C.',
-      department:     'Bogotá',
-      country:        'CO',
-      cityCode:       '11001',
+      name: 'TECH SOLUTIONS COLOMBIA S.A.S.',
+      email: 'admin@techsol.co',
+      phone: '6013334455',
+      address: 'Av. El Dorado # 68C-61 Of. 502',
+      city: 'Bogotá, D.C.',
+      department: 'Bogotá',
+      country: 'CO',
+      cityCode: '11001',
       departmentCode: '11',
-      taxLevelCode:   'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
-      creditDays:     30,
+      taxLevelCode: 'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
+      creditDays: 30,
     },
     {
-      documentType:   'NIT' as const,
+      documentType: 'NIT' as const,
       documentNumber: '890903938',      // ✅ SIN DV, SIN guión
-      name:           'BANCOLOMBIA S.A.',
-      email:          'servicios@bancolombia.com.co',
-      phone:          '6044441111',
-      address:        'Carrera 48 # 26-85',
-      city:           'Medellín',
-      department:     'Antioquia',
-      country:        'CO',
-      cityCode:       '05001',          // DIVIPOLA Medellín
+      name: 'BANCOLOMBIA S.A.',
+      email: 'servicios@bancolombia.com.co',
+      phone: '6044441111',
+      address: 'Carrera 48 # 26-85',
+      city: 'Medellín',
+      department: 'Antioquia',
+      country: 'CO',
+      cityCode: '05001',          // DIVIPOLA Medellín
       departmentCode: '05',             // ISO 3166-2:CO-ANT
-      taxLevelCode:   'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
-      creditDays:     0,
+      taxLevelCode: 'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
+      creditDays: 0,
     },
     {
-      documentType:   'NIT' as const,
+      documentType: 'NIT' as const,
       documentNumber: '900108281',      // ✅ SIN DV, SIN guión
-      name:           'OPTICAS GMO COLOMBIA S.A.S.',
-      email:          'compras@opticasgmo.com',
-      phone:          '6013005500',
-      address:        'Carrera 9A # 99-07 Of. 802',
-      city:           'Bogotá, D.C.',
-      department:     'Bogotá',
-      country:        'CO',
-      cityCode:       '11001',
+      name: 'OPTICAS GMO COLOMBIA S.A.S.',
+      email: 'compras@opticasgmo.com',
+      phone: '6013005500',
+      address: 'Carrera 9A # 99-07 Of. 802',
+      city: 'Bogotá, D.C.',
+      department: 'Bogotá',
+      country: 'CO',
+      cityCode: '11001',
       departmentCode: '11',
-      taxLevelCode:   'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
-      creditDays:     30,
+      taxLevelCode: 'ZZ',             // FAK26: responsabilidad fiscal (TipoResponsabilidad-2.1)
+      creditDays: 30,
     },
     // ── Persona Natural CC ────────────────────────────────────────────────────
     {
-      documentType:   'CC' as const,
+      documentType: 'CC' as const,
       documentNumber: '12345678',
-      name:           'JUAN CARLOS PÉREZ MORALES',
-      email:          'juan.perez@email.com',
-      phone:          '3001234567',
-      address:        'Calle 50 # 45-23 Apto 301',
-      city:           'Medellín',
-      department:     'Antioquia',
-      country:        'CO',
-      cityCode:       '05001',
+      name: 'JUAN CARLOS PÉREZ MORALES',
+      email: 'juan.perez@email.com',
+      phone: '3001234567',
+      address: 'Calle 50 # 45-23 Apto 301',
+      city: 'Medellín',
+      department: 'Antioquia',
+      country: 'CO',
+      cityCode: '05001',
       departmentCode: '05',
-      taxLevelCode:   'ZZ',             // FAK26: persona natural sin responsabilidad fiscal
-      creditDays:     0,
+      taxLevelCode: 'ZZ',             // FAK26: persona natural sin responsabilidad fiscal
+      creditDays: 0,
     },
     {
-      documentType:   'CC' as const,
+      documentType: 'CC' as const,
       documentNumber: '52890123',
-      name:           'ANDREA PATRICIA GÓMEZ TORRES',
-      email:          'andrea.gomez@gmail.com',
-      phone:          '3159876543',
-      address:        'Carrera 11 # 80-15 Casa 7',
-      city:           'Bogotá, D.C.',
-      department:     'Bogotá',
-      country:        'CO',
-      cityCode:       '11001',
+      name: 'ANDREA PATRICIA GÓMEZ TORRES',
+      email: 'andrea.gomez@gmail.com',
+      phone: '3159876543',
+      address: 'Carrera 11 # 80-15 Casa 7',
+      city: 'Bogotá, D.C.',
+      department: 'Bogotá',
+      country: 'CO',
+      cityCode: '11001',
       departmentCode: '11',
-      taxLevelCode:   'ZZ',             // FAK26: persona natural sin responsabilidad fiscal
-      creditDays:     0,
+      taxLevelCode: 'ZZ',             // FAK26: persona natural sin responsabilidad fiscal
+      creditDays: 0,
     },
   ];
 
@@ -595,20 +595,20 @@ async function main() {
     await prisma.customer.upsert({
       where: {
         companyId_documentType_documentNumber: {
-          companyId:      demoCompany.id,
-          documentType:   customerData.documentType,
+          companyId: demoCompany.id,
+          documentType: customerData.documentType,
           documentNumber: customerData.documentNumber,
         },
       },
       // ✅ FIX: update también actualiza todos los campos importantes
       update: {
-        name:           customerData.name,
-        email:          customerData.email,
-        phone:          customerData.phone,
-        address:        customerData.address,
-        city:           customerData.city,
-        department:     customerData.department,
-        country:        customerData.country,
+        name: customerData.name,
+        email: customerData.email,
+        phone: customerData.phone,
+        address: customerData.address,
+        city: customerData.city,
+        department: customerData.department,
+        country: customerData.country,
         taxLevelCode,   // FAK26: actualiza responsabilidad fiscal en re-seed
         cityCode,
         departmentCode,
@@ -656,134 +656,134 @@ async function main() {
 
   const demoProducts = [
     {
-      sku:         'LAP-001',
-      name:        'Laptop Lenovo IdeaPad 15 AMD Ryzen 5',
+      sku: 'LAP-001',
+      name: 'Laptop Lenovo IdeaPad 15 AMD Ryzen 5',
       description: 'Computador portátil Lenovo IdeaPad 15 AMD Ryzen 5 8GB RAM 512GB SSD Windows 11',
-      categoryId:  createdCategories['Tecnología'],
-      price:       2500000,
-      cost:        1800000,
-      stock:       15,
-      unit:        'EA',
-      taxRate:     19,
-      taxType:     'IVA',
-      unspscCode:  '43211503',
+      categoryId: createdCategories['Tecnología'],
+      price: 2500000,
+      cost: 1800000,
+      stock: 15,
+      unit: 'EA',
+      taxRate: 19,
+      taxType: 'IVA',
+      unspscCode: '43211503',
     },
     {
-      sku:         'MON-001',
-      name:        'Monitor LG 27" Full HD IPS',
+      sku: 'MON-001',
+      name: 'Monitor LG 27" Full HD IPS',
       description: 'Monitor LG 27 pulgadas Full HD IPS 75Hz HDMI DisplayPort',
-      categoryId:  createdCategories['Tecnología'],
-      price:       850000,
-      cost:        600000,
-      stock:       8,
-      unit:        'EA',
-      taxRate:     19,
-      taxType:     'IVA',
-      unspscCode:  '43211708',
+      categoryId: createdCategories['Tecnología'],
+      price: 850000,
+      cost: 600000,
+      stock: 8,
+      unit: 'EA',
+      taxRate: 19,
+      taxType: 'IVA',
+      unspscCode: '43211708',
     },
     {
-      sku:         'SRV-001',
-      name:        'Consultoría Tecnológica',
+      sku: 'SRV-001',
+      name: 'Consultoría Tecnológica',
       description: 'Servicio de consultoría tecnológica por hora - implementación y soporte',
-      categoryId:  createdCategories['Servicios Profesionales'],
-      price:       150000,
-      cost:        80000,
-      stock:       0,
-      unit:        'HUR',
-      taxRate:     19,
-      taxType:     'IVA',
-      unspscCode:  '81111500',
+      categoryId: createdCategories['Servicios Profesionales'],
+      price: 150000,
+      cost: 80000,
+      stock: 0,
+      unit: 'HUR',
+      taxRate: 19,
+      taxType: 'IVA',
+      unspscCode: '81111500',
     },
     {
-      sku:         'PAP-001',
-      name:        'Resma Papel Carta 75g x500 Hojas',
+      sku: 'PAP-001',
+      name: 'Resma Papel Carta 75g x500 Hojas',
       description: 'Resma de papel bond carta 75 gramos 500 hojas marca Reprograf',
-      categoryId:  createdCategories['Papelería y Suministros'],
-      price:       18000,
-      cost:        12000,
-      stock:       120,
-      unit:        'NAR',
-      taxRate:     19,
-      taxType:     'IVA',
-      unspscCode:  '44111500',
+      categoryId: createdCategories['Papelería y Suministros'],
+      price: 18000,
+      cost: 12000,
+      stock: 120,
+      unit: 'NAR',
+      taxRate: 19,
+      taxType: 'IVA',
+      unspscCode: '44111500',
     },
     {
-      sku:         'MUE-001',
-      name:        'Silla Ergonómica Ejecutiva Reclinable',
+      sku: 'MUE-001',
+      name: 'Silla Ergonómica Ejecutiva Reclinable',
       description: 'Silla ejecutiva ergonómica con soporte lumbar ajustable, reposa brazos y altura regulable',
-      categoryId:  createdCategories['Muebles y Enseres'],
-      price:       450000,
-      cost:        280000,
-      stock:       25,
-      unit:        'EA',
-      taxRate:     19,
-      taxType:     'IVA',
-      unspscCode:  '56101520',
+      categoryId: createdCategories['Muebles y Enseres'],
+      price: 450000,
+      cost: 280000,
+      stock: 25,
+      unit: 'EA',
+      taxRate: 19,
+      taxType: 'IVA',
+      unspscCode: '56101520',
     },
     {
-      sku:         'LAP-002',
-      name:        'Laptop HP EliteBook 840 G9 Intel Core i7',
+      sku: 'LAP-002',
+      name: 'Laptop HP EliteBook 840 G9 Intel Core i7',
       description: 'Computador portátil HP EliteBook 840 G9 Intel Core i7 16GB RAM 512GB SSD Windows 11 Pro',
-      categoryId:  createdCategories['Tecnología'],
-      price:       4200000,
-      cost:        3100000,
-      stock:       5,
-      unit:        'EA',
-      taxRate:     19,
-      taxType:     'IVA',
-      unspscCode:  '43211503',
+      categoryId: createdCategories['Tecnología'],
+      price: 4200000,
+      cost: 3100000,
+      stock: 5,
+      unit: 'EA',
+      taxRate: 19,
+      taxType: 'IVA',
+      unspscCode: '43211503',
     },
     {
-      sku:         'SRV-002',
-      name:        'Soporte Técnico en Sitio',
+      sku: 'SRV-002',
+      name: 'Soporte Técnico en Sitio',
       description: 'Servicio de soporte técnico presencial en instalaciones del cliente por hora',
-      categoryId:  createdCategories['Servicios Profesionales'],
-      price:       120000,
-      cost:        60000,
-      stock:       0,
-      unit:        'HUR',
-      taxRate:     19,
-      taxType:     'IVA',
-      unspscCode:  '81111811',
+      categoryId: createdCategories['Servicios Profesionales'],
+      price: 120000,
+      cost: 60000,
+      stock: 0,
+      unit: 'HUR',
+      taxRate: 19,
+      taxType: 'IVA',
+      unspscCode: '81111811',
     },
     {
-      sku:         'RED-001',
-      name:        'Access Point WiFi 6 TP-Link EAP670',
+      sku: 'RED-001',
+      name: 'Access Point WiFi 6 TP-Link EAP670',
       description: 'Punto de acceso WiFi 6 AX3000 para empresas, montaje en techo, PoE',
-      categoryId:  createdCategories['Tecnología'],
-      price:       380000,
-      cost:        240000,
-      stock:       12,
-      unit:        'EA',
-      taxRate:     19,
-      taxType:     'IVA',
-      unspscCode:  '43222641',
+      categoryId: createdCategories['Tecnología'],
+      price: 380000,
+      cost: 240000,
+      stock: 12,
+      unit: 'EA',
+      taxRate: 19,
+      taxType: 'IVA',
+      unspscCode: '43222641',
     },
     {
-      sku:         'SRV-003',
-      name:        'Licencia Software Antivirus Anual',
+      sku: 'SRV-003',
+      name: 'Licencia Software Antivirus Anual',
       description: 'Licencia anual antivirus empresarial para 1 equipo - renovación o nueva activación',
-      categoryId:  createdCategories['Servicios Profesionales'],
-      price:       85000,
-      cost:        40000,
-      stock:       0,
-      unit:        'NIU',
-      taxRate:     19,
-      taxType:     'IVA',
-      unspscCode:  '43232700',  // ✅ FIX: faltaba en el seed original → FAZ09
+      categoryId: createdCategories['Servicios Profesionales'],
+      price: 85000,
+      cost: 40000,
+      stock: 0,
+      unit: 'NIU',
+      taxRate: 19,
+      taxType: 'IVA',
+      unspscCode: '43232700',  // ✅ FIX: faltaba en el seed original → FAZ09
     },
     {
-      sku:         'PAP-002',
-      name:        'Carpeta AZ Oficio Palanca Metálica',
+      sku: 'PAP-002',
+      name: 'Carpeta AZ Oficio Palanca Metálica',
       description: 'Carpeta AZ tamaño oficio con palanca metálica y fuelle, capacidad 500 hojas',
-      categoryId:  createdCategories['Papelería y Suministros'],
-      price:       12500,
-      cost:        7500,
-      stock:       80,
-      unit:        'EA',
-      taxRate:     19,
-      taxType:     'IVA',
-      unspscCode:  '44122008',
+      categoryId: createdCategories['Papelería y Suministros'],
+      price: 12500,
+      cost: 7500,
+      stock: 80,
+      unit: 'EA',
+      taxRate: 19,
+      taxType: 'IVA',
+      unspscCode: '44122008',
     },
   ];
 
@@ -793,75 +793,109 @@ async function main() {
       where: { companyId_sku: { companyId: demoCompany.id, sku: productData.sku } },
       // ✅ FIX: update incluye unit + unspscCode para corregir registros existentes
       update: {
-        unit:       productData.unit,
+        unit: productData.unit,
         unspscCode,
-        price:      productData.price,
-        cost:       productData.cost,
-        taxRate:    productData.taxRate,
+        price: productData.price,
+        cost: productData.cost,
+        taxRate: productData.taxRate,
       } as any,
       create: { ...productData, companyId: demoCompany.id, unspscCode } as any,
     });
   }
 
 
-    // ─── PARAMETERS ───────────────────────────────────────────────────────────────
-const parametersData = [
-  {
-    category: "DOCUMENT_TYPES",
-    label: "documentos",
-    value: JSON.stringify({
-      NIT: "31",
-      CC: "13",
-      CE: "22",
-      PASSPORT: "21",
-      TI: "12",
-    }),
-  },
-  {
-    category: "TAX_RESPONSIBILITIES",
-    label: "responsabilidades tributarias",
-    value: JSON.stringify({
-      "O-13": "Gran contribuyente",
-      "O-15": "Autorretenedor",
-      "O-23": "Agente de retención IVA",
-      "O-47": "Régimen simple de tributación",
-      ZZ: "No aplica",
-      "R-99-PN": "Persona natural",
-    }),
-  },
-  {
-    category: "TAX_SCHEMES",
-    label: "regímenes IVA",
-    value: JSON.stringify({
-      IVA: "01",
-      INC: "04",
-      ICA: "ZZ",
-      NO_APLICA: "ZZ",
-    }),
-  },
-  {
-    category: "DIAN_ENVIRONMENTS",
-    label: "ambientes dian",
-    value: JSON.stringify({
-      HABILITACION: "2",
-      PRODUCCION: "1",
-    }),
-  },
-  {
-    category: "ORGANIZATION_TYPES",
-    label: "tipos de organización",
-    value: JSON.stringify({
-      JURIDICA: "1",
-      NATURAL: "2",
-    }),
-  },
-];
+  // ─── PARAMETERS ───────────────────────────────────────────────────────────────
+  const parametersData = [
+    {
+      category: "UNIT_MEASURES",
+      label: "unidades de medida",
+      value: JSON.stringify({
+        EA: {
+          name: "Unidad",
+          usage: "Productos unitarios (computadores, celulares, muebles)"
+        },
+        NIU: {
+          name: "Unidad DIAN",
+          usage: "Unidad estándar recomendada en facturación electrónica"
+        },
+        HUR: {
+          name: "Hora",
+          usage: "Servicios por hora (consultoría, soporte técnico)"
+        },
+        KGM: {
+          name: "Kilogramo",
+          usage: "Productos vendidos por peso (alimentos, materiales)"
+        },
+        MTR: {
+          name: "Metro",
+          usage: "Productos por longitud (cables, telas)"
+        },
+        LTR: {
+          name: "Litro",
+          usage: "Productos líquidos (combustible, bebidas)"
+        },
+        NAR: {
+          name: "Número de artículos",
+          usage: "Conteo de múltiples artículos en lote"
+        }
+      })
+    },
+    {
+      category: "DOCUMENT_TYPES",
+      label: "documentos",
+      value: JSON.stringify({
+        NIT: "31",
+        CC: "13",
+        CE: "22",
+        PASSPORT: "21",
+        TI: "12",
+      }),
+    },
+    {
+      category: "TAX_RESPONSIBILITIES",
+      label: "responsabilidades tributarias",
+      value: JSON.stringify({
+        "O-13": "Gran contribuyente",
+        "O-15": "Autorretenedor",
+        "O-23": "Agente de retención IVA",
+        "O-47": "Régimen simple de tributación",
+        ZZ: "No aplica",
+        "R-99-PN": "Persona natural",
+      }),
+    },
+    {
+      category: "TAX_SCHEMES",
+      label: "regímenes IVA",
+      value: JSON.stringify({
+        IVA: "01",
+        INC: "04",
+        ICA: "ZZ",
+        NO_APLICA: "ZZ",
+      }),
+    },
+    {
+      category: "DIAN_ENVIRONMENTS",
+      label: "ambientes dian",
+      value: JSON.stringify({
+        HABILITACION: "2",
+        PRODUCCION: "1",
+      }),
+    },
+    {
+      category: "ORGANIZATION_TYPES",
+      label: "tipos de organización",
+      value: JSON.stringify({
+        JURIDICA: "1",
+        NATURAL: "2",
+      }),
+    },
+  ];
 
-for (const param of parametersData) {
-  await prisma.parameter.create({
-    data: param,
-  });
-}
+  for (const param of parametersData) {
+    await prisma.parameter.create({
+      data: param,
+    });
+  }
   console.log(`  ✅ ${parametersData.length} parámetros cargados`);
 
   // ─── COUNTRIES ────────────────────────────────────────────────────────────────
@@ -1125,7 +1159,7 @@ for (const param of parametersData) {
   });
   // Actualizar nombres en re-seed
   for (const c of countriesData) {
-    await prisma.country.update({ where: { code: c.code }, data: { name: c.name } }).catch(() => {});
+    await prisma.country.update({ where: { code: c.code }, data: { name: c.name } }).catch(() => { });
   }
   console.log(`  ✅ ${countriesData.length} países cargados`);
 
@@ -1171,7 +1205,7 @@ for (const param of parametersData) {
     skipDuplicates: true,
   });
   for (const d of departmentsData) {
-    await prisma.department.update({ where: { code: d.code }, data: { name: d.name } }).catch(() => {});
+    await prisma.department.update({ where: { code: d.code }, data: { name: d.name } }).catch(() => { });
   }
   console.log(`  ✅ ${departmentsData.length} departamentos cargados`);
 
@@ -2309,7 +2343,7 @@ for (const param of parametersData) {
   }
   // Actualizar nombres en re-seed (sin error si no existe)
   for (const m of municipalitiesData) {
-    await prisma.municipality.update({ where: { code: m.code }, data: { name: m.name } }).catch(() => {});
+    await prisma.municipality.update({ where: { code: m.code }, data: { name: m.name } }).catch(() => { });
   }
   console.log(`  ✅ ${municipalitiesData.length} municipios cargados`);
 
