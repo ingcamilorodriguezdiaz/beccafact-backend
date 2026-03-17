@@ -668,7 +668,10 @@ model payroll_records {
   dianStatusMsg   String?
   dianErrors   String?
   dianAttempts Int      @default(0)
-
+  cuneRef          String?
+  payrollNumberRef String?
+  fechaGenRef      String?
+  tipoAjuste       String?
   submittedAt DateTime?
 
   // DEVENGADOS

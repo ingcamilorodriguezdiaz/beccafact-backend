@@ -179,6 +179,40 @@ export class PayrollController {
   }
 
   /**
+   * POST /payroll/records/:id/nota-ajuste
+   * Crea una Nota de Ajuste (NominaIndividualDeAjuste) a partir de un NIE ya transmitido.
+   * - tipoAjuste='Reemplazar': corrige errores aritméticos o de contenido (Artículo 17 párrafos 4-6, 11)
+   * - tipoAjuste='Eliminar':   anula el documento sin contenido de nómina (Artículo 17 último párrafo)
+   * El resultado es un borrador NIAE que puede revisarse antes de transmitir a la DIAN.
+   */
+  @Post('records/:id/nota-ajuste')
+  @Roles('ADMIN', 'MANAGER')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Crear Nota de Ajuste (NIAE) sobre un NIE transmitido — Res. 000013 Art.17' })
+  createNotaAjuste(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub')       userId:    string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: {
+      tipoAjuste: 'Reemplazar' | 'Eliminar';
+      payDate?: string;
+      baseSalary?: number;
+      daysWorked?: number;
+      overtimeHours?: number;
+      bonuses?: number;
+      commissions?: number;
+      transportAllowance?: number;
+      vacationPay?: number;
+      sickLeave?: number;
+      loans?: number;
+      otherDeductions?: number;
+      notes?: string;
+    },
+  ) {
+    return this.payrollService.createNotaAjuste(companyId, id, dto, userId);
+  }
+
+  /**
    * GET /payroll/records/:id/download
    * Devuelve el XML firmado y el ZIP (base64) para descargar desde el frontend.
    * Solo disponible para registros que hayan sido transmitidos (tienen xmlSigned en BD).
