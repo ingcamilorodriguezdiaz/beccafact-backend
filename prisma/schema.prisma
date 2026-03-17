@@ -641,12 +641,37 @@ model employees {
 
 model payroll_records {
   id        String   @id @default(uuid())
-  companyId          String
-  employeeId         String
-  period             String
-  payDate            DateTime
-  status             String    @default("DRAFT")
-  cune               String?   @unique
+
+  companyId  String
+  employeeId String
+
+  period  String
+  payDate DateTime
+
+  status String @default("DRAFT")
+
+  // DIAN
+  cune        String? @unique
+  cuneHash    String?
+  cuneInput   String?
+
+  payrollType   PayrollType @default(NOMINA_ELECTRONICA)
+  payrollNumber String?
+
+  xmlSigned String? @db.Text
+  xmlUrl    String?
+  pdfUrl    String?
+
+  dianZipKey   String?
+  dianStatus   String?
+  dianStatusCode  String?
+  dianStatusMsg   String?
+  dianErrors   String?
+  dianAttempts Int      @default(0)
+
+  submittedAt DateTime?
+
+  // DEVENGADOS
   baseSalary         Decimal   @db.Decimal(12, 2)
   daysWorked         Int       @default(30)
   overtimeHours      Decimal   @default(0) @db.Decimal(8, 2)
@@ -654,27 +679,91 @@ model payroll_records {
   commissions        Decimal   @default(0) @db.Decimal(12, 2)
   transportAllowance Decimal   @default(0) @db.Decimal(12, 2)
   vacationPay        Decimal   @default(0) @db.Decimal(12, 2)
-  healthEmployee     Decimal   @default(0) @db.Decimal(12, 2)
-  pensionEmployee    Decimal   @default(0) @db.Decimal(12, 2)
-  sickLeave          Decimal   @default(0) @db.Decimal(12, 2)
-  loans              Decimal   @default(0) @db.Decimal(12, 2)
-  otherDeductions    Decimal   @default(0) @db.Decimal(12, 2)
-  healthEmployer     Decimal   @default(0) @db.Decimal(12, 2)
-  pensionEmployer    Decimal   @default(0) @db.Decimal(12, 2)
-  arl                Decimal   @default(0) @db.Decimal(12, 2)
-  compensationFund   Decimal   @default(0) @db.Decimal(12, 2)
-  totalEarnings      Decimal   @db.Decimal(12, 2)
-  totalDeductions    Decimal   @db.Decimal(12, 2)
-  netPay             Decimal   @db.Decimal(12, 2)
-  totalEmployerCost  Decimal   @db.Decimal(12, 2)
-  notes              String?
-  submittedAt        DateTime?
+
+  // DEDUCCIONES
+  healthEmployee  Decimal @default(0) @db.Decimal(12, 2)
+  pensionEmployee Decimal @default(0) @db.Decimal(12, 2)
+  sickLeave       Decimal @default(0) @db.Decimal(12, 2)
+  loans           Decimal @default(0) @db.Decimal(12, 2)
+  otherDeductions Decimal @default(0) @db.Decimal(12, 2)
+
+  // APORTES EMPLEADOR
+  healthEmployer   Decimal @default(0) @db.Decimal(12, 2)
+  pensionEmployer  Decimal @default(0) @db.Decimal(12, 2)
+  arl              Decimal @default(0) @db.Decimal(12, 2)
+  compensationFund Decimal @default(0) @db.Decimal(12, 2)
+
+  // TOTALES
+  totalEarnings     Decimal @db.Decimal(12, 2)
+  totalDeductions   Decimal @db.Decimal(12, 2)
+  netPay            Decimal @db.Decimal(12, 2)
+  totalEmployerCost Decimal @db.Decimal(12, 2)
+
+  notes String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  companies          Company   @relation(fields: [companyId], references: [id])
-  employees          employees @relation(fields: [employeeId], references: [id])
+
+  companies Company   @relation(fields: [companyId], references: [id])
+  employees employees @relation(fields: [employeeId], references: [id])
 
   @@unique([companyId, employeeId, period])
   @@index([companyId])
   @@index([companyId, period])
+}
+
+enum PayrollType {
+  NOMINA_ELECTRONICA
+  NOMINA_AJUSTE
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DIAN XML TEMPLATES — Plantillas de estructura XML por tipo de documento
+// ─────────────────────────────────────────────────────────────────────────────
+
+model DianXmlTemplate {
+  id           String           @id @default(uuid())
+
+  documentType DianDocumentType // Tipo de documento
+  version      String           @default("V1.0:2021")
+  name         String           // "Factura Electrónica de Venta"
+  description  String?          @db.Text
+
+  // XML base con placeholders {{campo}} para campos dinámicos
+  xmlTemplate  String           @db.Text
+
+  // Metadatos del esquema
+  xsdSchemaUrl String?          // URL XSD oficial DIAN
+  namespace    String?          // dian:gov:co:facturaelectronica:NominaIndividual
+  rootElement  String?          // NominaIndividual | Invoice | CreditNote
+
+  // Hash — describe los campos y orden para calcular CUFE/CUNE
+  hashAlgorithm  String?        // SHA384 | SHA256
+  hashFields     String?        @db.Text  // "Numero+FechaGen+HoraGen+..."
+
+  // Control
+  isActive   Boolean  @default(true)
+  isCurrent  Boolean  @default(true) // Solo uno activo por documentType+version
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  createdBy  String?  // userId
+
+  @@unique([documentType, version])
+  @@index([documentType, isActive])
+  @@map("dian_xml_templates")
+}
+
+enum DianDocumentType {
+  // Facturación Electrónica
+  FACTURA_VENTA            // Código 01
+  NOTA_CREDITO             // Código 91
+  NOTA_DEBITO              // Código 92
+  FACTURA_EXPORTACION      // Código 02
+  DOCUMENTO_SOPORTE        // Código 05
+  NOTA_AJUSTE_SOPORTE      // Código 95
+
+  // Nómina Electrónica
+  NOMINA_INDIVIDUAL        // TipoXML 102
+  NOMINA_INDIVIDUAL_AJUSTE // TipoXML 103
 }

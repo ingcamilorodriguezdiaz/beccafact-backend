@@ -21,7 +21,7 @@ import { DEFAULT_LIMIT, DEFAULT_PAGE } from '@/common/constants/pagination.const
 export class PayrollController {
   constructor(private payrollService: PayrollService) {}
 
-  // ── EMPLOYEES ────────────────────────────────────────────────────────────
+  // ── EMPLOYEES ─────────────────────────────────────────────────────────────
 
   @Get('employees')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR')
@@ -30,13 +30,15 @@ export class PayrollController {
     @CurrentUser('companyId') companyId: string,
     @Query('search') search?: string,
     @Query('active') active?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query('page')   page?:   string,
+    @Query('limit')  limit?:  string,
   ) {
-    const pageNumber = Number(page) || DEFAULT_PAGE;
-    const limitNumber = Number(limit) || DEFAULT_LIMIT;
     const activeBool = active === 'true' ? true : active === 'false' ? false : undefined;
-    return this.payrollService.findAllEmployees(companyId, { search, active: activeBool, page:pageNumber, limit:limitNumber });
+    return this.payrollService.findAllEmployees(companyId, {
+      search, active: activeBool,
+      page:  Number(page)  || DEFAULT_PAGE,
+      limit: Number(limit) || DEFAULT_LIMIT,
+    });
   }
 
   @Get('employees/:id')
@@ -49,10 +51,9 @@ export class PayrollController {
     return this.payrollService.findEmployee(companyId, id);
   }
 
-  /** OPERATOR cannot create or edit employees */
   @Post('employees')
   @Roles('ADMIN', 'MANAGER')
-  @ApiOperation({ summary: 'Create employee (ADMIN/MANAGER only)' })
+  @ApiOperation({ summary: 'Create employee' })
   createEmployee(
     @CurrentUser('companyId') companyId: string,
     @CurrentUser('sub')       userId:    string,
@@ -63,7 +64,7 @@ export class PayrollController {
 
   @Put('employees/:id')
   @Roles('ADMIN', 'MANAGER')
-  @ApiOperation({ summary: 'Update employee (ADMIN/MANAGER only)' })
+  @ApiOperation({ summary: 'Update employee' })
   updateEmployee(
     @CurrentUser('companyId') companyId: string,
     @CurrentUser('sub')       userId:    string,
@@ -73,7 +74,6 @@ export class PayrollController {
     return this.payrollService.updateEmployee(companyId, id, dto, userId);
   }
 
-  /** Only ADMIN can deactivate employees */
   @Patch('employees/:id/deactivate')
   @Roles('ADMIN')
   @HttpCode(HttpStatus.OK)
@@ -86,7 +86,7 @@ export class PayrollController {
     return this.payrollService.deactivateEmployee(companyId, id, userId);
   }
 
-  // ── PAYROLL RECORDS ──────────────────────────────────────────────────────
+  // ── PAYROLL RECORDS ────────────────────────────────────────────────────────
 
   @Get('records')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR')
@@ -96,12 +96,14 @@ export class PayrollController {
     @Query('period')     period?:     string,
     @Query('employeeId') employeeId?: string,
     @Query('status')     status?:     string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query('page')       page?:       string,
+    @Query('limit')      limit?:      string,
   ) {
-    const pageNumber = Number(page) || DEFAULT_PAGE;
-    const limitNumber = Number(limit) || DEFAULT_LIMIT;
-    return this.payrollService.findAllPayroll(companyId, { period, employeeId, status, page:pageNumber, limit:limitNumber });
+    return this.payrollService.findAllPayroll(companyId, {
+      period, employeeId, status,
+      page:  Number(page)  || DEFAULT_PAGE,
+      limit: Number(limit) || DEFAULT_LIMIT,
+    });
   }
 
   @Get('records/summary/:period')
@@ -124,7 +126,6 @@ export class PayrollController {
     return this.payrollService.findPayrollRecord(companyId, id);
   }
 
-  /** OPERATOR can create DRAFT records but cannot submit or void */
   @Post('records')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR')
   @ApiOperation({ summary: 'Create payroll draft record' })
@@ -144,11 +145,16 @@ export class PayrollController {
     return this.payrollService.previewPayroll(dto);
   }
 
-  /** OPERATOR cannot submit records to DIAN */
+  /**
+   * POST /payroll/records/:id/submit
+   * Genera XML UBL NominaIndividual, lo firma con XAdES-BES,
+   * lo empaqueta en ZIP y lo envía a la DIAN vía SendTestSetAsync (HAB) o SendBillAsync (PROD).
+   * Devuelve el ZipKey, CUNE y estado DIAN.
+   */
   @Post('records/:id/submit')
   @Roles('ADMIN', 'MANAGER')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Submit payroll to DIAN (ADMIN/MANAGER only)' })
+  @ApiOperation({ summary: 'Submit payroll to DIAN — generates XML+CUNE, signs, ZIPs and sends (ADMIN/MANAGER only)' })
   submitPayroll(
     @CurrentUser('companyId') companyId: string,
     @CurrentUser('sub')       userId:    string,
@@ -157,7 +163,21 @@ export class PayrollController {
     return this.payrollService.submitPayroll(companyId, id, userId);
   }
 
-  /** Only ADMIN can void payroll records */
+  /**
+   * POST /payroll/records/:id/check-status
+   * Consulta el estado del documento en la DIAN por ZipKey o CUNE.
+   */
+  @Post('records/:id/check-status')
+  @Roles('ADMIN', 'MANAGER')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Query DIAN status of a submitted payroll record' })
+  checkPayrollStatus(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.payrollService.checkPayrollStatus(companyId, id);
+  }
+
   @Patch('records/:id/void')
   @Roles('ADMIN')
   @HttpCode(HttpStatus.OK)

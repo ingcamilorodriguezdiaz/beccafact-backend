@@ -28,6 +28,9 @@ CREATE TYPE "IntegrationStatus" AS ENUM ('PENDING', 'ACTIVE', 'ERROR', 'SUSPENDE
 -- CreateEnum
 CREATE TYPE "ImportStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'ERROR', 'CANCELLED');
 
+-- CreateEnum
+CREATE TYPE "PayrollType" AS ENUM ('NOMINA_ELECTRONICA', 'NOMINA_AJUSTE');
+
 -- CreateTable
 CREATE TABLE "plans" (
     "id" TEXT NOT NULL,
@@ -445,6 +448,20 @@ CREATE TABLE "payroll_records" (
     "payDate" TIMESTAMP(3) NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'DRAFT',
     "cune" TEXT,
+    "cuneHash" TEXT,
+    "cuneInput" TEXT,
+    "payrollType" "PayrollType" NOT NULL DEFAULT 'NOMINA_ELECTRONICA',
+    "payrollNumber" TEXT,
+    "xmlSigned" TEXT,
+    "xmlUrl" TEXT,
+    "pdfUrl" TEXT,
+    "dianZipKey" TEXT,
+    "dianStatus" TEXT,
+    "dianStatusCode" TEXT,
+    "dianStatusMsg" TEXT,
+    "dianErrors" TEXT,
+    "dianAttempts" INTEGER NOT NULL DEFAULT 0,
+    "submittedAt" TIMESTAMP(3),
     "baseSalary" DECIMAL(12,2) NOT NULL,
     "daysWorked" INTEGER NOT NULL DEFAULT 30,
     "overtimeHours" DECIMAL(8,2) NOT NULL DEFAULT 0,
@@ -466,7 +483,6 @@ CREATE TABLE "payroll_records" (
     "netPay" DECIMAL(12,2) NOT NULL,
     "totalEmployerCost" DECIMAL(12,2) NOT NULL,
     "notes" TEXT,
-    "submittedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
