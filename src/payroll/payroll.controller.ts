@@ -178,6 +178,21 @@ export class PayrollController {
     return this.payrollService.checkPayrollStatus(companyId, id);
   }
 
+  /**
+   * GET /payroll/records/:id/download
+   * Devuelve el XML firmado y el ZIP (base64) para descargar desde el frontend.
+   * Solo disponible para registros que hayan sido transmitidos (tienen xmlSigned en BD).
+   */
+  @Get('records/:id/download')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @ApiOperation({ summary: 'Get signed XML + ZIP as base64 for download' })
+  downloadPayrollFiles(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.payrollService.downloadPayrollFiles(companyId, id);
+  }
+
   @Patch('records/:id/void')
   @Roles('ADMIN')
   @HttpCode(HttpStatus.OK)

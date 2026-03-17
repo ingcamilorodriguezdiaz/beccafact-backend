@@ -517,6 +517,51 @@ export class PayrollService {
     return updated;
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // DESCARGA XML / ZIP
+  // ══════════════════════════════════════════════════════════════════════════
+
+  async downloadPayrollFiles(companyId: string, id: string) {
+    const record = await this.findPayrollRecord(companyId, id);
+
+    const xmlSigned = (record as any).xmlSigned as string | null;
+    if (!xmlSigned) {
+      throw new BadRequestException(
+        'El XML firmado no está disponible para esta liquidación. ' +
+        'Solo las nóminas que han sido transmitidas a la DIAN tienen XML descargable.',
+      );
+    }
+
+    // Reconstruir el nombre de archivo igual que en submitPayroll:
+    // {nit}{nit}{payrollNumber}
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { nit: true },
+    });
+    const nit           = company?.nit ?? 'SIN_NIT';
+    const payrollNumber = (record as any).payrollNumber ?? `NIE${id.slice(0, 8)}`;
+    const fileBase      = `${nit}${nit}${payrollNumber}`;
+    const xmlFileName   = `${fileBase}.xml`;
+    const zipFileName   = `${fileBase}.zip`;
+
+    const zipBuffer = await this.createZip(xmlFileName, xmlSigned);
+
+    return {
+      xml: {
+        filename:    xmlFileName,
+        contentType: 'application/xml',
+        base64:      Buffer.from(xmlSigned, 'utf8').toString('base64'),
+      },
+      zip: {
+        filename:    zipFileName,
+        contentType: 'application/zip',
+        base64:      zipBuffer.toString('base64'),
+      },
+      payrollNumber,
+      period: (record as any).period,
+    };
+  }
+
   async getPeriodSummary(companyId: string, period: string) {
     const records = await this.prisma.payroll_records.findMany({
       where: { companyId, period, status: { not: 'VOIDED' } },
