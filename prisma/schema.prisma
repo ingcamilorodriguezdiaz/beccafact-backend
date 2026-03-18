@@ -710,9 +710,8 @@ model payroll_records {
   companies Company   @relation(fields: [companyId], references: [id])
   employees employees @relation(fields: [employeeId], references: [id])
 
-  @@unique([companyId, employeeId, period])
-  @@index([companyId])
-  @@index([companyId, period])
+  @@unique([companyId, employeeId, period, payrollType])
+  @@index([companyId, employeeId, payrollType])  
 }
 
 enum PayrollType {

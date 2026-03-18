@@ -241,16 +241,28 @@ export class PayrollService {
     const employee = await this.findEmployee(companyId, dto.employeeId);
     if (!employee.isActive) throw new BadRequestException('Cannot create payroll for an inactive employee');
 
-    const existing = await this.prisma.payroll_records.findFirst({
-      where: { companyId, employeeId: dto.employeeId, period: dto.period },
-    });
-   const tipo = dto.tipoAjuste?.toUpperCase();
-
-    if (existing && !['REEMPLAZAR', 'ELIMINAR'].includes(tipo ?? '')) {
-      throw new ConflictException(
-        `Payroll already exists for period ${dto.period}`
-      );
+    // Validar duplicado según tipo:
+    // · NIE  → solo puede existir UNA por (companyId, employeeId, period)
+    // · NIAE → puede haber múltiples ajustes en el mismo período (el unique en BD
+    //          es por (companyId, employeeId, period, payrollType=NOMINA_AJUSTE),
+    //          pero la DIAN permite varias notas siempre que cada una tenga su propio NIAE#)
+    const payrollTypeForCheck = dto.cuneRef ? 'NOMINA_AJUSTE' : 'NOMINA_ELECTRONICA';
+    if (payrollTypeForCheck === 'NOMINA_ELECTRONICA') {
+      const existing = await this.prisma.payroll_records.findFirst({
+        where: { companyId, employeeId: dto.employeeId, period: dto.period,
+                 payrollType: 'NOMINA_ELECTRONICA' },
+      });
+      if (existing) {
+        throw new ConflictException(
+          `Ya existe una Nómina Electrónica (${existing.payrollNumber ?? existing.id}) ` +
+          `para el período ${dto.period}. ` +
+          `Si necesitas corregirla, crea una Nota de Ajuste (NIAE) desde el botón de la liquidación.`,
+        );
+      }
     }
+    // Para NIAE: el unique en BD es (companyId, employeeId, period, payrollType).
+    // Como payrollType='NOMINA_AJUSTE', múltiples NIAE del mismo período están permitidas
+    // por la Resolución 000013; la BD lo permite porque el unique ya incluye payrollType.
 
     const calc = this.calculatePayroll(dto);
 
@@ -262,9 +274,13 @@ export class PayrollService {
       ? parseInt(lastRecord.payrollNumber.replace(/\D/g, ''), 10)
       : NOMINA_SEQUENCE_START - 1;
     const nextSeq       = lastSeq + 1;
-    const payrollNumber = `NIE${nextSeq}`;
+    // Para NIAE el prefijo es NIAE (Resolución 000013), para NIE es NIE
+    const prefijoPay    = dto.cuneRef ? 'NIAE' : 'NIE';
+    const payrollNumber = `${prefijoPay}${nextSeq}`;
 
-    const record = await this.prisma.payroll_records.create({
+    let record: any;
+    try {
+    record = await this.prisma.payroll_records.create({
       data: {
         companyId,
         employeeId:         dto.employeeId,
@@ -303,6 +319,17 @@ export class PayrollService {
       } as any,
       include: { employees: { select: { id: true, firstName: true, lastName: true } } },
     });
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        // Con el nuevo unique(companyId, employeeId, period, payrollType) esto solo ocurre
+        // si ya existe una NIE o NIAE exactamente igual — no debería pasar con la validación previa
+        throw new ConflictException(
+          `Ya existe un documento del mismo tipo para ${dto.period}. ` +
+          `Verifica que no estés duplicando una transmisión.`,
+        );
+      }
+      throw e;
+    }
 
     await this.prisma.auditLog.create({
       data: { companyId, userId, action: 'CREATE', resource: 'payroll', resourceId: record.id,
@@ -614,7 +641,7 @@ export class PayrollService {
 
     const adjustDto: CreatePayrollDto = {
       employeeId:        (original as any).employeeId,
-      period:            (original as any).period,
+      period:            (original as any).period,  // mismo período que el NIE original
       payDate,
       baseSalary,
       daysWorked,
@@ -857,8 +884,11 @@ export class PayrollService {
     const totalDed    = Number(record.totalDeductions).toFixed(2);
     const netPay      = Number(record.netPay).toFixed(2);
 
+    // TipoNota: código según tabla 5.5.8 (1=Reemplazar, 2=Eliminar)
+    const tipoNotaCod = isAjuste ? (tipoAjuste === 'Eliminar' ? '2' : '1') : '';
     const codigoQR =
       `NumNIE: ${numeroDoc}FecNIE: ${issueDate}HorNIE: ${timeClean}-05:00` +
+      (isAjuste ? `TipoNota: ${tipoNotaCod}` : '') +
       `NitNIE: ${empNit}DocEmp: ${workerDoc}ValDev: ${totalEarn}ValDed: ${totalDed}` +
       `ValTol: ${netPay}CUNE: ${cuneHash}QRCode: ${qrBase}${cuneHash}`;
 
@@ -869,56 +899,44 @@ export class PayrollService {
     // Banco del empleado si está configurado
     const bancoAttr = employee.bankName ? ` Banco="${employee.bankName}"` : '';
 
-    // ── Bloque ReemplazandoPredecesor para NominaIndividualDeAjuste ───────────
-    // Resolución 000013 Art.17: campos NIAE190 (NumeroPred), NIAE191 (CUNEPred),
-    // NIAE192 (FechaGenPred). El nodo raíz de la nota es TipoNota (Reemplazar|Eliminar).
-    const predBlock = isAjuste
-      ? `<ReemplazandoPredecesor NumeroPred="${payrollNumberRef ?? ''}" CUNEPred="${cuneRef ?? ''}" FechaGenPred="${fechaGenRef ?? issueDate}" />`
-      : '';
+    // ── Ensamblaje XML correcto según Resolución 000013 ─────────────────────
+    // Estructura NominaIndividualDeAjuste (tabla de campos, sección 3.2):
+    //   Nivel raíz: UBLExtensions, TipoNota
+    //   Dentro de Reemplazar|Eliminar: TODO lo demás (ReemplazandoPredecesor,
+    //     Periodo, NumeroSecuenciaXML, LugarGeneracion, Proveedor, QR,
+    //     InformacionGeneral, Notas, Empleador, Trabajador, Pago, Devengados...)
 
-    // Para tipo Eliminar no se incluyen devengados/deducciones (Art.17 último párrafo)
-    const isEliminar = isAjuste && tipoAjuste === 'Eliminar';
+    const isEliminar  = isAjuste && tipoAjuste === 'Eliminar';
 
-    // ── Construir el XML por secciones según NIE / NIAE ────────────────────
-    // Orden de elementos según XSD DIAN NominaIndividualElectronicaXSD.xsd:
-    //   UBLExtensions → Periodo → NumeroSecuenciaXML → LugarGeneracion → Proveedor
-    //   → CodigoQR → InformacionGeneral → Notas → Empleador → Trabajador → Pago
-    //   → FechasPagos → Devengados → Deducciones → Totales
-    //
-    // Para NIE:  Periodo va entre UBLExtensions y NumeroSecuenciaXML (nivel raíz)
-    // Para NIAE: Periodo va dentro del nodo Reemplazar/Eliminar (fuera de la cabecera)
-
-    // Periodo (reutilizado en NIE-cabecera y en NIAE-Reemplazar)
+    // ── Partes comunes (van dentro de Reemplazar o Eliminar) ──────────────────
     const xmlPeriodo =
       `<Periodo FechaIngreso="${hireDate}" FechaLiquidacionInicio="${liquidInicio}" FechaLiquidacionFin="${liquidFin}" TiempoLaborado="${record.daysWorked}" FechaGen="${issueDate}" />`;
 
-    // xmlCabeceraNIE: orden correcto para NominaIndividual
-    // UBLExtensions → Periodo → NumeroSecuenciaXML → Lugar → Proveedor → QR → InfoGeneral → Notas → Empleador
-    const xmlCabeceraNIE =
-      `<ext:UBLExtensions><ext:UBLExtension><ext:ExtensionContent><!-- NOMINA_SIGNATURE_PLACEHOLDER --></ext:ExtensionContent></ext:UBLExtension></ext:UBLExtensions>` +
-      xmlPeriodo +
-      `<NumeroSecuenciaXML CodigoTrabajador="${workerDoc}" Prefijo="${prefijo}" Consecutivo="${seqNum}" Numero="${numeroDoc}" />` +
-      `<LugarGeneracionXML Pais="CO" DepartamentoEstado="11" MunicipioCiudad="11001" Idioma="es" />` +
-      `<ProveedorXML RazonSocial="${empNombre}" NIT="${empNit}" DV="${empDv}" SoftwareID="${NOMINA_SOFTWARE_ID}" SoftwareSC="${softwareSC}" />` +
-      `<CodigoQR>${codigoQR}</CodigoQR>` +
-      `<InformacionGeneral Version="V1.0: Documento Soporte de Pago de Nómina Electrónica" Ambiente="${ambiente}" TipoXML="${tipoXml}" CUNE="${cuneHash}" EncripCUNE="CUNE-SHA384" FechaGen="${issueDate}" HoraGen="${issueTime}" PeriodoNomina="${periodoNomina}" TipoMoneda="COP" />` +
-      `<Notas>${notas}</Notas>` +
+    const xmlNumeroSeq =
+      `<NumeroSecuenciaXML CodigoTrabajador="${workerDoc}" Prefijo="${prefijo}" Consecutivo="${seqNum}" Numero="${numeroDoc}" />`;
+
+    const xmlLugar =
+      `<LugarGeneracionXML Pais="CO" DepartamentoEstado="11" MunicipioCiudad="11001" Idioma="es" />`;
+
+    const xmlProveedor =
+      `<ProveedorXML RazonSocial="${empNombre}" NIT="${empNit}" DV="${empDv}" SoftwareID="${NOMINA_SOFTWARE_ID}" SoftwareSC="${softwareSC}" />`;
+
+    const xmlQR =
+      `<CodigoQR>${codigoQR}</CodigoQR>`;
+
+    const versionStr = isAjuste
+      ? 'V1.0: Nota de Ajuste de Documento Soporte de Pago de Nómina Electrónica'
+      : 'V1.0: Documento Soporte de Pago de Nómina Electrónica';
+    const xmlInfoGen =
+      `<InformacionGeneral Version="${versionStr}" Ambiente="${ambiente}" TipoXML="${tipoXml}" CUNE="${cuneHash}" EncripCUNE="CUNE-SHA384" FechaGen="${issueDate}" HoraGen="${issueTime}" PeriodoNomina="${periodoNomina}" TipoMoneda="COP" />`;
+
+    // <Notas> solo para NIE — el XML productivo NIAE no lo incluye en Reemplazar
+    const xmlNotas = isAjuste ? '' : `<Notas>${notas}</Notas>`;
+
+    const xmlEmpleador =
       `<Empleador PrimerApellido="${empApellido1}"${empApellido2 ? ` SegundoApellido="${empApellido2}"` : ''} PrimerNombre="${empNombre1}"${empOtros ? ` OtrosNombres="${empOtros}"` : ''} NIT="${empNit}" DV="${empDv}" Pais="CO" DepartamentoEstado="11" MunicipioCiudad="11001" Direccion="${empDir}" />`;
 
-    // xmlCabeceraNIAE: sin Periodo (éste va dentro de Reemplazar/Eliminar)
-    // UBLExtensions → NumeroSecuenciaXML → Lugar → Proveedor → QR → InfoGeneral → Notas → Empleador
-    const xmlCabeceraNIAE =
-      `<ext:UBLExtensions><ext:UBLExtension><ext:ExtensionContent><!-- NOMINA_SIGNATURE_PLACEHOLDER --></ext:ExtensionContent></ext:UBLExtension></ext:UBLExtensions>` +
-      `<NumeroSecuenciaXML CodigoTrabajador="${workerDoc}" Prefijo="${prefijo}" Consecutivo="${seqNum}" Numero="${numeroDoc}" />` +
-      `<LugarGeneracionXML Pais="CO" DepartamentoEstado="11" MunicipioCiudad="11001" Idioma="es" />` +
-      `<ProveedorXML RazonSocial="${empNombre}" NIT="${empNit}" DV="${empDv}" SoftwareID="${NOMINA_SOFTWARE_ID}" SoftwareSC="${softwareSC}" />` +
-      `<CodigoQR>${codigoQR}</CodigoQR>` +
-      `<InformacionGeneral Version="V1.0: Documento Soporte de Pago de Nómina Electrónica" Ambiente="${ambiente}" TipoXML="${tipoXml}" CUNE="${cuneHash}" EncripCUNE="CUNE-SHA384" FechaGen="${issueDate}" HoraGen="${issueTime}" PeriodoNomina="${periodoNomina}" TipoMoneda="COP" />` +
-      `<Notas>${notas}</Notas>` +
-      `<Empleador PrimerApellido="${empApellido1}"${empApellido2 ? ` SegundoApellido="${empApellido2}"` : ''} PrimerNombre="${empNombre1}"${empOtros ? ` OtrosNombres="${empOtros}"` : ''} NIT="${empNit}" DV="${empDv}" Pais="CO" DepartamentoEstado="11" MunicipioCiudad="11001" Direccion="${empDir}" />`;
-
-    // Cuerpo de nómina (Trabajador, Pago, Fechas, Devengados, Deducciones, Totales)
-    // Para NIAE Eliminar este bloque NO se incluye (Art.17 último párrafo numerales 4,5,6,11)
+    // Cuerpo de nómina: solo para NIE y para NIAE Reemplazar (no Eliminar)
     const xmlCuerpoNomina = isEliminar ? '' :
       `<Trabajador TipoTrabajador="01" SubTipoTrabajador="00" AltoRiesgoPension="false"` +
       ` TipoDocumento="${workerDocType}" NumeroDocumento="${workerDoc}"` +
@@ -931,45 +949,63 @@ export class PayrollService {
       `<FechasPagos><FechaPago>${payDateStr}</FechaPago></FechasPagos>` +
       `<Devengados>` +
         `<Basico DiasTrabajados="${record.daysWorked}" SueldoTrabajado="${baseSalary}" />` +
-        // FIX ZB01: Transporte solo lleva AuxilioTransporte
-        (transport > 0    ? `<Transporte AuxilioTransporte="${transport.toFixed(2)}" />`                                                                              : '') +
-        (bonuses > 0      ? `<Bonificaciones BonificacionSalarial="${bonuses.toFixed(2)}" BonificacionNoSalarial="0.00" />`                                           : '') +
-        (commissions > 0  ? `<Comisiones Comision="${commissions.toFixed(2)}" />`                                                                                    : '') +
-        (vacacion > 0     ? `<Vacaciones VacacionesComunes="${vacacion.toFixed(2)}" />`                                                                              : '') +
-        (overtime > 0     ? `<HEDs><HED Cantidad="${overtime.toFixed(2)}" Porcentaje="25.00" Pago="${(overtime * Number(record.baseSalary) / 240 * 1.25).toFixed(2)}" /></HEDs>` : '') +
+        (transport > 0   ? `<Transporte AuxilioTransporte="${transport.toFixed(2)}" />` : '') +
+        (bonuses > 0     ? `<Bonificaciones BonificacionSalarial="${bonuses.toFixed(2)}" BonificacionNoSalarial="0.00" />` : '') +
+        (commissions > 0 ? `<Comisiones Comision="${commissions.toFixed(2)}" />` : '') +
+        (vacacion > 0    ? `<Vacaciones VacacionesComunes="${vacacion.toFixed(2)}" />` : '') +
+        (overtime > 0    ? `<HEDs><HED Cantidad="${overtime.toFixed(2)}" Porcentaje="25.00" Pago="${(overtime * Number(record.baseSalary) / 240 * 1.25).toFixed(2)}" /></HEDs>` : '') +
       `</Devengados>` +
       `<Deducciones>` +
         `<Salud Porcentaje="4.00" Deduccion="${healthEmp.toFixed(2)}" />` +
-        (pensionEmp > 0   ? `<FondoPension Porcentaje="4.00" Deduccion="${pensionEmp.toFixed(2)}" />`                                                                : '') +
-        (sick > 0         ? `<Incapacidades><Incapacidad Cantidad="1" TipoIncapacidad="01" ValorIncapacidad="${sick.toFixed(2)}" /></Incapacidades>`                  : '') +
-        (loans > 0        ? `<Embargo ValorEmbargo="${loans.toFixed(2)}" />`                                                                                         : '') +
-        (otherDed > 0     ? `<OtraDeduccion NombreDeduccion="Otros descuentos" ValorDeduccion="${otherDed.toFixed(2)}" />`                                           : '') +
+        (pensionEmp > 0  ? `<FondoPension Porcentaje="4.00" Deduccion="${pensionEmp.toFixed(2)}" />` : '') +
+        (sick > 0        ? `<Incapacidades><Incapacidad Cantidad="1" TipoIncapacidad="01" ValorIncapacidad="${sick.toFixed(2)}" /></Incapacidades>` : '') +
+        (loans > 0       ? `<Embargo ValorEmbargo="${loans.toFixed(2)}" />` : '') +
+        (otherDed > 0    ? `<OtraDeduccion NombreDeduccion="Otros descuentos" ValorDeduccion="${otherDed.toFixed(2)}" />` : '') +
       `</Deducciones>` +
       `<DevengadosTotal>${totalEarn}</DevengadosTotal>` +
       `<DeduccionesTotal>${totalDed}</DeduccionesTotal>` +
       `<ComprobanteTotal>${netPay}</ComprobanteTotal>`;
 
-    // ── Ensamblar el documento según tipo ────────────────────────────────────
+    // ── Ensamblar según tipo ──────────────────────────────────────────────────
     let xmlBody: string;
+
     if (!isAjuste) {
-      // NominaIndividual (NIE): orden exacto del XSD
-      // UBLExtensions → Periodo → NumeroSecuenciaXML → ... → Empleador → Trabajador → ...
-      xmlBody = xmlCabeceraNIE + xmlCuerpoNomina;
+      // ── NominaIndividual (NIE) ────────────────────────────────────────────
+      // Orden XSD: UBLExtensions → Periodo → NumeroSecuenciaXML → Lugar →
+      //   Proveedor → QR → InfoGeneral → Notas → Empleador → Trabajador → ...
+      xmlBody =
+        `<ext:UBLExtensions><ext:UBLExtension><ext:ExtensionContent><!-- NOMINA_SIGNATURE_PLACEHOLDER --></ext:ExtensionContent></ext:UBLExtension></ext:UBLExtensions>` +
+        xmlPeriodo + xmlNumeroSeq + xmlLugar + xmlProveedor + xmlQR +
+        xmlInfoGen + xmlNotas + xmlEmpleador + xmlCuerpoNomina;
+
     } else if (isEliminar) {
-      // NominaIndividualDeAjuste / Eliminar (Art.17 último párrafo):
-      // Sin Periodo ni datos de nómina; solo el predecesor dentro de <Eliminar>
-      xmlBody = xmlCabeceraNIAE +
+      // ── NominaIndividualDeAjuste / Eliminar ───────────────────────────────
+      // Resolución Art.17 último párrafo + tabla campos sección 3.2:
+      //   UBLExtensions → TipoNota → Eliminar(EliminandoPredecesor, NumeroSeq,
+      //     Lugar, Proveedor, QR, InfoGeneral, Notas, Empleador)
+      // Sin Periodo ni datos de nómina.
+      xmlBody =
+        `<ext:UBLExtensions><ext:UBLExtension><ext:ExtensionContent><!-- NOMINA_SIGNATURE_PLACEHOLDER --></ext:ExtensionContent></ext:UBLExtension></ext:UBLExtensions>` +
+        `<TipoNota>${tipoNotaCod}</TipoNota>` +
         `<Eliminar>` +
-          predBlock +
+          `<EliminandoPredecesor NumeroPred="${payrollNumberRef ?? ''}" CUNEPred="${cuneRef ?? ''}" FechaGenPred="${fechaGenRef ?? issueDate}" />` +
+          xmlNumeroSeq + xmlLugar + xmlProveedor + xmlQR +
+          xmlInfoGen + xmlNotas + xmlEmpleador +
         `</Eliminar>`;
+
     } else {
-      // NominaIndividualDeAjuste / Reemplazar (Art.17 párrafos 4-6 y 11):
-      // Periodo + cuerpo de nómina corregido van DENTRO de <Reemplazar>
-      xmlBody = xmlCabeceraNIAE +
+      // ── NominaIndividualDeAjuste / Reemplazar ─────────────────────────────
+      // Resolución Art.17 párrafos 4-6, 11 + tabla campos sección 3.2:
+      //   UBLExtensions → TipoNota → Reemplazar(ReemplazandoPredecesor, Periodo,
+      //     NumeroSeq, Lugar, Proveedor, QR, InfoGeneral, Notas, Empleador,
+      //     Trabajador, Pago, FechasPagos, Devengados, Deducciones, ComprobanteTotal)
+      xmlBody =
+        `<ext:UBLExtensions><ext:UBLExtension><ext:ExtensionContent><!-- NOMINA_SIGNATURE_PLACEHOLDER --></ext:ExtensionContent></ext:UBLExtension></ext:UBLExtensions>` +
+        `<TipoNota>${tipoNotaCod}</TipoNota>` +
         `<Reemplazar>` +
-          predBlock +
-          xmlPeriodo +
-          xmlCuerpoNomina +
+          `<ReemplazandoPredecesor NumeroPred="${payrollNumberRef ?? ''}" CUNEPred="${cuneRef ?? ''}" FechaGenPred="${fechaGenRef ?? issueDate}" />` +
+          xmlPeriodo + xmlNumeroSeq + xmlLugar + xmlProveedor + xmlQR +
+          xmlInfoGen + xmlNotas + xmlEmpleador + xmlCuerpoNomina +
         `</Reemplazar>`;
     }
 
