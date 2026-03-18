@@ -31,6 +31,9 @@ CREATE TYPE "ImportStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'ERROR
 -- CreateEnum
 CREATE TYPE "PayrollType" AS ENUM ('NOMINA_ELECTRONICA', 'NOMINA_AJUSTE');
 
+-- CreateEnum
+CREATE TYPE "DianDocumentType" AS ENUM ('FACTURA_VENTA', 'NOTA_CREDITO', 'NOTA_DEBITO', 'FACTURA_EXPORTACION', 'DOCUMENTO_SOPORTE', 'NOTA_AJUSTE_SOPORTE', 'NOMINA_INDIVIDUAL', 'NOMINA_INDIVIDUAL_AJUSTE');
+
 -- CreateTable
 CREATE TABLE "plans" (
     "id" TEXT NOT NULL,
@@ -461,6 +464,13 @@ CREATE TABLE "payroll_records" (
     "dianStatusMsg" TEXT,
     "dianErrors" TEXT,
     "dianAttempts" INTEGER NOT NULL DEFAULT 0,
+    "cuneRef" TEXT,
+    "payrollNumberRef" TEXT,
+    "fechaGenRef" TEXT,
+    "tipoAjuste" TEXT,
+    "originalNieId" TEXT,
+    "predecessorId" TEXT,
+    "isAnulado" BOOLEAN NOT NULL DEFAULT false,
     "submittedAt" TIMESTAMP(3),
     "baseSalary" DECIMAL(12,2) NOT NULL,
     "daysWorked" INTEGER NOT NULL DEFAULT 30,
@@ -487,6 +497,28 @@ CREATE TABLE "payroll_records" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "payroll_records_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "dian_xml_templates" (
+    "id" TEXT NOT NULL,
+    "documentType" "DianDocumentType" NOT NULL,
+    "version" TEXT NOT NULL DEFAULT 'V1.0:2021',
+    "name" TEXT NOT NULL,
+    "description" TEXT,
+    "xmlTemplate" TEXT NOT NULL,
+    "xsdSchemaUrl" TEXT,
+    "namespace" TEXT,
+    "rootElement" TEXT,
+    "hashAlgorithm" TEXT,
+    "hashFields" TEXT,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "isCurrent" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "createdBy" TEXT,
+
+    CONSTRAINT "dian_xml_templates_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -631,13 +663,19 @@ CREATE UNIQUE INDEX "employees_companyId_documentNumber_key" ON "employees"("com
 CREATE UNIQUE INDEX "payroll_records_cune_key" ON "payroll_records"("cune");
 
 -- CreateIndex
-CREATE INDEX "payroll_records_companyId_idx" ON "payroll_records"("companyId");
+CREATE INDEX "payroll_records_companyId_employeeId_payrollType_idx" ON "payroll_records"("companyId", "employeeId", "payrollType");
 
 -- CreateIndex
-CREATE INDEX "payroll_records_companyId_period_idx" ON "payroll_records"("companyId", "period");
+CREATE INDEX "payroll_records_companyId_employeeId_originalNieId_idx" ON "payroll_records"("companyId", "employeeId", "originalNieId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "payroll_records_companyId_employeeId_period_key" ON "payroll_records"("companyId", "employeeId", "period");
+CREATE UNIQUE INDEX "payroll_records_companyId_employeeId_period_payrollType_key" ON "payroll_records"("companyId", "employeeId", "period", "payrollType");
+
+-- CreateIndex
+CREATE INDEX "dian_xml_templates_documentType_isActive_idx" ON "dian_xml_templates"("documentType", "isActive");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "dian_xml_templates_documentType_version_key" ON "dian_xml_templates"("documentType", "version");
 
 -- AddForeignKey
 ALTER TABLE "plan_features" ADD CONSTRAINT "plan_features_planId_fkey" FOREIGN KEY ("planId") REFERENCES "plans"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -722,3 +760,9 @@ ALTER TABLE "payroll_records" ADD CONSTRAINT "payroll_records_companyId_fkey" FO
 
 -- AddForeignKey
 ALTER TABLE "payroll_records" ADD CONSTRAINT "payroll_records_employeeId_fkey" FOREIGN KEY ("employeeId") REFERENCES "employees"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "payroll_records" ADD CONSTRAINT "payroll_records_originalNieId_fkey" FOREIGN KEY ("originalNieId") REFERENCES "payroll_records"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "payroll_records" ADD CONSTRAINT "payroll_records_predecessorId_fkey" FOREIGN KEY ("predecessorId") REFERENCES "payroll_records"("id") ON DELETE SET NULL ON UPDATE CASCADE;

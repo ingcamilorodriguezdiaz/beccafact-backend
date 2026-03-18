@@ -668,10 +668,21 @@ model payroll_records {
   dianStatusMsg   String?
   dianErrors   String?
   dianAttempts Int      @default(0)
-  cuneRef          String?
-  payrollNumberRef String?
-  fechaGenRef      String?
-  tipoAjuste       String?
+  cuneRef          String?   // CUNE del documento predecesor (NIE o NIAE)
+  payrollNumberRef String?   // Número del documento predecesor
+  fechaGenRef      String?   // Fecha de emisión del predecesor (FechaGenPred)
+  tipoAjuste       String?   // 'Reemplazar' | 'Eliminar'
+
+  // Cadena de ajustes:
+  // · originalNieId: apunta siempre al NIE raíz (primer documento del período)
+  // · predecessorId: apunta al documento inmediatamente anterior en la cadena
+  //   (NIE → NIAE-R → NIAE-R → NIAE-E)
+  // · isAnulado: true cuando sobre este período ya existe un Eliminar ACCEPTED;
+  //   bloquea la creación de nuevos ajustes
+  originalNieId    String?   // FK al NIE raíz del período
+  predecessorId    String?   // FK al doc predecesor directo en la cadena
+  isAnulado        Boolean   @default(false)  // período anulado por NIAE-Eliminar
+
   submittedAt DateTime?
 
   // DEVENGADOS
@@ -710,8 +721,15 @@ model payroll_records {
   companies Company   @relation(fields: [companyId], references: [id])
   employees employees @relation(fields: [employeeId], references: [id])
 
+  // Auto-referencias para la cadena NIE → NIAE → NIAE
+  originalNie  payroll_records?  @relation("NieChain",  fields: [originalNieId],  references: [id])
+  adjustments  payroll_records[] @relation("NieChain")
+  predecessor  payroll_records?  @relation("NiaeChain", fields: [predecessorId],  references: [id])
+  successors   payroll_records[] @relation("NiaeChain")
+
   @@unique([companyId, employeeId, period, payrollType])
-  @@index([companyId, employeeId, payrollType])  
+  @@index([companyId, employeeId, payrollType])
+  @@index([companyId, employeeId, originalNieId])   // buscar cadena por NIE raíz
 }
 
 enum PayrollType {

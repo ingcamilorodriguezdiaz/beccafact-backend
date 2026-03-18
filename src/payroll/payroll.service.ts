@@ -54,12 +54,15 @@ export interface CreatePayrollDto {
   loans?: number;
   otherDeductions?: number;
   notes?: string;
-  cuneRef?: string;          // CUNE del NIE/NIAE original a reemplazar/eliminar
-  payrollNumberRef?: string; // Número del doc original (ej: NIE990000001)
-  fechaGenRef?: string;      // FechaGen del doc original YYYY-MM-DD (FechaGenPred)
-  /** 'Reemplazar': corrige devengados/deducciones (Artículo 17 párrafo 4,5,6,11)
-   *  'Eliminar':   anula sin contenido de nómina (Artículo 17 último párrafo) */
+  cuneRef?: string;          // CUNE del documento predecesor
+  payrollNumberRef?: string; // Número del documento predecesor
+  fechaGenRef?: string;      // FechaGen del predecesor YYYY-MM-DD (FechaGenPred)
+  /** 'Reemplazar': corrige devengados/deducciones (Resolución 000013 Art.17 párr. 4-6,11)
+   *  'Eliminar':   anula sin contenido de nómina (Art.17 último párrafo) */
   tipoAjuste?: 'Reemplazar' | 'Eliminar';
+  // Campos internos de cadena (gestionados por createNotaAjuste, no por el usuario)
+  originalNieId?: string;    // FK al NIE raíz del período
+  predecessorId?: string;    // FK al documento predecesor directo
 }
 
 export interface PayrollCalcResult {
@@ -294,6 +297,8 @@ export class PayrollService {
         payrollNumberRef:   dto.payrollNumberRef   ?? null,
         fechaGenRef:        dto.fechaGenRef         ?? null,
         tipoAjuste:         dto.tipoAjuste          ?? null,
+        originalNieId:      dto.originalNieId       ?? null,
+        predecessorId:      dto.predecessorId       ?? null,
         // Todos los campos numéricos pasan por safeNum para evitar Decimal(12,2) overflow
         baseSalary:         this.safeNum(dto.baseSalary),
         daysWorked:         Math.max(0, Math.min(31, Number(dto.daysWorked) || 0)),
@@ -371,14 +376,23 @@ export class PayrollService {
     // ── Validar que el período de la nómina no sea futuro ─────────────────────
     // La DIAN rechaza con NIE024 si FechaGen (hoy) es anterior a FechaLiquidacionFin.
     // Ejemplo: enviar en marzo una nómina de junio → rechazo garantizado.
-    const [pYearCheck, pMonthCheck] = ((record as any).period as string).split('-').map(Number);
-    const liquidFinCheck = new Date(pYearCheck, pMonthCheck, 0); // último día del mes
-    const todayCheck     = new Date();
-    todayCheck.setHours(0,0,0,0);
-    if (liquidFinCheck > todayCheck) {
+    const [pYearCheck, pMonthCheck] = ((record as any).period as string)
+      .split('-')
+      .map(Number);
+
+    const today = new Date();
+
+    // Año y mes actual
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1; // JS: 0-11
+
+    // Validación
+    if (
+      pYearCheck > currentYear ||
+      (pYearCheck === currentYear && pMonthCheck > currentMonth)
+    ) {
       throw new BadRequestException(
-        `El período de nómina ${(record as any).period} (${liquidFinCheck.toISOString().slice(0,10)}) ` +
-        `es futuro respecto a la fecha actual (${todayCheck.toISOString().slice(0,10)}). ` +
+        `El período de nómina ${(record as any).period} es futuro respecto al mes actual (${currentYear}-${currentMonth}). ` +
         `La DIAN rechaza nóminas con período en el futuro (regla NIE024).`
       );
     }
@@ -498,6 +512,9 @@ export class PayrollService {
 
     this.logger.log(`[DIAN-NE] ${payrollNumber} → status=${newStatus} | zipKey=${dianResult.zipKey}`);
 
+    // Propagar anulación al NIE raíz si esta NIAE-Eliminar fue aceptada
+    await this.propagateAnulado(companyId, { ...updated, status: newStatus });
+
     return {
       record: updated,
       dian: {
@@ -538,7 +555,7 @@ export class PayrollService {
         result.isValid             ? 'ACCEPTED'  :
         result.statusCode === '99' ? 'REJECTED'  : undefined;
 
-      await this.prisma.payroll_records.update({
+      const updatedCheck = await this.prisma.payroll_records.update({
         where: { id },
         data: {
           dianStatusCode: result.statusCode,
@@ -546,6 +563,10 @@ export class PayrollService {
           ...(newStatus ? { status: newStatus } : {}),
         } as any,
       });
+      // Propagar anulación si NIAE-Eliminar pasó a ACCEPTED
+      if (newStatus === 'ACCEPTED') {
+        await this.propagateAnulado(companyId, { ...updatedCheck, status: newStatus });
+      }
     }
 
     return {
@@ -581,13 +602,23 @@ export class PayrollService {
   // Resolución 000013 de 2021, Artículo 17
   // ══════════════════════════════════════════════════════════════════════════
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // NOTA DE AJUSTE (NominaIndividualDeAjuste) — Resolución 000013 Art.17
+  //
+  // Reglas de cadena:
+  //  · Reemplazar: puede aplicarse sobre el NIE o sobre cualquier NIAE-Reemplazar
+  //    ACCEPTED. Siempre toma como predecesor el ÚLTIMO documento válido de la cadena.
+  //    Pueden existir múltiples NIAE-Reemplazar encadenadas.
+  //  · Eliminar: solo puede aplicarse UNA VEZ sobre el último doc válido de la cadena.
+  //    Después de un Eliminar ACCEPTED el período queda anulado (isAnulado=true en el NIE)
+  //    y no se pueden crear más ajustes sobre él.
+  // ══════════════════════════════════════════════════════════════════════════
   async createNotaAjuste(
     companyId: string,
-    originalId: string,
+    targetId:  string,   // ID del NIE o NIAE sobre el que se aplica el ajuste
     dto: {
       tipoAjuste: 'Reemplazar' | 'Eliminar';
       payDate?: string;
-      // Campos de nómina corregidos (solo para Reemplazar)
       baseSalary?: number;
       daysWorked?: number;
       overtimeHours?: number;
@@ -602,46 +633,108 @@ export class PayrollService {
     },
     userId: string,
   ) {
-    // Obtener el documento original
-    const original = await this.findPayrollRecord(companyId, originalId);
-    if (!original) throw new NotFoundException('Documento original no encontrado');
+    // ── 1. Obtener el documento objetivo ──────────────────────────────────
+    const target = await this.findPayrollRecord(companyId, targetId);
 
-    const cuneHash = (original as any).cuneHash ?? (original as any).cune;
-    const payrollNumber = (original as any).payrollNumber;
-    const issueDate = (original as any).submittedAt
-      ? new Date((original as any).submittedAt).toISOString().slice(0, 10)
-      : new Date().toISOString().slice(0, 10);
+    // ── 2. Resolver el NIE raíz y el predecesor directo de la cadena ─────
+    // El usuario puede clicar en cualquier doc de la cadena; nosotros
+    // siempre tomamos el ÚLTIMO documento válido como predecesor.
+    const isTargetNie  = (target as any).payrollType === 'NOMINA_ELECTRONICA';
+    const originalNieId = isTargetNie
+      ? target.id
+      : ((target as any).originalNieId ?? target.id);
 
-    if (!cuneHash || !payrollNumber) {
+    // Buscar el último NIAE-Reemplazar ACCEPTED en la cadena de este NIE,
+    // ordenado por createdAt DESC. Si no hay ninguno, el predecesor es el NIE.
+    const lastAcceptedNiae = await this.prisma.payroll_records.findFirst({
+      where: {
+        companyId,
+        originalNieId,
+        payrollType: 'NOMINA_AJUSTE',
+        tipoAjuste:  'Reemplazar',
+        status:      'ACCEPTED',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // El predecesor directo es el último NIAE-Reemplazar ACCEPTED,
+    // o el NIE raíz si no hay ninguno
+    const predecessor = lastAcceptedNiae
+      ?? await this.findPayrollRecord(companyId, originalNieId);
+
+    // ── 3. Validaciones de cadena ─────────────────────────────────────────
+
+    // 3a. Verificar que el NIE raíz exista y esté ACCEPTED
+    const nieRoot = isTargetNie ? target : await this.findPayrollRecord(companyId, originalNieId);
+    if (nieRoot.status !== 'ACCEPTED') {
       throw new BadRequestException(
-        'El documento original no tiene CUNE ni número de nómina. ' +
-        'Solo se pueden ajustar documentos previamente transmitidos y aceptados por la DIAN.',
+        'Solo se pueden crear Notas de Ajuste sobre nóminas aceptadas por la DIAN.',
       );
     }
 
-    // Para Eliminar solo se necesita el predecesor, sin datos de nómina
-    // Para Reemplazar se usan los datos corregidos (o los del original si no se indican)
+    // 3b. Verificar que el período NO esté ya anulado
+    if ((nieRoot as any).isAnulado) {
+      throw new BadRequestException(
+        `El período ${(nieRoot as any).period} ya fue anulado mediante una Nota de Ajuste de tipo Eliminar. ` +
+        `No se pueden crear más ajustes sobre un período anulado.`,
+      );
+    }
+
+    // 3c. Para Eliminar: verificar que no exista ya un Eliminar en proceso (DRAFT/SUBMITTED) o ACCEPTED
+    if (dto.tipoAjuste === 'Eliminar') {
+      const existingEliminar = await this.prisma.payroll_records.findFirst({
+        where: {
+          companyId,
+          originalNieId,
+          payrollType: 'NOMINA_AJUSTE',
+          tipoAjuste:  'Eliminar',
+          status: { in: ['DRAFT', 'SUBMITTED', 'ACCEPTED'] },
+        },
+      });
+      if (existingEliminar) {
+        throw new BadRequestException(
+          `Ya existe una Nota de Ajuste de tipo Eliminar ` +
+          `(${existingEliminar.payrollNumber ?? existingEliminar.id}, estado: ${existingEliminar.status}) ` +
+          `para este período. Solo puede existir un Eliminar por período.`,
+        );
+      }
+    }
+
+    // ── 4. Datos del predecesor para el XML ───────────────────────────────
+    const predCune   = (predecessor as any).cuneHash ?? (predecessor as any).cune;
+    const predNumber = (predecessor as any).payrollNumber;
+    const predDate   = (predecessor as any).submittedAt
+      ? new Date((predecessor as any).submittedAt).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+
+    if (!predCune || !predNumber) {
+      throw new BadRequestException(
+        'El documento predecesor no tiene CUNE o número de nómina. ' +
+        'Solo se pueden ajustar documentos transmitidos y aceptados por la DIAN.',
+      );
+    }
+
+    // ── 5. Construir el DTO de la NIAE ────────────────────────────────────
     const isEliminar = dto.tipoAjuste === 'Eliminar';
 
-    // Sanitizar valores del registro original (Prisma.Decimal → number seguro)
-    // Para Eliminar forzamos todo a 0 excepto baseSalary/daysWorked (requeridos por calculatePayroll)
-    const baseSalary       = this.safeNum(isEliminar ? original.baseSalary          : (dto.baseSalary       ?? original.baseSalary));
-    const daysWorked       = Math.max(0, Math.min(31, Number(isEliminar ? (original as any).daysWorked : (dto.daysWorked ?? (original as any).daysWorked)) || 30));
-    const overtimeHours    = isEliminar ? 0 : this.safeNum(dto.overtimeHours    ?? (original as any).overtimeHours    ?? 0);
-    const bonuses          = isEliminar ? 0 : this.safeNum(dto.bonuses          ?? (original as any).bonuses          ?? 0);
-    const commissions      = isEliminar ? 0 : this.safeNum(dto.commissions      ?? (original as any).commissions      ?? 0);
-    // transportAllowance: undefined → calculatePayroll lo auto-calcula; 0 → fuerza sin aux.
+    const baseSalary     = this.safeNum(isEliminar ? predecessor.baseSalary : (dto.baseSalary ?? predecessor.baseSalary));
+    const daysWorked     = Math.max(0, Math.min(31,
+      Number(isEliminar ? (predecessor as any).daysWorked : (dto.daysWorked ?? (predecessor as any).daysWorked)) || 30));
+    const overtimeHours  = isEliminar ? 0 : this.safeNum(dto.overtimeHours  ?? (predecessor as any).overtimeHours  ?? 0);
+    const bonuses        = isEliminar ? 0 : this.safeNum(dto.bonuses        ?? (predecessor as any).bonuses        ?? 0);
+    const commissions    = isEliminar ? 0 : this.safeNum(dto.commissions    ?? (predecessor as any).commissions    ?? 0);
     const transportAllowance = isEliminar ? 0
       : (dto.transportAllowance !== undefined ? this.safeNum(dto.transportAllowance) : undefined);
-    const vacationPay      = isEliminar ? 0 : this.safeNum(dto.vacationPay      ?? (original as any).vacationPay      ?? 0);
-    const sickLeave        = isEliminar ? 0 : this.safeNum(dto.sickLeave        ?? (original as any).sickLeave        ?? 0);
-    const loans            = isEliminar ? 0 : this.safeNum(dto.loans            ?? (original as any).loans            ?? 0);
-    const otherDeductions  = isEliminar ? 0 : this.safeNum(dto.otherDeductions  ?? (original as any).otherDeductions  ?? 0);
-    const payDate          = dto.payDate ?? new Date((original as any).payDate).toISOString().split('T')[0];
+    const vacationPay    = isEliminar ? 0 : this.safeNum(dto.vacationPay    ?? (predecessor as any).vacationPay    ?? 0);
+    const sickLeave      = isEliminar ? 0 : this.safeNum(dto.sickLeave      ?? (predecessor as any).sickLeave      ?? 0);
+    const loans          = isEliminar ? 0 : this.safeNum(dto.loans          ?? (predecessor as any).loans          ?? 0);
+    const otherDeductions = isEliminar ? 0 : this.safeNum(dto.otherDeductions ?? (predecessor as any).otherDeductions ?? 0);
+    const payDate        = dto.payDate
+      ?? new Date((predecessor as any).payDate).toISOString().split('T')[0];
 
     const adjustDto: CreatePayrollDto = {
-      employeeId:        (original as any).employeeId,
-      period:            (original as any).period,  // mismo período que el NIE original
+      employeeId:        (nieRoot as any).employeeId,
+      period:            (nieRoot as any).period,
       payDate,
       baseSalary,
       daysWorked,
@@ -653,12 +746,15 @@ export class PayrollService {
       sickLeave,
       loans,
       otherDeductions,
-      notes:             dto.notes ?? (original as any).notes,
-      // Campos Nota de Ajuste
-      cuneRef:           cuneHash,
-      payrollNumberRef:  payrollNumber,
-      fechaGenRef:       issueDate,
+      notes: dto.notes ?? (predecessor as any).notes,
+      // Campos NIAE — apuntan al PREDECESOR DIRECTO en la cadena
+      cuneRef:           predCune,
+      payrollNumberRef:  predNumber,
+      fechaGenRef:       predDate,
       tipoAjuste:        dto.tipoAjuste,
+      // Campos de cadena
+      originalNieId,
+      predecessorId:     predecessor.id,
     };
 
     const notaRecord = await this.createPayroll(companyId, adjustDto, userId);
@@ -671,18 +767,41 @@ export class PayrollService {
         resourceId: notaRecord.id,
         after: {
           tipoAjuste:      dto.tipoAjuste,
-          originalId,
-          originalNumber:  payrollNumber,
-          originalCune:    cuneHash,
+          originalNieId,
+          predecessorId:   predecessor.id,
+          predecessorNum:  predNumber,
+          predCune,
         } as any,
       },
     });
 
     return {
-      nota: notaRecord,
-      original: { id: originalId, payrollNumber, cuneHash, issueDate },
-      message: `Nota de ajuste (${dto.tipoAjuste}) creada como borrador. Revisa los datos y transmite a la DIAN.`,
+      nota:        notaRecord,
+      predecessor: { id: predecessor.id, payrollNumber: predNumber, cuneHash: predCune, issueDate: predDate },
+      originalNie: { id: originalNieId, period: (nieRoot as any).period },
+      message:     `Nota de Ajuste (${dto.tipoAjuste}) creada. Predecesor: ${predNumber}. Revisa y transmite a la DIAN.`,
     };
+  }
+
+  // ── Hook post-transmisión: marcar NIE raíz como anulado cuando NIAE-Eliminar es ACCEPTED ─
+  // Este método se llama desde submitPayroll después de actualizar el status a ACCEPTED.
+  private async propagateAnulado(companyId: string, record: any) {
+    if (
+      record.payrollType !== 'NOMINA_AJUSTE' ||
+      record.tipoAjuste  !== 'Eliminar'      ||
+      record.status      !== 'ACCEPTED'
+    ) return;
+
+    const originalNieId = record.originalNieId;
+    if (!originalNieId) return;
+
+    // Marcar el NIE raíz como anulado
+    await this.prisma.payroll_records.update({
+      where: { id: originalNieId },
+      data:  { isAnulado: true } as any,
+    }).catch(() => {}); // silencioso — no romper el flujo principal
+
+    this.logger.log(`[NIAE-Eliminar] NIE ${originalNieId} marcado como isAnulado=true`);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
