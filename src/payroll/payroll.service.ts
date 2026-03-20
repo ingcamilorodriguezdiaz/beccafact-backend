@@ -263,9 +263,11 @@ export class PayrollService {
         );
       }
     }
-    // Para NIAE: el unique en BD es (companyId, employeeId, period, payrollType).
-    // Como payrollType='NOMINA_AJUSTE', múltiples NIAE del mismo período están permitidas
-    // por la Resolución 000013; la BD lo permite porque el unique ya incluye payrollType.
+    // Para NIAE: NO hay unique en BD por (companyId, employeeId, period) — solo @@index.
+    // Múltiples NIAE por período están permitidas por la Resolución 000013 Art.17:
+    //   · Reemplazar: encadenados N veces, cada uno referencia al predecesor ACCEPTED.
+    //   · Eliminar: solo uno, bloqueado por la validación 3c en createNotaAjuste.
+    // La unicidad del NIE se valida arriba (solo para NOMINA_ELECTRONICA).
 
     const calc = this.calculatePayroll(dto);
 
@@ -408,16 +410,19 @@ export class PayrollService {
 
     const payrollNumber = (record as any).payrollNumber ?? `NIE${Date.now()}`;
     const isAjuste      = ((record as any).payrollType ?? 'NOMINA_ELECTRONICA') === 'NOMINA_AJUSTE';
+    const isEliminar    = isAjuste && (record as any).tipoAjuste === 'Eliminar';
 
+    // NIAE-Eliminar: según XML de referencia DIAN, el CUNE se calcula con valores en 0
+    // (DocEmp=0, ValDev=0.00, ValDed=0.00, ValTol=0.00) — el documento no porta nómina
     const cuneHash = this.calcCune({
       payrollNumber,
       issueDate,
       issueTime,         // con GMT incluido: HH:MM:SS-05:00 (según Resolución 000013 num. 8.1.1.1)
-      devengadosTotal:  Number(record.totalEarnings),
-      deduccionesTotal: Number(record.totalDeductions),
-      comprobanteTotal: Number(record.netPay),
+      devengadosTotal:  isEliminar ? 0 : Number(record.totalEarnings),
+      deduccionesTotal: isEliminar ? 0 : Number(record.totalDeductions),
+      comprobanteTotal: isEliminar ? 0 : Number(record.netPay),
       employerNit:      company.nit,
-      workerDoc:        (employee as any).documentNumber,  // FIX: DocEmp = doc del trabajador
+      workerDoc:        isEliminar ? '0' : (employee as any).documentNumber,
       // IMPORTANTE: SoftwarePin en el CUNE es SIEMPRE el PIN numérico del software
       // registrado en la DIAN, tanto en habilitación como en producción.
       // El NOMINA_TEST_SET_ID (TestSetId UUID) solo se usa como parámetro del WS
@@ -550,16 +555,24 @@ export class PayrollService {
       result = await this.soapGetStatus({ trackId: cuneRef!, wsUrl, certPem, keyPem });
     }
 
+    this.logger.log(`[CHECK-STATUS] id=${id} statusCode=${result.statusCode} isValid=${result.isValid} errors=${result.errorMessages?.length ?? 0}`);
+    if (result.errorMessages?.length) this.logger.warn(`[CHECK-STATUS] Errores DIAN: ${result.errorMessages.join(' | ')}`);
+
     if (result.statusCode) {
       const newStatus =
         result.isValid             ? 'ACCEPTED'  :
         result.statusCode === '99' ? 'REJECTED'  : undefined;
+
+      const dianErrorsPersist = result.errorMessages?.length
+        ? JSON.stringify(result.errorMessages)
+        : null;  // null = sin errores → limpia el campo en BD
 
       const updatedCheck = await this.prisma.payroll_records.update({
         where: { id },
         data: {
           dianStatusCode: result.statusCode,
           dianStatusMsg:  result.statusDescription ?? result.statusMessage,
+          dianErrors:     dianErrorsPersist,   // siempre actualiza (null limpia errores previos)
           ...(newStatus ? { status: newStatus } : {}),
         } as any,
       });
@@ -1005,11 +1018,6 @@ export class PayrollService {
 
     // TipoNota: código según tabla 5.5.8 (1=Reemplazar, 2=Eliminar)
     const tipoNotaCod = isAjuste ? (tipoAjuste === 'Eliminar' ? '2' : '1') : '';
-    const codigoQR =
-      `NumNIE: ${numeroDoc}FecNIE: ${issueDate}HorNIE: ${timeClean}-05:00` +
-      (isAjuste ? `TipoNota: ${tipoNotaCod}` : '') +
-      `NitNIE: ${empNit}DocEmp: ${workerDoc}ValDev: ${totalEarn}ValDed: ${totalDed}` +
-      `ValTol: ${netPay}CUNE: ${cuneHash}QRCode: ${qrBase}${cuneHash}`;
 
     const meses = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO',
                    'JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
@@ -1027,12 +1035,28 @@ export class PayrollService {
 
     const isEliminar  = isAjuste && tipoAjuste === 'Eliminar';
 
+    // NIAE-Eliminar: DocEmp=0 y valores en cero (confirmado XML de referencia DIAN)
+    const qrDocEmp = isEliminar ? '0'    : workerDoc;
+    const qrValDev = isEliminar ? '0.00' : totalEarn;
+    const qrValDed = isEliminar ? '0.00' : totalDed;
+    const qrValTol = isEliminar ? '0.00' : netPay;
+    const codigoQR =
+      `NumNIE: ${numeroDoc}FecNIE: ${issueDate}HorNIE: ${timeClean}-05:00` +
+      (isAjuste ? `TipoNota: ${tipoNotaCod}` : '') +
+      `NitNIE: ${empNit}DocEmp: ${qrDocEmp}ValDev: ${qrValDev}ValDed: ${qrValDed}` +
+      `ValTol: ${qrValTol}CUNE: ${cuneHash}QRCode: ${qrBase}${cuneHash}`;
+
     // ── Partes comunes (van dentro de Reemplazar o Eliminar) ──────────────────
     const xmlPeriodo =
       `<Periodo FechaIngreso="${hireDate}" FechaLiquidacionInicio="${liquidInicio}" FechaLiquidacionFin="${liquidFin}" TiempoLaborado="${record.daysWorked}" FechaGen="${issueDate}" />`;
 
-    const xmlNumeroSeq =
-      `<NumeroSecuenciaXML CodigoTrabajador="${workerDoc}" Prefijo="${prefijo}" Consecutivo="${seqNum}" Numero="${numeroDoc}" />`;
+    // CodigoTrabajador según XSD DIAN:
+    //   · NIE              → presente (NumeroSecuenciaXML + Trabajador)
+    //   · NIAE-Reemplazar  → presente (NumeroSecuenciaXML + Trabajador) — validado en XML productivo
+    //   · NIAE-Eliminar    → AUSENTE en NumeroSecuenciaXML (XSD lo prohíbe → NIAE238/ZB01)
+    const xmlNumeroSeq = isEliminar
+      ? `<NumeroSecuenciaXML Prefijo="${prefijo}" Consecutivo="${seqNum}" Numero="${numeroDoc}" />`
+      : `<NumeroSecuenciaXML CodigoTrabajador="${workerDoc}" Prefijo="${prefijo}" Consecutivo="${seqNum}" Numero="${numeroDoc}" />`;
 
     const xmlLugar =
       `<LugarGeneracionXML Pais="CO" DepartamentoEstado="11" MunicipioCiudad="11001" Idioma="es" />`;
@@ -1046,8 +1070,11 @@ export class PayrollService {
     const versionStr = isAjuste
       ? 'V1.0: Nota de Ajuste de Documento Soporte de Pago de Nómina Electrónica'
       : 'V1.0: Documento Soporte de Pago de Nómina Electrónica';
-    const xmlInfoGen =
-      `<InformacionGeneral Version="${versionStr}" Ambiente="${ambiente}" TipoXML="${tipoXml}" CUNE="${cuneHash}" EncripCUNE="CUNE-SHA384" FechaGen="${issueDate}" HoraGen="${issueTime}" PeriodoNomina="${periodoNomina}" TipoMoneda="COP" />`;
+    // NIAE: InformacionGeneral solo acepta Version, Ambiente, TipoXML, CUNE, EncripCUNE, FechaGen, HoraGen
+    // NIE:  además acepta PeriodoNomina y TipoMoneda (XSD distintos — ZB01/NIAE238)
+    const xmlInfoGen = isAjuste
+      ? `<InformacionGeneral Version="${versionStr}" Ambiente="${ambiente}" TipoXML="${tipoXml}" CUNE="${cuneHash}" EncripCUNE="CUNE-SHA384" FechaGen="${issueDate}" HoraGen="${issueTime}" />`
+      : `<InformacionGeneral Version="${versionStr}" Ambiente="${ambiente}" TipoXML="${tipoXml}" CUNE="${cuneHash}" EncripCUNE="CUNE-SHA384" FechaGen="${issueDate}" HoraGen="${issueTime}" PeriodoNomina="${periodoNomina}" TipoMoneda="COP" />`;
 
     // <Notas> solo para NIE — el XML productivo NIAE no lo incluye en Reemplazar
     const xmlNotas = isAjuste ? '' : `<Notas>${notas}</Notas>`;

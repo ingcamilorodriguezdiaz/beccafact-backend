@@ -727,7 +727,10 @@ model payroll_records {
   predecessor  payroll_records?  @relation("NiaeChain", fields: [predecessorId],  references: [id])
   successors   payroll_records[] @relation("NiaeChain")
 
-  @@unique([companyId, employeeId, period, payrollType])
+  // El NIE (NOMINA_ELECTRONICA) es único por (companyId, employeeId, period) — validado en el servicio.
+  // La NIAE (NOMINA_AJUSTE) permite MÚLTIPLES registros por período (Reemplazar encadenados + 1 Eliminar).
+  // Por eso se usa @@index en lugar de @@unique: el unique rompería el segundo Reemplazar.
+  @@index([companyId, employeeId, period, payrollType])
   @@index([companyId, employeeId, payrollType])
   @@index([companyId, employeeId, originalNieId])   // buscar cadena por NIE raíz
 }
