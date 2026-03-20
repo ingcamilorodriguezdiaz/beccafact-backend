@@ -450,4 +450,134 @@ export class SuperAdminService {
 
     return { data, total, page: Number(page), limit: Number(limit) };
   }
+
+  // ─── GLOBAL USERS ────────────────────────────────────────────────────────────
+
+  async getGlobalUsers(filters: {
+    search?: string;
+    companyId?: string;
+    isActive?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const { search, companyId, isActive, page = 1, limit = 20 } = filters;
+    const skip = (Number(page) - 1) * Number(limit);
+    const where: any = {};
+
+    if (search) {
+      where.OR = [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName:  { contains: search, mode: 'insensitive' } },
+        { email:     { contains: search, mode: 'insensitive' } },
+      ];
+    }
+    if (companyId) where.companyId = companyId;
+    if (isActive !== undefined && isActive !== '') where.isActive = isActive === 'true';
+
+    const [data, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: Number(limit),
+        select: {
+          id: true, firstName: true, lastName: true, email: true,
+          isActive: true, isSuperAdmin: true, createdAt: true,
+          company: { select: { id: true, name: true, nit: true } },
+          roles: { select: { role: { select: { name: true, displayName: true } } } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+    return { data, total, page: Number(page), limit: Number(limit) };
+  }
+
+  async toggleGlobalUserActive(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.isSuperAdmin) throw new BadRequestException('No se puede desactivar un Super Admin');
+    return this.prisma.user.update({
+      where: { id: userId },
+      data:  { isActive: !user.isActive },
+      select: { id: true, isActive: true, firstName: true, lastName: true, email: true },
+    });
+  }
+
+  // ─── BANKS ───────────────────────────────────────────────────────────────────
+
+  async getBanks(filters: { search?: string; isActive?: string }) {
+    const where: any = {};
+    if (filters.search) {
+      where.OR = [
+        { name: { contains: filters.search, mode: 'insensitive' } },
+        { code: { contains: filters.search } },
+      ];
+    }
+    if (filters.isActive !== undefined && filters.isActive !== '')
+      where.isActive = filters.isActive === 'true';
+    return this.prisma.bank.findMany({ where, orderBy: { code: 'asc' } });
+  }
+
+  async createBank(data: { code: string; name: string; isActive?: boolean }) {
+    const exists = await this.prisma.bank.findUnique({ where: { code: data.code } });
+    if (exists) throw new ConflictException(`Ya existe un banco con el código ${data.code}`);
+    return this.prisma.bank.create({
+      data: { code: data.code.trim(), name: data.name.trim(), isActive: data.isActive ?? true },
+    });
+  }
+
+  async updateBank(code: string, data: { name?: string; isActive?: boolean }) {
+    const bank = await this.prisma.bank.findUnique({ where: { code } });
+    if (!bank) throw new NotFoundException(`Banco con código ${code} no encontrado`);
+    return this.prisma.bank.update({ where: { code }, data });
+  }
+
+  async deleteBank(code: string) {
+    const bank = await this.prisma.bank.findUnique({
+      where: { code },
+      include: { _count: { select: { employees: true } } },
+    });
+    if (!bank) throw new NotFoundException(`Banco con código ${code} no encontrado`);
+    if ((bank as any)._count.employees > 0)
+      throw new BadRequestException('No se puede eliminar: hay empleados asociados a este banco');
+    return this.prisma.bank.delete({ where: { code } });
+  }
+
+  // ─── PARAMETERS ──────────────────────────────────────────────────────────────
+
+  async getParameters(filters: { category?: string; search?: string }) {
+    const where: any = {};
+    if (filters.category) where.category = filters.category;
+    if (filters.search) {
+      where.OR = [
+        { category: { contains: filters.search, mode: 'insensitive' } },
+        { value:    { contains: filters.search, mode: 'insensitive' } },
+        { label:    { contains: filters.search, mode: 'insensitive' } },
+      ];
+    }
+    return this.prisma.parameter.findMany({ where, orderBy: [{ category: 'asc' }, { value: 'asc' }] });
+  }
+
+  async createParameter(data: { category: string; value: string; label?: string; isActive?: boolean }) {
+    return this.prisma.parameter.create({
+      data: {
+        category: data.category.trim(),
+        value:    data.value.trim(),
+        label:    data.label?.trim(),
+        isActive: data.isActive ?? true,
+      },
+    });
+  }
+
+  async updateParameter(id: string, data: { category?: string; value?: string; label?: string; isActive?: boolean }) {
+    const param = await this.prisma.parameter.findUnique({ where: { id } });
+    if (!param) throw new NotFoundException('Parámetro no encontrado');
+    return this.prisma.parameter.update({ where: { id }, data });
+  }
+
+  async deleteParameter(id: string) {
+    const param = await this.prisma.parameter.findUnique({ where: { id } });
+    if (!param) throw new NotFoundException('Parámetro no encontrado');
+    return this.prisma.parameter.delete({ where: { id } });
+  }
 }

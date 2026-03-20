@@ -156,4 +156,79 @@ export class SuperAdminController {
   updatePlan(@Param('id', ParseUUIDPipe) id: string, @Body() data: any) {
     return this.superAdminService.updatePlan(id, data);
   }
+
+  // ─── GLOBAL USERS ────────────────────────────────────────────────────────────
+
+  @Get('users')
+  @ApiOperation({ summary: 'Listar todos los usuarios de la plataforma' })
+  getGlobalUsers(
+    @Query('search')    search?:    string,
+    @Query('companyId') companyId?: string,
+    @Query('isActive')  isActive?:  string,
+    @Query('page')      page?:      number,
+    @Query('limit')     limit?:     number,
+  ) {
+    return this.superAdminService.getGlobalUsers({ search, companyId, isActive, page, limit });
+  }
+
+  @Patch('users/:userId/toggle-active')
+  @ApiOperation({ summary: 'Activar/desactivar usuario global' })
+  @HttpCode(HttpStatus.OK)
+  toggleGlobalUserActive(@Param('userId', ParseUUIDPipe) userId: string) {
+    return this.superAdminService.toggleGlobalUserActive(userId);
+  }
+
+  // ─── BANKS ───────────────────────────────────────────────────────────────────
+
+  @Get('banks')
+  @ApiOperation({ summary: 'Listar bancos (con filtros)' })
+  getBanks(@Query('search') search?: string, @Query('isActive') isActive?: string) {
+    return this.superAdminService.getBanks({ search, isActive });
+  }
+
+  @Post('banks')
+  @ApiOperation({ summary: 'Crear banco' })
+  createBank(@Body() data: any) {
+    return this.superAdminService.createBank(data);
+  }
+
+  @Patch('banks/:code')
+  @ApiOperation({ summary: 'Actualizar banco por código' })
+  updateBank(@Param('code') code: string, @Body() data: any) {
+    return this.superAdminService.updateBank(code, data);
+  }
+
+  @Delete('banks/:code')
+  @ApiOperation({ summary: 'Eliminar banco por código' })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteBank(@Param('code') code: string) {
+    return this.superAdminService.deleteBank(code);
+  }
+
+  // ─── PARAMETERS ──────────────────────────────────────────────────────────────
+
+  @Get('parameters')
+  @ApiOperation({ summary: 'Listar parámetros globales' })
+  getParameters(@Query('category') category?: string, @Query('search') search?: string) {
+    return this.superAdminService.getParameters({ category, search });
+  }
+
+  @Post('parameters')
+  @ApiOperation({ summary: 'Crear parámetro' })
+  createParameter(@Body() data: any) {
+    return this.superAdminService.createParameter(data);
+  }
+
+  @Patch('parameters/:id')
+  @ApiOperation({ summary: 'Actualizar parámetro' })
+  updateParameter(@Param('id', ParseUUIDPipe) id: string, @Body() data: any) {
+    return this.superAdminService.updateParameter(id, data);
+  }
+
+  @Delete('parameters/:id')
+  @ApiOperation({ summary: 'Eliminar parámetro' })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteParameter(@Param('id', ParseUUIDPipe) id: string) {
+    return this.superAdminService.deleteParameter(id);
+  }
 }
