@@ -33,8 +33,12 @@ export interface CreateEmployeeDto {
   contractType: string;
   hireDate: string;
   city?: string;
+  cityCode?: string;       // DIVIPOLA 5 dígitos
+  departmentCode?: string;
+  country?: string;
   bankAccount?: string;
   bankName?: string;
+  bankCode?: string;
 }
 
 export interface UpdateEmployeeDto extends Partial<CreateEmployeeDto> {}
@@ -116,6 +120,53 @@ export class PayrollService {
     return parseFloat(clamped.toFixed(decimals));
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Resolución de ubicación desde el catálogo DIVIPOLA
+  //
+  // Si el DTO trae cityCode (ej: '25473') → busca en municipalities, completa
+  // automáticamente: city, departmentCode, country.
+  // cityCode inválido → BadRequestException con mensaje orientativo.
+  // Sin cityCode → conserva city/departmentCode/country tal como vengan en el DTO.
+  // ─────────────────────────────────────────────────────────────────────────────
+  private async resolveLocation(dto: Partial<CreateEmployeeDto>): Promise<{
+    city?: string;
+    cityCode?: string;
+    departmentCode?: string;
+    country?: string;
+  }> {
+    if (!dto.cityCode) {
+      return {
+        city:           dto.city,
+        cityCode:       undefined,
+        departmentCode: dto.departmentCode,
+        country:        dto.country ?? 'CO',
+      };
+    }
+
+    const municipality = await this.prisma.municipality.findUnique({
+      where: { code: dto.cityCode },
+      include: {
+        department: {
+          include: { country: true },
+        },
+      },
+    });
+
+    if (!municipality) {
+      throw new BadRequestException(
+        `El código DIVIPOLA '${dto.cityCode}' no existe en el catálogo. ` +
+        `Consulta GET /api/v1/location/municipalities/search?q={nombre} para encontrar el código correcto.`,
+      );
+    }
+
+    return {
+      city:           municipality.name,
+      cityCode:       municipality.code,
+      departmentCode: municipality.department.code,
+      country:        municipality.department.country?.code ?? 'CO',
+    };
+  }
+
   // ══════════════════════════════════════════════════════════════════════════
   // EMPLOYEES
   // ══════════════════════════════════════════════════════════════════════════
@@ -158,24 +209,35 @@ export class PayrollService {
     });
     if (exists) throw new ConflictException(`Employee with document ${dto.documentNumber} already exists`);
 
-    const employee = await this.prisma.employees.create({
-      data: {
-        companyId,
-        documentType:   dto.documentType,
-        documentNumber: dto.documentNumber,
-        firstName:      dto.firstName,
-        lastName:       dto.lastName,
-        email:          dto.email,
-        phone:          dto.phone,
-        position:       dto.position,
-        baseSalary:     dto.baseSalary,
-        contractType:   dto.contractType,
-        hireDate:       new Date(dto.hireDate),
-        city:           dto.city,
-        bankAccount:    dto.bankAccount,
-        bankName:       dto.bankName,
-      },
-    });
+    const loc = await this.resolveLocation(dto);
+
+    const createData: any = {
+      companyId,
+      documentType:   dto.documentType,
+      documentNumber: dto.documentNumber,
+      firstName:      dto.firstName,
+      lastName:       dto.lastName,
+      email:          dto.email,
+      phone:          dto.phone,
+      position:       dto.position,
+      baseSalary:     dto.baseSalary,
+      contractType:   dto.contractType,
+      hireDate:       (() => {
+        if (!dto.hireDate) throw new BadRequestException('La fecha de ingreso es obligatoria');
+        const d = new Date(dto.hireDate);
+        if (isNaN(d.getTime())) throw new BadRequestException('La fecha de ingreso no es válida (formato esperado: YYYY-MM-DD)');
+        return d;
+      })(),
+      city:           loc.city,
+      cityCode:       loc.cityCode,
+      departmentCode: loc.departmentCode,
+      country:        loc.country ?? 'CO',
+      bankAccount:    dto.bankAccount,
+      bankName:       dto.bankName,
+      bankCode:       dto.bankCode,
+    };
+
+    const employee = await this.prisma.employees.create({ data: createData });
     await this.prisma.auditLog.create({
       data: { companyId, userId, action: 'CREATE', resource: 'employee', resourceId: employee.id, after: dto as any },
     });
@@ -184,8 +246,24 @@ export class PayrollService {
 
   async updateEmployee(companyId: string, id: string, dto: UpdateEmployeeDto, userId: string) {
     const before = await this.findEmployee(companyId, id);
+
+    const hasLocationData =
+      dto.cityCode       !== undefined ||
+      dto.city           !== undefined ||
+      dto.departmentCode !== undefined ||
+      dto.country        !== undefined;
+
     const data: any = { ...dto };
     if (dto.hireDate) data.hireDate = new Date(dto.hireDate);
+
+    if (hasLocationData) {
+      const loc = await this.resolveLocation(dto);
+      data.city           = loc.city;
+      data.cityCode       = loc.cityCode;
+      data.departmentCode = loc.departmentCode;
+      data.country        = loc.country ?? 'CO';
+    }
+
     const updated = await this.prisma.employees.update({ where: { id }, data });
     await this.prisma.auditLog.create({
       data: { companyId, userId, action: 'UPDATE', resource: 'employee', resourceId: id, before: before as any, after: dto as any },

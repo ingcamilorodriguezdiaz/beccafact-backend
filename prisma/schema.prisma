@@ -612,6 +612,22 @@ model Municipality {
   @@map("municipalities")
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// BANKS — Catálogo global de bancos colombianos (códigos ACH/DIAN)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Bank {
+  id       String  @id @default(uuid())
+  code     String  @unique // Código ACH 3 dígitos: "007", "051", etc.
+  name     String
+  isActive Boolean @default(true)
+
+  employees employees[]
+
+  @@index([code])
+  @@map("banks")
+}
+
 model employees {
   id              String   @id @default(uuid())
   companyId       String
@@ -626,8 +642,13 @@ model employees {
   contractType    String            @default("INDEFINITE")
   hireDate        DateTime
   city            String?
+  cityCode        String?           // DIVIPOLA 5 dígitos: 11001, 05001…
+  departmentCode  String?           // DIVIPOLA 2 dígitos: 11, 05…
+  country         String            @default("CO")
   bankAccount     String?
   bankName        String?
+  bankCode        String?           // Código ACH del banco (FK a Bank.code)
+  bank            Bank?             @relation(fields: [bankCode], references: [code])
   isActive        Boolean           @default(true)
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt

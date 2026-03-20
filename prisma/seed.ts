@@ -2371,6 +2371,50 @@ async function main() {
   console.log('  - unit: EA/HUR/NIU/NAR (tabla 13.3.6 UNece)');
   console.log('  - unspscCode (tabla 13.3.5 UNSPSC schemeID=001) → resuelve FAZ09');
   console.log('  - taxType: IVA → TaxScheme ID=01 Name=IVA');
+
+  // ─── Bancos colombianos (códigos ACH/DIAN) ──────────────────────────────────
+  console.log('\n🏦 Sembrando bancos colombianos...');
+  const banks = [
+    { code: '000', name: 'Banco de la República' },
+    { code: '001', name: 'Banco de Bogotá' },
+    { code: '002', name: 'Banco Popular' },
+    { code: '006', name: 'Banco Santander' },
+    { code: '007', name: 'Bancolombia' },
+    { code: '009', name: 'Citibank' },
+    { code: '012', name: 'Banco GNB Sudameris' },
+    { code: '013', name: 'BBVA Colombia' },
+    { code: '014', name: 'Itaú' },
+    { code: '019', name: 'Scotiabank Colpatria' },
+    { code: '023', name: 'Banco de Occidente' },
+    { code: '032', name: 'Banco Caja Social' },
+    { code: '040', name: 'Banco Agrario' },
+    { code: '042', name: 'BNP Paribas' },
+    { code: '051', name: 'Davivienda' },
+    { code: '052', name: 'AV Villas' },
+    { code: '058', name: 'Banco Procredit' },
+    { code: '060', name: 'Banco Pichincha' },
+    { code: '061', name: 'Bancoomeva' },
+    { code: '062', name: 'Banco Falabella' },
+    { code: '063', name: 'Banco Finandina' },
+    { code: '064', name: 'Banco Multibank' },
+    { code: '065', name: 'Santander de Negocios' },
+    { code: '066', name: 'Coopcentral' },
+    { code: '067', name: 'Banco Compartir' },
+    { code: '121', name: 'Juriscoop' },
+    { code: '283', name: 'CFA Cooperativa Financiera' },
+    { code: '289', name: 'Cotrafa' },
+    { code: '292', name: 'Confiar' },
+    { code: '370', name: 'Coltefinanciera' },
+  ];
+
+  for (const bank of banks) {
+    await prisma.bank.upsert({
+      where: { code: bank.code },
+      update: { name: bank.name },
+      create: { code: bank.code, name: bank.name },
+    });
+  }
+  console.log(`  ✅ ${banks.length} bancos sembrados correctamente`);
 }
 
 main()

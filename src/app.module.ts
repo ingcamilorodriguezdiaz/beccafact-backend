@@ -19,6 +19,7 @@ import { PrismaModule } from './config/prisma.module';
 import { CategoriesModule } from './categories/categories.module';
 import { LocationModule } from './location/location.module';
 import { ParametersModule } from './parameter/parameters.module';
+import { BanksModule } from './banks/banks.module';
 
 @Module({
   imports: [
@@ -64,7 +65,8 @@ import { ParametersModule } from './parameter/parameters.module';
     PayrollModule,
     CategoriesModule,
     LocationModule,
-    ParametersModule
+    ParametersModule,
+    BanksModule,
   ],
 })
 export class AppModule {}
