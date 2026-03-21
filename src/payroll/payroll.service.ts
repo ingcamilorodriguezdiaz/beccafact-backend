@@ -11,12 +11,15 @@ import * as archiver from 'archiver';
 import * as https from 'https';
 import * as http from 'http';
 
-// ─── Constantes DIAN Nómina Electrónica ── Ambiente de Habilitación ───────────
-const NOMINA_SOFTWARE_ID  = '4f5c23a6-0004-46a1-923f-19f2cb4c36da';
-const NOMINA_SOFTWARE_PIN = '123456';
-const NOMINA_TEST_SET_ID  = '25e4b1c1-982c-465b-a380-eb1dd4a925ec';
-const NOMINA_WS_HAB       = 'https://vpfe-hab.dian.gov.co/WcfDianCustomerServices.svc';
-const NOMINA_WS_PROD      = 'https://vpfe.dian.gov.co/WcfDianCustomerServices.svc';
+// ─── Constantes DIAN Nómina Electrónica ── Fallbacks de habilitación ──────────
+// Se usan SOLO cuando la empresa no tiene configuradas sus propias credenciales.
+// En producción cada empresa DEBE registrar sus valores en el modelo Company
+// (campos nominaSoftwareId, nominaSoftwarePin, nominaTestSetId).
+const NOMINA_SOFTWARE_ID_DEFAULT  = '4f5c23a6-0004-46a1-923f-19f2cb4c36da';
+const NOMINA_SOFTWARE_PIN_DEFAULT = '123456';
+const NOMINA_TEST_SET_ID_DEFAULT  = '25e4b1c1-982c-465b-a380-eb1dd4a925ec';
+const NOMINA_WS_HAB  = 'https://vpfe-hab.dian.gov.co/WcfDianCustomerServices.svc';
+const NOMINA_WS_PROD = 'https://vpfe.dian.gov.co/WcfDianCustomerServices.svc';
 const NOMINA_SEQUENCE_START = 990000001;
 
 // ─── DTOs ─────────────────────────────────────────────────────────────────────
@@ -436,9 +439,20 @@ export class PayrollService {
       select: {
         nit: true, razonSocial: true, address: true, city: true,
         dianTestMode: true, dianCertificate: true, dianCertificateKey: true,
+        nominaSoftwareId: true, nominaSoftwarePin: true, nominaTestSetId: true,
       },
     });
     if (!company) throw new NotFoundException('Company not found');
+
+    // ── Credenciales DIAN Nómina: valores de la empresa con fallback a constantes ─
+    const co = company as typeof company & {
+      nominaSoftwareId?: string | null;
+      nominaSoftwarePin?: string | null;
+      nominaTestSetId?: string | null;
+    };
+    const nominaSoftwareId  = co.nominaSoftwareId  || NOMINA_SOFTWARE_ID_DEFAULT;
+    const nominaSoftwarePin = co.nominaSoftwarePin || NOMINA_SOFTWARE_PIN_DEFAULT;
+    const nominaTestSetId   = co.nominaTestSetId   || NOMINA_TEST_SET_ID_DEFAULT;
 
     const employee   = record.employees as any;
     const isTestMode = company.dianTestMode ?? true;
@@ -505,7 +519,7 @@ export class PayrollService {
       // registrado en la DIAN, tanto en habilitación como en producción.
       // El NOMINA_TEST_SET_ID (TestSetId UUID) solo se usa como parámetro del WS
       // en el método SendTestSetAsync — NO en la fórmula del CUNE.
-      softwarePin:      NOMINA_SOFTWARE_PIN,
+      softwarePin:      nominaSoftwarePin,
       tipoXml:          isAjuste ? '103' : '102',
       ambiente:         isTestMode ? '2' : '1',
     });
@@ -548,7 +562,7 @@ export class PayrollService {
 
       const wsUrl = isTestMode ? NOMINA_WS_HAB : NOMINA_WS_PROD;
       this.logger.log(`[DIAN-NE] Paso 5: enviando → ${wsUrl}`);
-      dianResult = await this.soapSendNomina({ zipFileName, zipBase64, wsUrl, certPem, keyPem, isTestMode });
+      dianResult = await this.soapSendNomina({ zipFileName, zipBase64, wsUrl, certPem, keyPem, isTestMode, testSetId: nominaTestSetId });
 
     } catch (err: any) {
       const detail = err?.message || err?.code || String(err) || 'Error desconocido';
@@ -1046,7 +1060,9 @@ export class PayrollService {
       ? 'https://catalogo-vpfe-hab.dian.gov.co/document/searchqr?documentkey='
       : 'https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=';
 
-    const softwareSC = this.calcSoftwareSecurityCode(NOMINA_SOFTWARE_ID, NOMINA_SOFTWARE_PIN, numeroDoc);
+    const swId  = company.nominaSoftwareId  || NOMINA_SOFTWARE_ID_DEFAULT;
+    const swPin = company.nominaSoftwarePin || NOMINA_SOFTWARE_PIN_DEFAULT;
+    const softwareSC = this.calcSoftwareSecurityCode(swId, swPin, numeroDoc);
 
     // Trabajador: PrimerApellido SegundoApellido PrimerNombre OtrosNombres
     const wLast    = employee.lastName.trim().split(/\s+/);
@@ -1140,7 +1156,7 @@ export class PayrollService {
       `<LugarGeneracionXML Pais="CO" DepartamentoEstado="11" MunicipioCiudad="11001" Idioma="es" />`;
 
     const xmlProveedor =
-      `<ProveedorXML RazonSocial="${empNombre}" NIT="${empNit}" DV="${empDv}" SoftwareID="${NOMINA_SOFTWARE_ID}" SoftwareSC="${softwareSC}" />`;
+      `<ProveedorXML RazonSocial="${empNombre}" NIT="${empNit}" DV="${empDv}" SoftwareID="${swId}" SoftwareSC="${softwareSC}" />`;
 
     const xmlQR =
       `<CodigoQR>${codigoQR}</CodigoQR>`;
@@ -1428,12 +1444,14 @@ export class PayrollService {
   private async soapSendNomina(p: {
     zipFileName: string; zipBase64: string; wsUrl: string;
     certPem: string; keyPem: string; isTestMode: boolean;
+    testSetId?: string;
   }): Promise<DianNominaResult> {
     let body: string; let action: string;
 
     if (p.isTestMode) {
       action = 'SendTestSetAsync';
-      body = `<wcf:SendTestSetAsync><wcf:fileName>${p.zipFileName}</wcf:fileName><wcf:contentFile>${p.zipBase64}</wcf:contentFile><wcf:testSetId>${NOMINA_TEST_SET_ID}</wcf:testSetId></wcf:SendTestSetAsync>`;
+      const testSetId = p.testSetId || NOMINA_TEST_SET_ID_DEFAULT;
+      body = `<wcf:SendTestSetAsync><wcf:fileName>${p.zipFileName}</wcf:fileName><wcf:contentFile>${p.zipBase64}</wcf:contentFile><wcf:testSetId>${testSetId}</wcf:testSetId></wcf:SendTestSetAsync>`;
     } else {
       action = 'SendNominaSync';
       body = `<wcf:SendNominaSync><wcf:fileName>${p.zipFileName}</wcf:fileName><wcf:contentFile>${p.zipBase64}</wcf:contentFile></wcf:SendNominaSync>`;

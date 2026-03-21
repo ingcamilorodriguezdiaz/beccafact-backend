@@ -155,6 +155,52 @@ export class InvoicesController {
     return this.invoicesService.markAsPaid(companyId, id);
   }
 
+  // ── Notas Crédito / Débito vinculadas a una factura ──────────────────────
+
+  @Get(':id/notes')
+  @ApiOperation({ summary: 'Listar notas crédito y débito asociadas a esta factura' })
+  getNotes(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invoicesService.getAssociatedNotes(companyId, id);
+  }
+
+  @Get(':id/balance')
+  @ApiOperation({ summary: 'Obtener saldo disponible de la factura (total menos notas crédito)' })
+  getBalance(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invoicesService.getRemainingBalance(companyId, id);
+  }
+
+  @Post(':id/credit-note')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @ApiOperation({ summary: 'Crear nota crédito referenciando esta factura' })
+  createCreditNote(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateInvoiceDto,
+  ) {
+    dto.type = 'NOTA_CREDITO' as any;
+    dto.originalInvoiceId = id;
+    return this.invoicesService.create(companyId, dto);
+  }
+
+  @Post(':id/debit-note')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @ApiOperation({ summary: 'Crear nota débito referenciando esta factura' })
+  createDebitNote(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateInvoiceDto,
+  ) {
+    dto.type = 'NOTA_DEBITO' as any;
+    dto.originalInvoiceId = id;
+    return this.invoicesService.create(companyId, dto);
+  }
+
   @Patch(':id')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR')
   @ApiOperation({ summary: 'Actualizar estado o campos de la factura' })

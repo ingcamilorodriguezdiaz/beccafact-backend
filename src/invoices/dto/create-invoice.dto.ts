@@ -11,7 +11,7 @@ export class InvoiceItemDto {
   @ApiProperty() @IsString() description: string;
   @ApiProperty() @IsNumber() @Min(0.0001) quantity: number;
   @ApiProperty() @IsNumber() @Min(0) unitPrice: number;
-  @ApiProperty() @IsNumber() @Min(0) position: number;
+  @ApiPropertyOptional({ default: 0 }) @IsOptional() @IsNumber() @Min(0) position?: number;
   @ApiPropertyOptional({ default: 19 }) @IsOptional() @IsNumber() @Min(0) taxRate?: number;
   @ApiPropertyOptional({ default: 0 }) @IsOptional() @IsNumber() @Min(0) discount?: number;
 }
@@ -32,4 +32,22 @@ export class CreateInvoiceDto {
   @ApiPropertyOptional({ default: 'COP' }) @IsOptional() @IsString() currency?: string;
   @ApiPropertyOptional({ default: false }) @IsOptional() @IsBoolean() isDraft?: boolean;
   @ApiPropertyOptional({ default: false }) @IsOptional() @IsBoolean() sendToDian?: boolean;
+
+  @ApiPropertyOptional({ description: 'ID de la factura original (obligatorio para NOTA_CREDITO y NOTA_DEBITO)' })
+  @IsOptional()
+  @IsUUID()
+  originalInvoiceId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Código motivo DIAN: 1=Devolución parcial bienes, 2=Anulación factura, 3=Rebaja precio, 4=Ajuste calidad, 5=Rescisión, 6=Otros',
+    enum: ['1','2','3','4','5','6'],
+  })
+  @IsOptional()
+  @IsString()
+  discrepancyReasonCode?: string;
+
+  @ApiPropertyOptional({ description: 'Descripción del motivo del ajuste' })
+  @IsOptional()
+  @IsString()
+  discrepancyReason?: string;
 }

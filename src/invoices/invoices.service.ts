@@ -12,8 +12,6 @@ import { createHash, createSign, randomBytes } from 'crypto';
 import * as archiver from 'archiver';
 import * as https from 'https';
 import * as http from 'http';
-import { readFileSync, existsSync } from 'fs';
-import { resolve } from 'path';
 import * as QRCode from 'qrcode';
 // ─────────────────────────────────────────────────────────────────────────────
 // DIAN Constants — BeccaFact Software propio
@@ -121,6 +119,49 @@ export class InvoicesService {
     });
     if (!customer) throw new NotFoundException('Cliente no encontrado');
 
+    // ── Validar referencia para Nota Crédito / Nota Débito ──────────────
+    if (dto.type === 'NOTA_CREDITO' || dto.type === 'NOTA_DEBITO') {
+      if (!dto.originalInvoiceId) {
+        throw new BadRequestException(
+          `Las notas de ${dto.type === 'NOTA_CREDITO' ? 'crédito' : 'débito'} deben referenciar una factura original (originalInvoiceId).`
+        );
+      }
+      const originalInvoice = await this.prisma.invoice.findFirst({
+        where: { id: dto.originalInvoiceId, companyId, deletedAt: null },
+      });
+      if (!originalInvoice) {
+        throw new NotFoundException('La factura original referenciada no existe.');
+      }
+      if (originalInvoice.type !== 'VENTA') {
+        throw new BadRequestException('Solo se pueden crear notas sobre facturas de venta (tipo VENTA).');
+      }
+      if (dto.type === 'NOTA_CREDITO') {
+        // Calcular saldo disponible
+        const usedCredit = await this.prisma.invoice.aggregate({
+          where: {
+            originalInvoiceId: dto.originalInvoiceId,
+            type: 'NOTA_CREDITO',
+            deletedAt: null,
+            status: { notIn: ['CANCELLED', 'REJECTED_DIAN'] },
+          },
+          _sum: { total: true },
+        });
+        const used = Number(usedCredit._sum.total ?? 0);
+        const remaining = Number(originalInvoice.total) - used;
+        // Calcular total de la nota que se está creando
+        let newNoteTotal = 0;
+        for (const item of dto.items) {
+          const lineSubtotal = Number(item.quantity) * Number(item.unitPrice) * (1 - (Number(item.discount ?? 0) / 100));
+          newNoteTotal += lineSubtotal * (1 + (Number(item.taxRate ?? 19) / 100));
+        }
+        if (newNoteTotal > remaining + 0.01) {
+          throw new BadRequestException(
+            `El valor de la nota crédito ($${newNoteTotal.toFixed(2)}) supera el saldo disponible de la factura ($${remaining.toFixed(2)}).`
+          );
+        }
+      }
+    }
+
     // Pre-cargar productos para obtener unit y unspscCode (DIAN XML)
     const productIds = dto.items.map(i => i.productId).filter(Boolean) as string[];
     const products = productIds.length > 0
@@ -181,6 +222,9 @@ export class InvoicesService {
         total,
         notes: dto.notes,
         currency: dto.currency ?? 'COP',
+        ...(dto.originalInvoiceId && { originalInvoiceId: dto.originalInvoiceId }),
+        ...(dto.discrepancyReasonCode && { discrepancyReasonCode: dto.discrepancyReasonCode }),
+        ...(dto.discrepancyReason && { discrepancyReason: dto.discrepancyReason }),
         items: { create: itemsWithTotals },
       },
       include: { customer: true, items: true },
@@ -192,7 +236,15 @@ export class InvoicesService {
 
   async cancel(companyId: string, invoiceId: string, reason: string) {
     const invoice = await this.findOne(companyId, invoiceId);
-    if (['CANCELLED', 'PAID'].includes(invoice.status)) throw new BadRequestException('Esta factura no puede cancelarse');
+    if (['CANCELLED', 'PAID'].includes(invoice.status)) {
+      throw new BadRequestException('Esta factura no puede cancelarse');
+    }
+    if (invoice.status === 'ACCEPTED_DIAN') {
+      throw new BadRequestException(
+        'Una factura validada por la DIAN no puede cancelarse directamente. ' +
+        'Debe emitir una Nota Crédito (tipo 2 – anulación) que la referencie.'
+      );
+    }
     return this.prisma.invoice.update({
       where: { id: invoiceId },
       data: { status: 'CANCELLED', notes: `${invoice.notes ?? ''}\n[CANCELADA]: ${reason}` },
@@ -203,6 +255,59 @@ export class InvoicesService {
     const invoice = await this.findOne(companyId, invoiceId);
     if (invoice.status === 'PAID') throw new BadRequestException('La factura ya está pagada');
     return this.prisma.invoice.update({ where: { id: invoiceId }, data: { status: 'PAID' } });
+  }
+
+  async getRemainingBalance(companyId: string, invoiceId: string) {
+    const invoice = await this.findOne(companyId, invoiceId);
+    if (invoice.type !== 'VENTA') {
+      throw new BadRequestException('El saldo solo aplica a facturas de venta.');
+    }
+    const [creditResult, debitResult] = await Promise.all([
+      this.prisma.invoice.aggregate({
+        where: {
+          originalInvoiceId: invoiceId,
+          type: 'NOTA_CREDITO',
+          deletedAt: null,
+          status: { notIn: ['CANCELLED', 'REJECTED_DIAN'] },
+        },
+        _sum: { total: true },
+        _count: { id: true },
+      }),
+      this.prisma.invoice.aggregate({
+        where: {
+          originalInvoiceId: invoiceId,
+          type: 'NOTA_DEBITO',
+          deletedAt: null,
+          status: { notIn: ['CANCELLED', 'REJECTED_DIAN'] },
+        },
+        _sum: { total: true },
+        _count: { id: true },
+      }),
+    ]);
+    const totalCredits = Number(creditResult._sum.total ?? 0);
+    const totalDebits  = Number(debitResult._sum.total ?? 0);
+    const original     = Number(invoice.total);
+    const remaining    = original - totalCredits + totalDebits;
+    return {
+      invoiceId,
+      invoiceNumber: (invoice as any).invoiceNumber,
+      originalTotal:  original,
+      totalCredits,
+      totalDebits,
+      creditCount:   creditResult._count.id,
+      debitCount:    debitResult._count.id,
+      remainingBalance: Math.max(0, remaining),
+      fullyOffset: remaining <= 0,
+    };
+  }
+
+  async getAssociatedNotes(companyId: string, invoiceId: string) {
+    await this.findOne(companyId, invoiceId); // validates ownership
+    return this.prisma.invoice.findMany({
+      where: { originalInvoiceId: invoiceId, companyId, deletedAt: null },
+      include: { customer: { select: { id: true, name: true } }, items: true },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async getSummary(companyId: string, from: string, to: string) {

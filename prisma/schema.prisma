@@ -76,6 +76,10 @@ model Company {
   dianFechaHasta     String?
   dianCertificate    String?
   dianCertificateKey String?
+  // ── DIAN Nómina Electrónica — credenciales propias por empresa ───────────
+  nominaSoftwareId  String?   // Software ID registrado en DIAN para nómina electrónica
+  nominaSoftwarePin String?   // PIN numérico del software de nómina
+  nominaTestSetId   String?   // TestSetId UUID del ambiente de habilitación nómina
   logoUrl        String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
@@ -350,6 +354,11 @@ model Invoice {
   dianSentAt      DateTime?
   dianResponseAt  DateTime?
   dianAttempts    Int           @default(0)      // number of send attempts
+  // ── Nota Crédito / Nota Débito — referencia a factura original ───────────
+  originalInvoiceId     String?                        // FK: nota referencia esta factura de origen
+  discrepancyReasonCode String?                        // Código DIAN: 1=devol.parcial 2=anulación 3=rebaja 4=ajuste calidad 5=rescisión 6=otros
+  discrepancyReason     String?   @db.Text             // Descripción libre del motivo del ajuste
+  dianCude              String?   @unique               // CUDE para notas crédito/débito (distinto del CUFE de facturas)
   xmlContent      String?
   xmlSigned       String?       @db.Text         // signed UBL 2.1 XML sent to DIAN
   pdfUrl          String?
@@ -363,11 +372,15 @@ model Invoice {
   company  Company       @relation(fields: [companyId], references: [id])
   customer Customer      @relation(fields: [customerId], references: [id])
   items    InvoiceItem[]
+  // Auto-relación notas (NC / ND referencia factura original)
+  originalInvoice      Invoice?   @relation("InvoiceNotes", fields: [originalInvoiceId], references: [id])
+  creditDebitNotes     Invoice[]  @relation("InvoiceNotes")
 
   @@unique([companyId, invoiceNumber])
   @@index([companyId])
   @@index([companyId, status])
   @@index([companyId, issueDate])
+  @@index([originalInvoiceId])
   @@map("invoices")
 }
 
