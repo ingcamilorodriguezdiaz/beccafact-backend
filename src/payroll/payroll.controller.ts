@@ -24,7 +24,7 @@ export class PayrollController {
   // ── EMPLOYEES ─────────────────────────────────────────────────────────────
 
   @Get('employees')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'List employees' })
   findAllEmployees(
     @CurrentUser('companyId') companyId: string,
@@ -42,7 +42,7 @@ export class PayrollController {
   }
 
   @Get('employees/:id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Get employee detail' })
   findEmployee(
     @CurrentUser('companyId') companyId: string,
@@ -52,7 +52,7 @@ export class PayrollController {
   }
 
   @Post('employees')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @ApiOperation({ summary: 'Create employee' })
   createEmployee(
     @CurrentUser('companyId') companyId: string,
@@ -63,7 +63,7 @@ export class PayrollController {
   }
 
   @Put('employees/:id')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @ApiOperation({ summary: 'Update employee' })
   updateEmployee(
     @CurrentUser('companyId') companyId: string,
@@ -89,7 +89,7 @@ export class PayrollController {
   // ── PAYROLL RECORDS ────────────────────────────────────────────────────────
 
   @Get('records')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'List payroll records' })
   findAllPayroll(
     @CurrentUser('companyId') companyId: string,
@@ -107,7 +107,7 @@ export class PayrollController {
   }
 
   @Get('records/summary/:period')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Period summary (YYYY-MM)' })
   getPeriodSummary(
     @CurrentUser('companyId') companyId: string,
@@ -117,7 +117,7 @@ export class PayrollController {
   }
 
   @Get('records/:id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Get payroll record detail' })
   findPayrollRecord(
     @CurrentUser('companyId') companyId: string,
@@ -127,7 +127,7 @@ export class PayrollController {
   }
 
   @Post('records')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Create payroll draft record' })
   createPayroll(
     @CurrentUser('companyId') companyId: string,
@@ -138,7 +138,7 @@ export class PayrollController {
   }
 
   @Post('preview')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Preview payroll calculation without saving' })
   previewPayroll(@Body() dto: CreatePayrollDto) {
@@ -152,9 +152,9 @@ export class PayrollController {
    * Devuelve el ZipKey, CUNE y estado DIAN.
    */
   @Post('records/:id/submit')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Submit payroll to DIAN — generates XML+CUNE, signs, ZIPs and sends (ADMIN/MANAGER only)' })
+  @ApiOperation({ summary: 'Submit payroll to DIAN — generates XML+CUNE, signs, ZIPs and sends (ADMIN/MANAGER/CONTADOR only)' })
   submitPayroll(
     @CurrentUser('companyId') companyId: string,
     @CurrentUser('sub')       userId:    string,
@@ -168,7 +168,7 @@ export class PayrollController {
    * Consulta el estado del documento en la DIAN por ZipKey o CUNE.
    */
   @Post('records/:id/check-status')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Query DIAN status of a submitted payroll record' })
   checkPayrollStatus(
@@ -186,7 +186,7 @@ export class PayrollController {
    * El resultado es un borrador NIAE que puede revisarse antes de transmitir a la DIAN.
    */
   @Post('records/:id/nota-ajuste')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Crear Nota de Ajuste (NIAE) sobre un NIE transmitido — Res. 000013 Art.17' })
   createNotaAjuste(
@@ -218,7 +218,7 @@ export class PayrollController {
    * Solo disponible para registros que hayan sido transmitidos (tienen xmlSigned en BD).
    */
   @Get('records/:id/download')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Get signed XML + ZIP as base64 for download' })
   downloadPayrollFiles(
     @CurrentUser('companyId') companyId: string,

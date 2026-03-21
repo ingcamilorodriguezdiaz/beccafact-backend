@@ -21,7 +21,7 @@ export class CustomersController {
   constructor(private customersService: CustomersService) { }
 
   @Get()
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER', 'CONTADOR')
   @ApiOperation({ summary: 'Listar clientes de la empresa' })
   findAll(
     @CurrentUser('companyId') companyId: string,
@@ -61,7 +61,7 @@ export class CustomersController {
   }
 
   @Post()
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   create(
     @CurrentUser('companyId') companyId: string,
     @Body() dto: CreateCustomerDto,
@@ -70,7 +70,7 @@ export class CustomersController {
   }
 
   @Put(':id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   update(
     @CurrentUser('companyId') companyId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -81,7 +81,7 @@ export class CustomersController {
 
   /** PATCH para actualizaciones parciales (usado por el frontend) */
   @Patch(':id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Actualización parcial de cliente' })
   patch(
     @CurrentUser('companyId') companyId: string,
