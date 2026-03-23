@@ -543,6 +543,146 @@ export class SuperAdminService {
     return this.prisma.bank.delete({ where: { code } });
   }
 
+  // ─── INTEGRATIONS COMPANIES LIST ─────────────────────────────────────────
+
+  async getIntegrationsCompanies() {
+    const companies = await this.prisma.company.findMany({
+      where: { deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        nit: true,
+        razonSocial: true,
+        status: true,
+        subscriptions: {
+          where: { status: { in: ['ACTIVE', 'TRIAL'] } },
+          select: {
+            plan: {
+              select: {
+                displayName: true,
+                features: {
+                  where: { key: { in: ['dian_enabled', 'has_payroll'] } },
+                  select: { key: true, value: true },
+                },
+              },
+            },
+          },
+          take: 1,
+          orderBy: { startDate: 'desc' },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    return companies.map(c => {
+      const features = c.subscriptions[0]?.plan?.features ?? [];
+      const hasDian    = features.some(f => f.key === 'dian_enabled' && f.value === 'true');
+      const hasPayroll = features.some(f => f.key === 'has_payroll'  && f.value === 'true');
+      return {
+        id:              c.id,
+        name:            c.name,
+        nit:             c.nit,
+        razonSocial:     c.razonSocial,
+        status:          c.status,
+        planDisplayName: c.subscriptions[0]?.plan?.displayName ?? null,
+        hasDian,
+        hasPayroll,
+      };
+    });
+  }
+
+  // ─── DIAN INTEGRATIONS PER COMPANY ────────────────────────────────────────
+
+  private async getCompanyOrFail(id: string) {
+    const company = await this.prisma.company.findUnique({ where: { id } });
+    if (!company) throw new NotFoundException('Empresa no encontrada');
+    return company;
+  }
+
+  async getCompanyDianFacturacion(companyId: string) {
+    const c = await this.getCompanyOrFail(companyId);
+    return {
+      enabled: !!(c.dianSoftwareId && c.dianResolucion),
+      ambiente: c.dianTestMode ? 'habilitacion' : 'produccion',
+      softwareId: c.dianSoftwareId ?? '',
+      softwarePin: c.dianSoftwarePin ?? '',
+      testSetId: c.dianTestSetId ?? '',
+      claveTecnica: c.dianClaveTecnica ?? '',
+      resolucion: c.dianResolucion ?? '',
+      prefijo: c.dianPrefijo ?? '',
+      rangoDesde: c.dianRangoDesde ?? null,
+      rangoHasta: c.dianRangoHasta ?? null,
+      vigenciaDesde: c.dianFechaDesde ?? '',
+      vigenciaHasta: c.dianFechaHasta ?? '',
+      hasCertificate: !!c.dianCertificate,
+    };
+  }
+
+  async updateCompanyDianFacturacion(companyId: string, dto: any) {
+    await this.getCompanyOrFail(companyId);
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        dianTestMode: dto.ambiente === 'habilitacion',
+        dianSoftwareId: dto.softwareId || null,
+        dianSoftwarePin: dto.softwarePin || null,
+        dianTestSetId: dto.testSetId || null,
+        dianClaveTecnica: dto.claveTecnica || null,
+        dianResolucion: dto.resolucion || null,
+        dianPrefijo: dto.prefijo || null,
+        dianRangoDesde: dto.rangoDesde != null ? Number(dto.rangoDesde) : null,
+        dianRangoHasta: dto.rangoHasta != null ? Number(dto.rangoHasta) : null,
+        dianFechaDesde: dto.vigenciaDesde || null,
+        dianFechaHasta: dto.vigenciaHasta || null,
+      },
+    });
+    return this.getCompanyDianFacturacion(companyId);
+  }
+
+  async getCompanyDianNomina(companyId: string) {
+    const c = await this.getCompanyOrFail(companyId);
+    return {
+      enabled: !!c.nominaSoftwareId,
+      softwareId: c.nominaSoftwareId ?? '',
+      softwarePin: c.nominaSoftwarePin ?? '',
+      testSetId: c.nominaTestSetId ?? '',
+    };
+  }
+
+  async updateCompanyDianNomina(companyId: string, dto: any) {
+    await this.getCompanyOrFail(companyId);
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        nominaSoftwareId: dto.softwareId || null,
+        nominaSoftwarePin: dto.softwarePin || null,
+        nominaTestSetId: dto.testSetId || null,
+      },
+    });
+    return this.getCompanyDianNomina(companyId);
+  }
+
+  async getCompanyDianCertificate(companyId: string) {
+    const c = await this.getCompanyOrFail(companyId);
+    return {
+      hasCertificate: !!c.dianCertificate,
+      certificate: c.dianCertificate ?? '',
+      certificateKey: c.dianCertificateKey ?? '',
+    };
+  }
+
+  async updateCompanyDianCertificate(companyId: string, dto: any) {
+    await this.getCompanyOrFail(companyId);
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        dianCertificate: dto.certificate || null,
+        dianCertificateKey: dto.certificateKey || null,
+      },
+    });
+    return this.getCompanyDianCertificate(companyId);
+  }
+
   // ─── PARAMETERS ──────────────────────────────────────────────────────────────
 
   async getParameters(filters: { category?: string; search?: string }) {

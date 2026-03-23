@@ -199,6 +199,14 @@ export class UsersService {
     });
   }
 
+  async markTourSeen(userId: string) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { hasSeenTour: true },
+    });
+    return { success: true };
+  }
+
   async getRoles() {
     return this.prisma.role.findMany({
       where: { name: { not: 'SUPER_ADMIN' }, isSystem :true },

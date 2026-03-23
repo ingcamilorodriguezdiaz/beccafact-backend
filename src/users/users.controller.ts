@@ -115,4 +115,11 @@ export class UsersController {
   ) {
     return this.usersService.updatePassword(userId, dto.currentPassword, dto.newPassword);
   }
+
+  @Patch('me/tour-seen')
+  @ApiOperation({ summary: 'Marcar tour de bienvenida como visto' })
+  @HttpCode(HttpStatus.OK)
+  markTourSeen(@CurrentUser('sub') userId: string) {
+    return this.usersService.markTourSeen(userId);
+  }
 }

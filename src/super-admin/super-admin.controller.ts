@@ -6,6 +6,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { SuperAdminService } from './super-admin.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { SuperAdminGuard } from './super-admin.guard';
+import { DEFAULT_LIMIT, DEFAULT_PAGE } from '@/common/constants/pagination.constants';
 
 @ApiTags('super-admin')
 @ApiBearerAuth()
@@ -51,7 +52,9 @@ export class SuperAdminController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.superAdminService.getCompanies({ search, status, page, limit });
+    return this.superAdminService.getCompanies({ search, status,     
+        page:  Number(page)  || DEFAULT_PAGE,
+          limit: Number(limit) || DEFAULT_LIMIT});
   }
 
   @Get('companies/:id')
@@ -135,6 +138,61 @@ export class SuperAdminController {
     @Param('userId', ParseUUIDPipe) userId: string,
   ) {
     return this.superAdminService.toggleCompanyUserActive(companyId, userId);
+  }
+
+  // ─── INTEGRATIONS COMPANIES LIST ─────────────────────────────────────────
+
+  @Get('integrations/companies')
+  @ApiOperation({ summary: 'Listar empresas con sus features DIAN y nómina habilitadas' })
+  getIntegrationsCompanies() {
+    return this.superAdminService.getIntegrationsCompanies();
+  }
+
+  // ─── DIAN INTEGRATIONS PER COMPANY ────────────────────────────────────────
+
+  @Get('companies/:id/integrations/dian')
+  @ApiOperation({ summary: 'Obtener configuración DIAN facturación de una empresa' })
+  getCompanyDianFacturacion(@Param('id', ParseUUIDPipe) id: string) {
+    return this.superAdminService.getCompanyDianFacturacion(id);
+  }
+
+  @Put('companies/:id/integrations/dian')
+  @ApiOperation({ summary: 'Actualizar configuración DIAN facturación de una empresa' })
+  updateCompanyDianFacturacion(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() data: any,
+  ) {
+    return this.superAdminService.updateCompanyDianFacturacion(id, data);
+  }
+
+  @Get('companies/:id/integrations/dian/nomina')
+  @ApiOperation({ summary: 'Obtener configuración DIAN nómina de una empresa' })
+  getCompanyDianNomina(@Param('id', ParseUUIDPipe) id: string) {
+    return this.superAdminService.getCompanyDianNomina(id);
+  }
+
+  @Put('companies/:id/integrations/dian/nomina')
+  @ApiOperation({ summary: 'Actualizar configuración DIAN nómina de una empresa' })
+  updateCompanyDianNomina(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() data: any,
+  ) {
+    return this.superAdminService.updateCompanyDianNomina(id, data);
+  }
+
+  @Get('companies/:id/integrations/dian/certificate')
+  @ApiOperation({ summary: 'Obtener certificado digital DIAN compartido de una empresa' })
+  getCompanyDianCertificate(@Param('id', ParseUUIDPipe) id: string) {
+    return this.superAdminService.getCompanyDianCertificate(id);
+  }
+
+  @Put('companies/:id/integrations/dian/certificate')
+  @ApiOperation({ summary: 'Actualizar certificado digital DIAN compartido de una empresa' })
+  updateCompanyDianCertificate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() data: any,
+  ) {
+    return this.superAdminService.updateCompanyDianCertificate(id, data);
   }
 
   // ─── PLANS ───────────────────────────────────────────────────────────────────

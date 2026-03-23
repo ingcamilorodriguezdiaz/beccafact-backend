@@ -18,6 +18,8 @@ import { PlanFeature } from '../common/decorators/plan-feature.decorator';
 export class IntegrationsController {
   constructor(private integrationsService: IntegrationsService) {}
 
+  // ── Genérico Integration model ─────────────────────────────────────────
+
   @Get()
   findAll(@CurrentUser('companyId') companyId: string) {
     return this.integrationsService.findAll(companyId);
@@ -57,5 +59,56 @@ export class IntegrationsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.integrationsService.remove(companyId, id);
+  }
+
+  // ── DIAN Facturación Electrónica ────────────────────────────────────────
+
+  @Get('dian')
+  getDianFacturacion(@CurrentUser('companyId') companyId: string) {
+    return this.integrationsService.getDianFacturacion(companyId);
+  }
+
+  @Put('dian')
+  @Roles('ADMIN', 'MANAGER')
+  @PlanFeature('dian_enabled')
+  updateDianFacturacion(
+    @CurrentUser('companyId') companyId: string,
+    @Body() dto: any,
+  ) {
+    return this.integrationsService.updateDianFacturacion(companyId, dto);
+  }
+
+  // ── DIAN Nómina Electrónica ─────────────────────────────────────────────
+
+  @Get('dian/nomina')
+  getDianNomina(@CurrentUser('companyId') companyId: string) {
+    return this.integrationsService.getDianNomina(companyId);
+  }
+
+  @Put('dian/nomina')
+  @Roles('ADMIN', 'MANAGER')
+  @PlanFeature('has_payroll')
+  updateDianNomina(
+    @CurrentUser('companyId') companyId: string,
+    @Body() dto: any,
+  ) {
+    return this.integrationsService.updateDianNomina(companyId, dto);
+  }
+
+  // ── DIAN Certificado Digital (compartido) ───────────────────────────────────
+
+  @Get('dian/certificate')
+  getDianCertificate(@CurrentUser('companyId') companyId: string) {
+    return this.integrationsService.getDianCertificate(companyId);
+  }
+
+  @Put('dian/certificate')
+  @Roles('ADMIN', 'MANAGER')
+  @PlanFeature('dian_enabled')
+  updateDianCertificate(
+    @CurrentUser('companyId') companyId: string,
+    @Body() dto: any,
+  ) {
+    return this.integrationsService.updateDianCertificate(companyId, dto);
   }
 }

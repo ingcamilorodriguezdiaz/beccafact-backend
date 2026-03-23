@@ -152,6 +152,7 @@ export class AuthService {
         phone: true,
         avatar: true,
         isSuperAdmin: true,
+        hasSeenTour: true,
         companyId: true,
         company: {
           select: {
