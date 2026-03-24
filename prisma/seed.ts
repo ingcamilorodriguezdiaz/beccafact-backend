@@ -247,69 +247,85 @@ async function main() {
   }
 
   // ─── PLANES ───────────────────────────────────────────────────────────────────
-  // Primero eliminar planes obsoletos (STARTER, PRO, BUSINESS) si existen
-  await prisma.plan.deleteMany({ where: { name: { in: ['STARTER', 'PRO', 'BUSINESS'] } } });
+  // Eliminar planes obsoletos de versiones anteriores
+  await prisma.plan.deleteMany({
+    where: { name: { in: ['STARTER', 'PRO', 'BUSINESS', 'BASIC', 'CORPORATIVO'] } },
+  });
 
   const plansData = [
+    // ── Plan 1: Emprendedor ────────────────────────────────────────────────────
     {
-      name: 'BASIC',
-      displayName: 'Integración Básica',
-      description: 'Para pequeñas empresas que inician con facturación electrónica DIAN',
+      name: 'EMPRENDEDOR',
+      displayName: 'Emprendedor',
+      description: 'Para microempresarios que necesitan facturar legalmente ante la DIAN',
       price: 65000,
       features: [
-        { key: 'max_documents_per_month', value: '-1',    label: 'Documentos DIAN ilimitados' },
+        { key: 'max_documents_per_month', value: '-1',    label: 'Facturas DIAN ilimitadas' },
         { key: 'has_invoices',            value: 'true',  label: 'Facturación electrónica DIAN' },
+        { key: 'dian_enabled',            value: 'true',  label: 'DIAN habilitado' },
+        { key: 'has_payroll',             value: 'false', label: 'Sin nómina electrónica' },
         { key: 'has_inventory',           value: 'false', label: 'Sin inventario' },
         { key: 'has_cartera',             value: 'false', label: 'Sin cartera' },
-        { key: 'has_payroll',             value: 'false', label: 'Sin nómina electrónica' },
-        { key: 'has_reports',             value: 'true',  label: 'Reportes básicos' },
+        { key: 'has_reports',             value: 'false', label: 'Sin reportes avanzados' },
         { key: 'bulk_import',             value: 'false', label: 'Sin importación masiva' },
-        { key: 'dian_enabled',            value: 'true',  label: 'DIAN habilitado' },
-        { key: 'max_products',            value: '100',   label: '100 productos' },
-        { key: 'max_users',               value: '3',     label: '3 usuarios' },
+        { key: 'has_pos',                 value: 'false', label: 'Sin Punto de Venta' },
+        { key: 'has_integrations',        value: 'false', label: 'Sin integraciones' },
         { key: 'has_multicompany',        value: 'false', label: 'Sin multiempresa' },
+        { key: 'priority_support',        value: 'false', label: 'Soporte estándar' },
+        { key: 'max_products',            value: '15',    label: '15 productos' },
+        { key: 'max_customers',           value: '25',    label: '25 clientes' },
+        { key: 'max_users',               value: '1',     label: '1 usuario' },
+        { key: 'max_support_tickets',     value: '2',     label: '2 tickets de soporte / mes' },
       ],
     },
+    // ── Plan 2: Pyme ───────────────────────────────────────────────────────────
     {
-      name: 'EMPRESARIAL',
-      displayName: 'Plan Empresarial',
-      description: 'Para empresas en crecimiento: facturación + nómina + inventario',
+      name: 'PYME',
+      displayName: 'Pyme',
+      description: 'Para negocios con empleados y mayor volumen de operaciones',
       price: 160000,
       features: [
-        { key: 'max_documents_per_month', value: '-1',    label: 'Documentos DIAN ilimitados' },
+        { key: 'max_documents_per_month', value: '-1',    label: 'Facturas DIAN ilimitadas' },
         { key: 'has_invoices',            value: 'true',  label: 'Facturación electrónica DIAN' },
-        { key: 'has_inventory',           value: 'true',  label: 'Inventario básico' },
-        { key: 'has_cartera',             value: 'false', label: 'Sin cartera' },
-        { key: 'has_payroll',             value: 'true',  label: 'Nómina electrónica DIAN' },
-        { key: 'has_reports',             value: 'true',  label: 'Reportes' },
-        { key: 'bulk_import',             value: 'true',  label: 'Importación masiva' },
         { key: 'dian_enabled',            value: 'true',  label: 'DIAN habilitado' },
-        { key: 'has_pos',                 value: 'true',  label: 'Punto de Venta (POS)' },
-        { key: 'max_products',            value: '500',   label: '500 productos' },
-        { key: 'max_users',               value: '5',     label: '5 usuarios' },
+        { key: 'has_payroll',             value: 'true',  label: 'Nómina electrónica DIAN ilimitada' },
+        { key: 'has_inventory',           value: 'false', label: 'Sin inventario avanzado' },
+        { key: 'has_cartera',             value: 'false', label: 'Sin cartera' },
+        { key: 'has_reports',             value: 'false', label: 'Sin reportes avanzados' },
+        { key: 'bulk_import',             value: 'true',  label: 'Importación masiva CSV/Excel' },
+        { key: 'has_pos',                 value: 'false', label: 'Sin Punto de Venta' },
+        { key: 'has_integrations',        value: 'false', label: 'Sin integraciones' },
         { key: 'has_multicompany',        value: 'false', label: 'Sin multiempresa' },
+        { key: 'priority_support',        value: 'false', label: 'Soporte estándar' },
+        { key: 'max_products',            value: '200',   label: '200 productos' },
+        { key: 'max_customers',           value: '200',   label: '200 clientes' },
+        { key: 'max_users',               value: '5',     label: '5 usuarios' },
+        { key: 'max_support_tickets',     value: '3',     label: '3 tickets de soporte / mes' },
       ],
     },
+    // ── Plan 3: Empresarial ────────────────────────────────────────────────────
     {
-      name: 'CORPORATIVO',
-      displayName: 'Plan Corporativo',
-      description: 'Para grandes empresas: suite completa con cartera, multiempresa y reportes avanzados',
+      name: 'EMPRESARIAL',
+      displayName: 'Empresarial',
+      description: 'Para comercios y empresas con operación completa sin restricciones',
       price: 300000,
       features: [
-        { key: 'max_documents_per_month', value: '-1',    label: 'Documentos DIAN ilimitados' },
+        { key: 'max_documents_per_month', value: '-1',    label: 'Facturas DIAN ilimitadas' },
         { key: 'has_invoices',            value: 'true',  label: 'Facturación electrónica DIAN' },
+        { key: 'dian_enabled',            value: 'true',  label: 'DIAN habilitado' },
+        { key: 'has_payroll',             value: 'true',  label: 'Nómina electrónica DIAN ilimitada' },
         { key: 'has_inventory',           value: 'true',  label: 'Inventario avanzado' },
         { key: 'has_cartera',             value: 'true',  label: 'Cartera y cobranza' },
-        { key: 'has_payroll',             value: 'true',  label: 'Nómina electrónica DIAN' },
         { key: 'has_reports',             value: 'true',  label: 'Reportes avanzados' },
-        { key: 'bulk_import',             value: 'true',  label: 'Importación masiva avanzada' },
-        { key: 'dian_enabled',            value: 'true',  label: 'DIAN habilitado' },
+        { key: 'bulk_import',             value: 'true',  label: 'Importación masiva CSV/Excel' },
         { key: 'has_pos',                 value: 'true',  label: 'Punto de Venta (POS)' },
-        { key: 'max_products',            value: '-1',    label: 'Productos ilimitados' },
-        { key: 'max_users',               value: '-1',    label: 'Usuarios ilimitados' },
-        { key: 'has_multicompany',        value: 'true',  label: 'Multiempresa / multisucursal' },
         { key: 'has_integrations',        value: 'true',  label: 'Integraciones avanzadas' },
+        { key: 'has_multicompany',        value: 'false', label: 'Sin multiempresa' },
         { key: 'priority_support',        value: 'true',  label: 'Soporte prioritario' },
+        { key: 'max_products',            value: '-1',    label: 'Productos ilimitados' },
+        { key: 'max_customers',           value: '-1',    label: 'Clientes ilimitados' },
+        { key: 'max_users',               value: '-1',    label: 'Usuarios ilimitados' },
+        { key: 'max_support_tickets',     value: '5',     label: '5 tickets de soporte / mes' },
       ],
     },
   ];
@@ -318,7 +334,7 @@ async function main() {
     const { features, ...data } = planData;
     const plan = await prisma.plan.upsert({
       where: { name: data.name },
-      update: { price: data.price, description: data.description },
+      update: { displayName: data.displayName, price: data.price, description: data.description },
       create: data,
     });
     for (const feat of features) {
