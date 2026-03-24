@@ -20,6 +20,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { LocationModule } from './location/location.module';
 import { ParametersModule } from './parameter/parameters.module';
 import { BanksModule } from './banks/banks.module';
+import { PosModule } from './pos/pos.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { BanksModule } from './banks/banks.module';
     LocationModule,
     ParametersModule,
     BanksModule,
+    PosModule,
   ],
 })
 export class AppModule {}
