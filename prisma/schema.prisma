@@ -99,6 +99,7 @@ model Company {
   payroll_records    payroll_records[]
   pos_sessions   PosSession[]
   pos_sales      PosSale[]
+  dianTestSets   DianTestSet[]
   @@index([status])
   @@index([nit])
   @@map("companies")
@@ -925,4 +926,62 @@ enum PaymentMethod {
   CARD
   TRANSFER
   MIXED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DIAN TEST SETS — Sets de prueba DIAN (habilitación facturación y nómina)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum DianTestSetType {
+  FACTURACION
+  NOMINA
+}
+
+enum DianTestSetStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  PARTIAL
+  FAILED
+}
+
+model DianTestSet {
+  id           String            @id @default(uuid())
+  companyId    String
+  company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type         DianTestSetType
+  status       DianTestSetStatus @default(PENDING)
+  totalDocs    Int
+  sentDocs     Int               @default(0)
+  acceptedDocs Int               @default(0)
+  rejectedDocs Int               @default(0)
+  errorDocs    Int               @default(0)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  notes        String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  documents    DianTestSetDocument[]
+
+  @@map("dian_test_sets")
+}
+
+model DianTestSetDocument {
+  id             String      @id @default(uuid())
+  testSetId      String
+  testSet        DianTestSet @relation(fields: [testSetId], references: [id], onDelete: Cascade)
+  sequence       Int
+  docType        String
+  invoiceId      String?
+  payrollId      String?
+  status         String      @default("PENDING")
+  dianZipKey     String?
+  dianStatusCode String?
+  dianStatusMsg  String?
+  errorMsg       String?
+  sentAt         DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@map("dian_test_set_documents")
 }

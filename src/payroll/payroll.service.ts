@@ -1164,11 +1164,10 @@ export class PayrollService {
     const versionStr = isAjuste
       ? 'V1.0: Nota de Ajuste de Documento Soporte de Pago de Nómina Electrónica'
       : 'V1.0: Documento Soporte de Pago de Nómina Electrónica';
-    // NIAE: InformacionGeneral solo acepta Version, Ambiente, TipoXML, CUNE, EncripCUNE, FechaGen, HoraGen
-    // NIE:  además acepta PeriodoNomina y TipoMoneda (XSD distintos — ZB01/NIAE238)
-    const xmlInfoGen = isAjuste
-      ? `<InformacionGeneral Version="${versionStr}" Ambiente="${ambiente}" TipoXML="${tipoXml}" CUNE="${cuneHash}" EncripCUNE="CUNE-SHA384" FechaGen="${issueDate}" HoraGen="${issueTime}" />`
-      : `<InformacionGeneral Version="${versionStr}" Ambiente="${ambiente}" TipoXML="${tipoXml}" CUNE="${cuneHash}" EncripCUNE="CUNE-SHA384" FechaGen="${issueDate}" HoraGen="${issueTime}" PeriodoNomina="${periodoNomina}" TipoMoneda="COP" />`;
+    // NIAE y NIE: InformacionGeneral requiere PeriodoNomina y TipoMoneda en ambos casos
+    // (confirmado por errores DIAN: NIAE029, NIAE030, ZB01 — Attribute 'PeriodoNomina' must appear)
+    const xmlInfoGen =
+      `<InformacionGeneral Version="${versionStr}" Ambiente="${ambiente}" TipoXML="${tipoXml}" CUNE="${cuneHash}" EncripCUNE="CUNE-SHA384" FechaGen="${issueDate}" HoraGen="${issueTime}" PeriodoNomina="${periodoNomina}" TipoMoneda="COP" />`;
 
     // <Notas> solo para NIE — el XML productivo NIAE no lo incluye en Reemplazar
     const xmlNotas = isAjuste ? '' : `<Notas>${notas}</Notas>`;
@@ -1190,7 +1189,9 @@ export class PayrollService {
       `<Devengados>` +
         `<Basico DiasTrabajados="${record.daysWorked}" SueldoTrabajado="${baseSalary}" />` +
         (transport > 0   ? `<Transporte AuxilioTransporte="${transport.toFixed(2)}" />` : '') +
-        (bonuses > 0     ? `<Bonificaciones BonificacionSalarial="${bonuses.toFixed(2)}" BonificacionNoSalarial="0.00" />` : '') +
+        // NIAE XSD no acepta BonificacionSalarial como atributo en Bonificaciones (ZB01)
+        // — el XML de referencia DIAN de NIAE no incluye el elemento; solo NIE lo usa
+        (bonuses > 0 && !isAjuste ? `<Bonificaciones BonificacionSalarial="${bonuses.toFixed(2)}" />` : '') +
         (commissions > 0 ? `<Comisiones Comision="${commissions.toFixed(2)}" />` : '') +
         (vacacion > 0    ? `<Vacaciones VacacionesComunes="${vacacion.toFixed(2)}" />` : '') +
         (overtime > 0    ? `<HEDs><HED Cantidad="${overtime.toFixed(2)}" Porcentaje="25.00" Pago="${(overtime * Number(record.baseSalary) / 240 * 1.25).toFixed(2)}" /></HEDs>` : '') +

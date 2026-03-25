@@ -21,6 +21,7 @@ import { LocationModule } from './location/location.module';
 import { ParametersModule } from './parameter/parameters.module';
 import { BanksModule } from './banks/banks.module';
 import { PosModule } from './pos/pos.module';
+import { DianTestSetsModule } from './dian-test-sets/dian-test-sets.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { PosModule } from './pos/pos.module';
     ParametersModule,
     BanksModule,
     PosModule,
+    DianTestSetsModule,
   ],
 })
 export class AppModule {}
