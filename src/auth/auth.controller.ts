@@ -7,7 +7,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 @ApiTags('auth')
-@Controller({ path: 'auth', version: '1' })
+@Controller({ path: 'auth',  version: '1' })
 export class AuthController {
   constructor(private authService: AuthService) {}
 

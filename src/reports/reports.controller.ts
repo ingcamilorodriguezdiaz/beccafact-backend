@@ -72,7 +72,7 @@ export class ReportsController {
     return this.reportsService.getInvoicesReport(companyId, from, to, status);
   }
 
-  @Get('invoice/xlsx')
+  @Get('invoices/xlsx')
   @PlanFeature('has_invoices')
   @ApiOperation({ summary: 'Descargar reporte de facturas en Excel' })
   async downloadInvoicesXlsx(

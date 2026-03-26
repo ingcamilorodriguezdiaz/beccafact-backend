@@ -1,6 +1,88 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../config/prisma.service';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
+
+// ── Excel style helpers ───────────────────────────────────────────────────────
+
+type XAlign = 'left' | 'right' | 'center';
+
+const XBG = { DARK: '0C1C35', NAVY: '1A407E', LIGHT: 'DBE8FA', STRIPE: 'F4F7FB', WHITE: 'FFFFFF' };
+const XFG = { WHITE: 'FFFFFF', DARK: '0C1C35', MED: '374151', MUTED: '6B7280' };
+const XBRD = {
+  muted: { style: 'thin', color: { rgb: 'DCE6F0' } },
+  navy:  { style: 'medium', color: { rgb: '1A407E' } },
+};
+
+function xc(v: any, bg: string, fg: string, bold: boolean, sz: number,
+            align: XAlign, numFmt?: string, bTop?: any, bBot?: any): any {
+  const s: any = {
+    fill: { patternType: 'solid', fgColor: { rgb: bg } },
+    font: { bold, sz, color: { rgb: fg } },
+    alignment: { horizontal: align, vertical: 'center' },
+    border: { top: bTop ?? XBRD.muted, bottom: bBot ?? XBRD.muted, left: XBRD.muted, right: XBRD.muted },
+  };
+  if (numFmt) s.numFmt = numFmt;
+  return { v, t: typeof v === 'number' ? 'n' : 's', s };
+}
+
+function buildStyledSheet(
+  title: string,
+  subtitle: string,
+  headers: Array<{ label: string; width: number; align?: XAlign }>,
+  dataRows: any[][],
+  moneyCols: number[],
+  totalRow: any[],
+  totalMoneyCols: number[],
+): any {
+  const N = headers.length;
+  const rows: any[][] = [];
+
+  // Title row
+  const titleRow = [xc(title, XBG.DARK, XFG.WHITE, true, 13, 'left', undefined, {}, {})];
+  for (let c = 1; c < N; c++) titleRow.push({ v: '', t: 's', s: { fill: { patternType: 'solid', fgColor: { rgb: XBG.DARK } }, border: {} } });
+  rows.push(titleRow);
+
+  // Subtitle row
+  const subRow = [xc(subtitle, XBG.STRIPE, XFG.MUTED, false, 10, 'left', undefined, {}, {})];
+  for (let c = 1; c < N; c++) subRow.push({ v: '', t: 's', s: { fill: { patternType: 'solid', fgColor: { rgb: XBG.STRIPE } }, border: {} } });
+  rows.push(subRow);
+
+  // Spacer
+  rows.push(Array(N).fill({ v: '', t: 's', s: {} }));
+
+  // Header row
+  rows.push(headers.map(h => xc(h.label, XBG.NAVY, XFG.WHITE, true, 10, h.align ?? 'left', undefined, XBRD.navy, XBRD.navy)));
+
+  // Data rows
+  dataRows.forEach((row, ri) => {
+    const bg = ri % 2 === 0 ? XBG.STRIPE : XBG.WHITE;
+    rows.push(row.map((v, ci) =>
+      moneyCols.includes(ci)
+        ? xc(typeof v === 'number' ? v : 0, bg, XFG.MED, false, 10, 'right', '#,##0')
+        : xc(v ?? '', bg, XFG.MED, false, 10, headers[ci]?.align ?? 'left')
+    ));
+  });
+
+  // Totals row
+  rows.push(totalRow.map((v, ci) =>
+    totalMoneyCols.includes(ci)
+      ? xc(typeof v === 'number' ? v : 0, XBG.LIGHT, XFG.DARK, true, 10, 'right', '#,##0', XBRD.navy, XBRD.navy)
+      : xc(v ?? '', XBG.LIGHT, XFG.DARK, true, 10, headers[ci]?.align ?? 'left', undefined, XBRD.navy, XBRD.navy)
+  ));
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = headers.map(h => ({ wch: h.width }));
+  ws['!rows'] = [
+    { hpt: 28 }, { hpt: 18 }, { hpt: 8 }, { hpt: 22 },
+    ...dataRows.map(() => ({ hpt: 18 })),
+    { hpt: 22 },
+  ];
+  ws['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: N - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: N - 1 } },
+  ];
+  return ws;
+}
 
 @Injectable()
 export class ReportsService {
@@ -500,55 +582,114 @@ export class ReportsService {
   // ── Excel genérico ───────────────────────────────────────────────────────────
 
   downloadExcel(type: string, data: any): Buffer {
-    let wsData: any[][] = [];
+    const wb = XLSX.utils.book_new();
+    const fmt = (d: any) => d ? new Date(d).toLocaleDateString('es-CO') : '—';
 
     if (type === 'invoices') {
-      wsData = [
-        ['#', 'Número', 'Fecha', 'Cliente', 'Subtotal', 'IVA', 'Total', 'Estado', 'Estado DIAN'],
-        ...data.items.map((r: any, i: number) => [
-          i + 1, r.number, r.date ? new Date(r.date).toLocaleDateString('es-CO') : '',
-          r.customer?.name ?? '', r.subtotal, r.taxes, r.total, r.status, r.dianStatus,
-        ]),
-        [],
-        ['TOTALES', '', '', '', data.summary.subtotal, data.summary.taxes, data.summary.total],
+      const headers = [
+        { label: '#',          width: 5,  align: 'center' as XAlign },
+        { label: 'Número',     width: 16 },
+        { label: 'Fecha',      width: 13 },
+        { label: 'Cliente',    width: 38 },
+        { label: 'Subtotal',   width: 18, align: 'right' as XAlign },
+        { label: 'IVA',        width: 15, align: 'right' as XAlign },
+        { label: 'Total',      width: 18, align: 'right' as XAlign },
+        { label: 'Estado',     width: 20 },
+        { label: 'DIAN',       width: 20 },
       ];
+      const dataRows = data.items.map((r: any, i: number) => [
+        i + 1, r.number || '', fmt(r.date), r.customer?.name ?? '',
+        r.subtotal, r.taxes, r.total, r.status, r.dianStatus,
+      ]);
+      const last = data.items.length;
+      const subtitle = last
+        ? `${last} facturas | Período: ${fmt(data.items[last - 1]?.date)} – ${fmt(data.items[0]?.date)}`
+        : 'Sin datos para el período seleccionado';
+      XLSX.utils.book_append_sheet(wb,
+        buildStyledSheet(
+          'BeccaFact — Reporte de Facturación',
+          subtitle, headers, dataRows, [4, 5, 6],
+          ['', '', '', `Total: ${last} facturas`, data.summary.subtotal, data.summary.taxes, data.summary.total, '', ''],
+          [4, 5, 6],
+        ), 'Facturación');
+
     } else if (type === 'payroll') {
-      wsData = [
-        ['#', 'Período', 'Empleado', 'Documento', 'Tipo', 'Salario Base', 'Devengado', 'Deducciones', 'Neto a Pagar', 'Estado'],
-        ...data.items.map((r: any, i: number) => [
-          i + 1, r.period, r.employeeName, r.document, r.type,
-          r.baseSalary, r.totalEarnings, r.totalDeductions, r.totalNet, r.status,
-        ]),
-        [],
-        ['TOTALES', '', '', '', '', '', data.summary.totalEarnings, data.summary.totalDeductions, data.summary.totalNet],
+      const headers = [
+        { label: '#',            width: 5,  align: 'center' as XAlign },
+        { label: 'Período',      width: 12 },
+        { label: 'Empleado',     width: 30 },
+        { label: 'Documento',    width: 15 },
+        { label: 'Tipo',         width: 22 },
+        { label: 'Salario Base', width: 18, align: 'right' as XAlign },
+        { label: 'Devengado',    width: 18, align: 'right' as XAlign },
+        { label: 'Deducciones',  width: 18, align: 'right' as XAlign },
+        { label: 'Neto a Pagar', width: 18, align: 'right' as XAlign },
+        { label: 'Estado',       width: 15 },
       ];
+      const dataRows = data.items.map((r: any, i: number) => [
+        i + 1, r.period, r.employeeName, r.document, r.type,
+        r.baseSalary, r.totalEarnings, r.totalDeductions, r.totalNet, r.status,
+      ]);
+      XLSX.utils.book_append_sheet(wb,
+        buildStyledSheet(
+          'BeccaFact — Reporte de Nómina Electrónica',
+          `${data.summary.count} liquidaciones | Devengado: $${Number(data.summary.totalEarnings).toLocaleString('es-CO')} | Deducciones: $${Number(data.summary.totalDeductions).toLocaleString('es-CO')}`,
+          headers, dataRows, [5, 6, 7, 8],
+          ['', '', '', '', 'TOTALES', '', data.summary.totalEarnings, data.summary.totalDeductions, data.summary.totalNet, ''],
+          [6, 7, 8],
+        ), 'Nómina');
+
     } else if (type === 'pos') {
-      wsData = [
-        ['#', 'Fecha', 'Cajero', 'Estado', 'Efectivo Inicial', 'Efectivo Final', 'Total Ventas', 'Cant. Ventas'],
-        ...data.items.map((r: any, i: number) => [
-          i + 1, r.date ? new Date(r.date).toLocaleDateString('es-CO') : '', r.cashierName,
-          r.status, r.openingCash, r.closingCash, r.totalSales, r.transactionCount,
-        ]),
-        [],
-        ['TOTALES', '', '', '', '', '', data.summary.totalSales, data.summary.transactions],
+      const headers = [
+        { label: '#',             width: 5,  align: 'center' as XAlign },
+        { label: 'Fecha',         width: 13 },
+        { label: 'Cajero',        width: 22 },
+        { label: 'Estado',        width: 14 },
+        { label: 'Ef. Inicial',   width: 16, align: 'right' as XAlign },
+        { label: 'Ef. Final',     width: 16, align: 'right' as XAlign },
+        { label: 'Total Ventas',  width: 18, align: 'right' as XAlign },
+        { label: '# Ventas',      width: 12, align: 'right' as XAlign },
       ];
+      const dataRows = data.items.map((r: any, i: number) => [
+        i + 1, fmt(r.date), r.cashierName, r.status,
+        r.openingCash, r.closingCash, r.totalSales, r.transactionCount,
+      ]);
+      XLSX.utils.book_append_sheet(wb,
+        buildStyledSheet(
+          'BeccaFact — Reporte de Punto de Venta (POS)',
+          `${data.summary.sessions} sesiones | ${data.summary.transactions} transacciones | Total: $${Number(data.summary.totalSales).toLocaleString('es-CO')}`,
+          headers, dataRows, [4, 5, 6],
+          ['', '', '', 'TOTALES', '', '', data.summary.totalSales, data.summary.transactions],
+          [6],
+        ), 'POS');
+
     } else if (type === 'collections') {
-      wsData = [
-        ['#', 'Número', 'Cliente', 'Documento', 'Fecha Emisión', 'Fecha Vencimiento', 'Días Vencido', 'Total', 'Antigüedad'],
-        ...data.items.map((r: any, i: number) => [
-          i + 1, r.number, r.customerName, r.customerDocument,
-          r.issueDate ? new Date(r.issueDate).toLocaleDateString('es-CO') : '',
-          r.dueDate ? new Date(r.dueDate).toLocaleDateString('es-CO') : '',
-          r.daysOverdue, r.total, r.aging,
-        ]),
-        [],
-        ['TOTAL CARTERA', '', '', '', '', '', '', data.summary.totalBalance],
+      const headers = [
+        { label: '#',             width: 5,  align: 'center' as XAlign },
+        { label: 'Número',        width: 16 },
+        { label: 'Cliente',       width: 38 },
+        { label: 'Documento',     width: 15 },
+        { label: 'F. Emisión',    width: 13 },
+        { label: 'F. Vencimiento',width: 15 },
+        { label: 'Días Vencido',  width: 14, align: 'right' as XAlign },
+        { label: 'Total',         width: 18, align: 'right' as XAlign },
+        { label: 'Antigüedad',    width: 14 },
       ];
+      const dataRows = data.items.map((r: any, i: number) => [
+        i + 1, r.number, r.customerName, r.customerDocument,
+        fmt(r.issueDate), fmt(r.dueDate),
+        r.daysOverdue > 0 ? r.daysOverdue : 0, r.total, r.aging,
+      ]);
+      XLSX.utils.book_append_sheet(wb,
+        buildStyledSheet(
+          'BeccaFact — Reporte de Cartera por Vencimiento',
+          `${data.items.length} documentos | Total cartera: $${Number(data.summary.totalBalance).toLocaleString('es-CO')}`,
+          headers, dataRows, [7],
+          ['', '', '', '', '', 'TOTAL CARTERA', '', data.summary.totalBalance, ''],
+          [7],
+        ), 'Cartera');
     }
 
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Reporte');
     return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
   }
 
@@ -559,22 +700,75 @@ export class ReportsService {
     ]);
 
     const wb = XLSX.utils.book_new();
+    const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
-    // Hoja 1: KPIs
+    // ─── Hoja 1: KPIs ───────────────────────────────────────────────────
+    const kpiHeaders = [
+      { label: 'Indicador', width: 40 },
+      { label: 'Valor del Mes', width: 22, align: 'right' as XAlign },
+      { label: 'Período', width: 18 },
+      { label: 'Variación', width: 16, align: 'right' as XAlign },
+    ];
     const kpiRows = [
-      ['Métrica', 'Valor', 'Período'],
-      ['Ingresos del mes', kpis.revenue?.current ?? 0, `${month}/${year}`],
-      ['Facturas emitidas', kpis.invoices?.current ?? 0, `${month}/${year}`],
-      ['IVA generado', kpis.taxes?.current ?? 0, `${month}/${year}`],
+      ['Ingresos Totales (sin canceladas)', Number(kpis.revenue?.current ?? 0), `${MONTHS_ES[(month ?? 1) - 1]} ${year}`, `${Number(kpis.revenue?.change ?? 0).toFixed(1)}%`],
+      ['Facturas Emitidas', Number(kpis.invoices?.current ?? 0), `${MONTHS_ES[(month ?? 1) - 1]} ${year}`, `vs ${kpis.invoices?.previous ?? 0} mes ant.`],
+      ['IVA Generado', Number(kpis.taxes?.current ?? 0), `${MONTHS_ES[(month ?? 1) - 1]} ${year}`, ''],
+      ['Clientes Activos', Number((kpis as any).activeCustomers ?? 0), 'Total acumulado', ''],
+      ['Catálogo Activo', Number((kpis as any).activeCatalog ?? 0), 'Productos activos', ''],
+      ['Bajo Stock', Number((kpis as any).productCount ?? 0), 'Productos en alerta', ''],
     ];
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kpiRows), 'KPIs');
+    XLSX.utils.book_append_sheet(wb,
+      buildStyledSheet(
+        `BeccaFact — Dashboard ${MONTHS_ES[(month ?? 1) - 1]} ${year}`,
+        'Indicadores clave de rendimiento del período seleccionado',
+        kpiHeaders, kpiRows, [1],
+        ['', '', '', ''],
+        [],
+      ), 'KPIs');
 
-    // Hoja 2: Ingresos mensuales
-    const monthlyRows = [
-      ['Mes', 'Año', 'Ingresos', 'IVA', 'Facturas'],
-      ...monthly.map((m: any) => [m.month, m.year, m.revenue, m.taxes, m.invoiceCount]),
+    // ─── Hoja 2: Ingresos mensuales ──────────────────────────────────────
+    const monthlyHeaders = [
+      { label: 'Mes',         width: 16 },
+      { label: 'Año',         width: 8,  align: 'center' as XAlign },
+      { label: 'Ingresos',    width: 22, align: 'right' as XAlign },
+      { label: 'IVA',         width: 18, align: 'right' as XAlign },
+      { label: '# Facturas',  width: 14, align: 'right' as XAlign },
     ];
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(monthlyRows), 'Ingresos mensuales');
+    const monthlyRows = monthly.map((m: any) => [
+      MONTHS_ES[m.month - 1], m.year, Number(m.revenue), Number(m.taxes), m.invoiceCount,
+    ]);
+    const totRevenue = monthly.reduce((s: number, m: any) => s + Number(m.revenue), 0);
+    const totTax = monthly.reduce((s: number, m: any) => s + Number(m.taxes), 0);
+    const totInv = monthly.reduce((s: number, m: any) => s + m.invoiceCount, 0);
+    XLSX.utils.book_append_sheet(wb,
+      buildStyledSheet(
+        `BeccaFact — Ingresos Mensuales ${year}`,
+        `Resumen de ventas e impuestos para el año ${year}`,
+        monthlyHeaders, monthlyRows, [2, 3],
+        ['TOTAL ANUAL', year, totRevenue, totTax, totInv],
+        [2, 3],
+      ), 'Ingresos Mensuales');
+
+    // ─── Hoja 3: Top Clientes ────────────────────────────────────────────
+    if ((kpis as any).topCustomers?.length) {
+      const custHeaders = [
+        { label: '#',          width: 5,  align: 'center' as XAlign },
+        { label: 'Cliente',    width: 40 },
+        { label: 'Ingresos',   width: 22, align: 'right' as XAlign },
+        { label: '# Facturas', width: 14, align: 'right' as XAlign },
+      ];
+      const custRows = (kpis as any).topCustomers.map((c: any, i: number) => [
+        i + 1, c.name ?? '', Number(c.revenue ?? 0), c.invoiceCount ?? 0,
+      ]);
+      XLSX.utils.book_append_sheet(wb,
+        buildStyledSheet(
+          `BeccaFact — Top Clientes ${MONTHS_ES[(month ?? 1) - 1]} ${year}`,
+          'Clientes con mayor facturación en el período',
+          custHeaders, custRows, [2],
+          ['', '', '', ''],
+          [],
+        ), 'Top Clientes');
+    }
 
     return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
   }
