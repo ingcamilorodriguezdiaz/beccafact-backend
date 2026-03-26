@@ -22,6 +22,8 @@ import { PosService } from './pos.service';
 import { CreatePosSessionDto } from './dto/create-pos-session.dto';
 import { ClosePosSessionDto } from './dto/close-pos-session.dto';
 import { CreatePosSaleDto } from './dto/create-pos-sale.dto';
+import { RefundSaleDto } from './dto/refund-sale.dto';
+import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 
 @ApiTags('pos')
 @ApiBearerAuth()
@@ -140,5 +142,37 @@ export class PosController {
     @Body() body: { notes?: string },
   ) {
     return this.posService.cancelSale(user.companyId, id, body.notes);
+  }
+
+  @Patch('sales/:id/refund')
+  @Roles('ADMIN', 'MANAGER')
+  refundSale(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: RefundSaleDto,
+  ) {
+    return this.posService.refundSale(user.companyId, id, dto);
+  }
+
+  // ── Cash movements ────────────────────────────────────────────────────────
+
+  @Post('sessions/:id/cash-movements')
+  @Roles('ADMIN', 'MANAGER')
+  @HttpCode(HttpStatus.CREATED)
+  createCashMovement(
+    @CurrentUser() user: any,
+    @Param('id') sessionId: string,
+    @Body() dto: CreateCashMovementDto,
+  ) {
+    return this.posService.createCashMovement(user.companyId, sessionId, user.sub, dto);
+  }
+
+  @Get('sessions/:id/cash-movements')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  getCashMovements(
+    @CurrentUser() user: any,
+    @Param('id') sessionId: string,
+  ) {
+    return this.posService.getCashMovements(user.companyId, sessionId);
   }
 }

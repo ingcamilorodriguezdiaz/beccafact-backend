@@ -9,6 +9,8 @@ import { InvoicesService } from '../invoices/invoices.service';
 import { CreatePosSessionDto } from './dto/create-pos-session.dto';
 import { ClosePosSessionDto } from './dto/close-pos-session.dto';
 import { CreatePosSaleDto } from './dto/create-pos-sale.dto';
+import { RefundSaleDto } from './dto/refund-sale.dto';
+import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 
 @Injectable()
 export class PosService {
@@ -661,6 +663,101 @@ const sale = await this.prisma.$transaction(async (tx) => {
     ]);
 
     return { data, total, page, limit };
+  }
+
+  // ── Refund sale ───────────────────────────────────────────────────────────
+
+  async refundSale(companyId: string, saleId: string, dto: RefundSaleDto) {
+    const sale = await this.prisma.posSale.findFirst({
+      where: { id: saleId, companyId },
+      include: { items: true, session: true },
+    });
+
+    if (!sale) throw new NotFoundException('Venta no encontrada');
+    if (sale.status !== 'COMPLETED') {
+      throw new BadRequestException('Solo se pueden reembolsar ventas completadas');
+    }
+    if (sale.session.status !== 'OPEN') {
+      throw new BadRequestException('La sesión de caja debe estar abierta para reembolsar');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // Restituir stock de cada item
+      for (const item of sale.items) {
+        if (item.productId) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: Number(item.quantity) } },
+          });
+        }
+      }
+
+      // Marcar venta como REFUNDED
+      const refunded = await tx.posSale.update({
+        where: { id: saleId },
+        data: {
+          status: 'REFUNDED',
+          notes: dto.reason
+            ? `[REEMBOLSO] ${dto.reason}` + (sale.notes ? `\n${sale.notes}` : '')
+            : sale.notes,
+        },
+      });
+
+      // Descontar totales de la sesión
+      await tx.posSession.update({
+        where: { id: sale.sessionId },
+        data: {
+          totalSales: { decrement: Number(sale.total) },
+          totalTransactions: { decrement: 1 },
+        },
+      });
+
+      return refunded;
+    });
+  }
+
+  // ── Cash movements ────────────────────────────────────────────────────────
+
+  async createCashMovement(
+    companyId: string,
+    sessionId: string,
+    userId: string,
+    dto: CreateCashMovementDto,
+  ) {
+    const session = await this.prisma.posSession.findFirst({
+      where: { id: sessionId, companyId },
+    });
+
+    if (!session) throw new NotFoundException('Sesión no encontrada');
+    if (session.status !== 'OPEN') {
+      throw new BadRequestException('La sesión debe estar abierta para registrar movimientos');
+    }
+
+    return this.prisma.posCashMovement.create({
+      data: {
+        companyId,
+        sessionId,
+        userId,
+        type: dto.type,
+        amount: dto.amount,
+        reason: dto.reason,
+      },
+    });
+  }
+
+  async getCashMovements(companyId: string, sessionId: string) {
+    const session = await this.prisma.posSession.findFirst({
+      where: { id: sessionId, companyId },
+    });
+    if (!session) throw new NotFoundException('Sesión no encontrada');
+
+    return this.prisma.posCashMovement.findMany({
+      where: { sessionId, companyId },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async getSalesSummary(companyId: string, from?: string, to?: string, sessionId?: string) {

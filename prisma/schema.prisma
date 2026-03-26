@@ -97,9 +97,10 @@ model Company {
   importJobs     ImportJob[]
   employees      employees[]
   payroll_records    payroll_records[]
-  pos_sessions   PosSession[]
-  pos_sales      PosSale[]
-  dianTestSets   DianTestSet[]
+  pos_sessions     PosSession[]
+  pos_sales        PosSale[]
+  posCashMovements PosCashMovement[]
+  dianTestSets     DianTestSet[]
   @@index([status])
   @@index([nit])
   @@map("companies")
@@ -166,11 +167,12 @@ model User {
   lastLoginAt    DateTime?
   refreshToken   String?   @db.Text
 
-  company        Company?         @relation(fields: [companyId], references: [id])
-  roles          UserRole[]
-  auditLogs      AuditLog[]
-  importJobs     ImportJob[]
-  pos_sessions   PosSession[]
+  company          Company?          @relation(fields: [companyId], references: [id])
+  roles            UserRole[]
+  auditLogs        AuditLog[]
+  importJobs       ImportJob[]
+  pos_sessions     PosSession[]
+  posCashMovements PosCashMovement[]
 
   @@index([companyId])
   @@index([email])
@@ -851,9 +853,10 @@ model PosSession {
   totalTransactions Int           @default(0)
   notes          String?
 
-  company Company    @relation(fields: [companyId], references: [id])
-  user    User       @relation(fields: [userId], references: [id])
-  sales   PosSale[]
+  company       Company           @relation(fields: [companyId], references: [id])
+  user          User              @relation(fields: [userId], references: [id])
+  sales         PosSale[]
+  cashMovements PosCashMovement[]
 
   @@index([companyId, status])
   @@index([companyId, openedAt])
@@ -926,6 +929,30 @@ enum PaymentMethod {
   CARD
   TRANSFER
   MIXED
+}
+
+enum CashMovementType {
+  IN
+  OUT
+}
+
+model PosCashMovement {
+  id        String           @id @default(uuid())
+  companyId String
+  sessionId String
+  userId    String
+  type      CashMovementType
+  amount    Decimal          @db.Decimal(12, 2)
+  reason    String
+  createdAt DateTime         @default(now())
+
+  company Company    @relation(fields: [companyId], references: [id])
+  session PosSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User       @relation(fields: [userId], references: [id])
+
+  @@index([sessionId])
+  @@index([companyId, createdAt])
+  @@map("pos_cash_movements")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
