@@ -15,6 +15,14 @@ import { PlanFeature } from '../common/decorators/plan-feature.decorator';
 export class ReportsController {
   constructor(private reportsService: ReportsService) {}
 
+  private sendXlsxResponse(res: Response, buffer: Buffer, filename: string): void {
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    res.send(buffer);
+  }
+
   @Get('dashboard')
   @ApiOperation({ summary: 'KPIs del dashboard' })
   getDashboard(
@@ -76,11 +84,18 @@ export class ReportsController {
   ) {
     const data = await this.reportsService.getInvoicesReport(companyId, from, to, status);
     const buffer = this.reportsService.downloadExcel('invoices', data);
-    res.set({
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': 'attachment; filename="report-invoices.xlsx"',
-    });
-    res.send(buffer);
+    this.sendXlsxResponse(res, buffer, 'report-invoices.xlsx');
+  }
+
+  @Get('invoice/by-status')
+  @PlanFeature('has_invoices')
+  @ApiOperation({ summary: 'Facturas agrupadas por estado (para gráfico)' })
+  getInvoicesByStatus(
+    @CurrentUser('companyId') companyId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.reportsService.getInvoicesByStatus(companyId, from, to);
   }
 
   // ── Nómina ──────────────────────────────────────────────────────────────────
@@ -107,11 +122,18 @@ export class ReportsController {
   ) {
     const data = await this.reportsService.getPayrollReport(companyId, from, to);
     const buffer = this.reportsService.downloadExcel('payroll', data);
-    res.set({
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': 'attachment; filename="report-payroll.xlsx"',
-    });
-    res.send(buffer);
+    this.sendXlsxResponse(res, buffer, 'report-payroll.xlsx');
+  }
+
+  @Get('payroll/monthly-trend')
+  @PlanFeature('has_payroll')
+  @ApiOperation({ summary: 'Tendencia mensual de nómina (para gráfico)' })
+  getPayrollMonthlyTrend(
+    @CurrentUser('companyId') companyId: string,
+    @Query('fromPeriod') fromPeriod?: string,
+    @Query('toPeriod') toPeriod?: string,
+  ) {
+    return this.reportsService.getPayrollMonthlyTrend(companyId, fromPeriod, toPeriod);
   }
 
   // ── POS ─────────────────────────────────────────────────────────────────────
@@ -138,11 +160,18 @@ export class ReportsController {
   ) {
     const data = await this.reportsService.getPosReport(companyId, from, to);
     const buffer = this.reportsService.downloadExcel('pos', data);
-    res.set({
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': 'attachment; filename="reporte-pos.xlsx"',
-    });
-    res.send(buffer);
+    this.sendXlsxResponse(res, buffer, 'report-pos.xlsx');
+  }
+
+  @Get('pos/payment-breakdown')
+  @PlanFeature('has_pos')
+  @ApiOperation({ summary: 'Desglose de ventas POS por método de pago' })
+  getPosPaymentBreakdown(
+    @CurrentUser('companyId') companyId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.reportsService.getPosPaymentBreakdown(companyId, from, to);
   }
 
   // ── Cartera ──────────────────────────────────────────────────────────────────
@@ -167,10 +196,20 @@ export class ReportsController {
   ) {
     const data = await this.reportsService.getCollectionsReport(companyId, asOf);
     const buffer = this.reportsService.downloadExcel('collections', data);
-    res.set({
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': 'attachment; filename="report-collections.xlsx"',
-    });
-    res.send(buffer);
+    this.sendXlsxResponse(res, buffer, 'report-collections.xlsx');
+  }
+
+  // ── Dashboard Excel ──────────────────────────────────────────────────────────
+
+  @Get('dashboard/xlsx')
+  @ApiOperation({ summary: 'Descargar resumen del dashboard en Excel' })
+  async downloadDashboardXlsx(
+    @CurrentUser('companyId') companyId: string,
+    @Query('year') year: number = new Date().getFullYear(),
+    @Query('month') month: number = new Date().getMonth() + 1,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.reportsService.getDashboardXlsx(companyId, +year, +month);
+    this.sendXlsxResponse(res, buffer, 'report-dashboard.xlsx');
   }
 }

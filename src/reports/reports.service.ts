@@ -1,9 +1,29 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../config/prisma.service';
+import * as XLSX from 'xlsx';
 
 @Injectable()
 export class ReportsService {
   constructor(private prisma: PrismaService) { }
+
+  // ── Helpers privados ─────────────────────────────────────────────────────────
+
+  private buildMonthRange(year: number, month: number): { from: Date; to: Date } {
+    return {
+      from: new Date(year, month - 1, 1),
+      to: new Date(year, month, 0, 23, 59, 59, 999),
+    };
+  }
+
+  private classifyAging(daysOverdue: number): string {
+    if (daysOverdue <= 0) return 'CURRENT';
+    if (daysOverdue <= 30) return 'DAYS_1_30';
+    if (daysOverdue <= 60) return 'DAYS_31_60';
+    if (daysOverdue <= 90) return 'DAYS_61_90';
+    return 'OVER_90';
+  }
+
+  // ── Dashboard ────────────────────────────────────────────────────────────────
 
   async getDashboardKpis(companyId: string, year: number, month: number) {
     const now = new Date();
@@ -20,37 +40,39 @@ export class ReportsService {
       m = now.getMonth() + 1;
     }
 
-    const from = new Date(y, m - 1, 1);
-    const to = new Date(y, m, 0, 23, 59, 59);
-    const prevFrom = new Date(y, m - 2, 1);
-    const prevTo = new Date(y, m - 1, 0, 23, 59, 59);
+    const { from, to } = this.buildMonthRange(y, m);
+    const { from: prevFrom, to: prevTo } = this.buildMonthRange(y, m - 1 === 0 ? 12 : m - 1);
+
+    // Ajuste de año para enero: el mes anterior es diciembre del año anterior
+    const prevFromAdjusted = m === 1 ? new Date(y - 1, 11, 1) : prevFrom;
+    const prevToAdjusted = m === 1 ? new Date(y - 1, 11, 31, 23, 59, 59, 999) : prevTo;
 
     if (isNaN(from.getTime()) || isNaN(to.getTime())) {
       throw new Error('Invalid date calculation');
     }
 
-    const [activeCustomers,current, previous, topCustomers, topProducts , activeCatalog , lowStockResult] = await Promise.all([
-       // Total customer active
-        this.prisma.customer.count({
-          where: {
-            companyId,
-            deletedAt: null,
-            isActive: true,
-          },
-        }),
-      // Current month
+    const [activeCustomers, current, previous, topCustomers, topProducts, activeCatalog, lowStockResult] = await Promise.all([
+      // Total de clientes activos
+      this.prisma.customer.count({
+        where: {
+          companyId,
+          deletedAt: null,
+          isActive: true,
+        },
+      }),
+      // Mes actual
       this.prisma.invoice.aggregate({
         where: { companyId, deletedAt: null, issueDate: { gte: from, lte: to }, status: { not: 'CANCELLED' } },
         _sum: { total: true, taxAmount: true },
         _count: { id: true },
       }),
-      // Previous month
+      // Mes anterior
       this.prisma.invoice.aggregate({
-        where: { companyId, deletedAt: null, issueDate: { gte: prevFrom, lte: prevTo }, status: { not: 'CANCELLED' } },
+        where: { companyId, deletedAt: null, issueDate: { gte: prevFromAdjusted, lte: prevToAdjusted }, status: { not: 'CANCELLED' } },
         _sum: { total: true },
         _count: { id: true },
       }),
-      // Top 5 customers by revenue
+      // Top 5 clientes por ingresos
       this.prisma.invoice.groupBy({
         by: ['customerId'],
         where: { companyId, deletedAt: null, issueDate: { gte: from, lte: to }, status: { not: 'CANCELLED' } },
@@ -59,7 +81,7 @@ export class ReportsService {
         orderBy: { _sum: { total: 'desc' } },
         take: 5,
       }),
-      // Top 5 products by sales (via invoice_items)
+      // Top 5 productos por ventas (via invoice_items)
       this.prisma.invoiceItem.groupBy({
         by: ['productId'],
         where: {
@@ -70,7 +92,7 @@ export class ReportsService {
         orderBy: { _sum: { total: 'desc' } },
         take: 5,
       }),
-        // Solo catálogo activo
+      // Solo catálogo activo
       this.prisma.product.count({
         where: {
           companyId,
@@ -78,7 +100,7 @@ export class ReportsService {
           status: 'ACTIVE',
         },
       }),
-      // Low stock products
+      // Productos con bajo stock
       this.prisma.$queryRaw<{ count: bigint }[]>`
         SELECT COUNT(*)::bigint as count
         FROM "products"
@@ -97,7 +119,7 @@ export class ReportsService {
       ? ((currentTotal - previousTotal) / previousTotal) * 100
       : 0;
 
-    // Enrich top customers with names
+    // Enriquecer top clientes con nombres
     const customerIds = topCustomers.map((c) => c.customerId);
     const customers = await this.prisma.customer.findMany({
       where: { id: { in: customerIds } },
@@ -142,7 +164,7 @@ export class ReportsService {
       orderBy: { dueDate: 'asc' },
     });
 
-    // Group by aging: current, 1-30, 31-60, 61-90, >90
+    // Agrupar por antigüedad: current, 1-30, 31-60, 61-90, >90
     const aging = { current: 0, days1_30: 0, days31_60: 0, days61_90: 0, over90: 0 };
     const byCustomer: Record<string, any> = {};
 
@@ -152,10 +174,11 @@ export class ReportsService {
         : 0;
 
       const total = Number(inv.total);
-      if (daysOverdue === 0) aging.current += total;
-      else if (daysOverdue <= 30) aging.days1_30 += total;
-      else if (daysOverdue <= 60) aging.days31_60 += total;
-      else if (daysOverdue <= 90) aging.days61_90 += total;
+      const bucket = this.classifyAging(daysOverdue);
+      if (bucket === 'CURRENT') aging.current += total;
+      else if (bucket === 'DAYS_1_30') aging.days1_30 += total;
+      else if (bucket === 'DAYS_31_60') aging.days31_60 += total;
+      else if (bucket === 'DAYS_61_90') aging.days61_90 += total;
       else aging.over90 += total;
 
       const custId = inv.customerId;
@@ -174,31 +197,30 @@ export class ReportsService {
   }
 
   async getMonthlyRevenue(companyId: string, year: number) {
-    const results = [];
-    for (let month = 1; month <= 12; month++) {
-      const from = new Date(year, month - 1, 1);
-      const to = new Date(year, month, 0, 23, 59, 59);
-      const agg = await this.prisma.invoice.aggregate({
-        where: { companyId, deletedAt: null, issueDate: { gte: from, lte: to }, status: { not: 'CANCELLED' } },
-        _sum: { total: true, taxAmount: true },
-        _count: { id: true },
-      });
-      results.push({
-        month,
-        year,
-        revenue: agg._sum.total ?? 0,
-        taxes: agg._sum.taxAmount ?? 0,
-        invoiceCount: agg._count.id,
-      });
-    }
+    const results = await Promise.all(
+      Array.from({ length: 12 }, async (_, i) => {
+        const { from, to } = this.buildMonthRange(year, i + 1);
+        const agg = await this.prisma.invoice.aggregate({
+          where: { companyId, deletedAt: null, issueDate: { gte: from, lte: to }, status: { not: 'CANCELLED' } },
+          _sum: { total: true, taxAmount: true },
+          _count: { id: true },
+        });
+        return {
+          month: i + 1,
+          year,
+          revenue: Number(agg._sum.total ?? 0),
+          taxes: Number(agg._sum.taxAmount ?? 0),
+          invoiceCount: agg._count.id,
+        };
+      })
+    );
     return results;
   }
 
   /** Resumen de uso del mes actual — alimenta la barra de progreso del sidebar */
   async getUsageSummary(companyId: string) {
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const { from: monthStart, to: monthEnd } = this.buildMonthRange(now.getFullYear(), now.getMonth() + 1);
 
     const [documentsUsedThisMonth, totalProducts, totalCustomers] = await Promise.all([
       // Documentos (facturas + notas) emitidos este mes
@@ -225,7 +247,7 @@ export class ReportsService {
       totalProducts,
       totalCustomers,
       month: now.getMonth() + 1,
-      year:  now.getFullYear(),
+      year: now.getFullYear(),
     };
   }
 
@@ -267,6 +289,25 @@ export class ReportsService {
     };
   }
 
+  async getInvoicesByStatus(companyId: string, from?: string, to?: string) {
+    const where: any = { companyId, deletedAt: null };
+    if (from) where.issueDate = { ...where.issueDate, gte: new Date(from) };
+    if (to) where.issueDate = { ...where.issueDate, lte: new Date(to) };
+
+    const grouped = await this.prisma.invoice.groupBy({
+      by: ['status'],
+      where,
+      _count: { id: true },
+      _sum: { total: true },
+    });
+
+    return grouped.map(g => ({
+      status: g.status,
+      count: g._count.id,
+      total: Number(g._sum.total ?? 0),
+    }));
+  }
+
   // ── Nómina ──────────────────────────────────────────────────────────────────
 
   async getPayrollReport(companyId: string, from?: string, to?: string) {
@@ -284,9 +325,14 @@ export class ReportsService {
       take: 1000,
     });
 
-    const totalNet = records.reduce((s: number, r: any) => s + Number(r.netPay ?? 0), 0);
-    const totalEarnings = records.reduce((s: number, r: any) => s + Number(r.totalEarnings ?? 0), 0);
-    const totalDeductions = records.reduce((s: number, r: any) => s + Number(r.totalDeductions ?? 0), 0);
+    const { totalNet, totalEarnings, totalDeductions } = records.reduce(
+      (acc, r) => ({
+        totalNet: acc.totalNet + Number((r as any).netPay ?? 0),
+        totalEarnings: acc.totalEarnings + Number((r as any).totalEarnings ?? 0),
+        totalDeductions: acc.totalDeductions + Number((r as any).totalDeductions ?? 0),
+      }),
+      { totalNet: 0, totalEarnings: 0, totalDeductions: 0 }
+    );
 
     return {
       summary: { count: records.length, totalNet, totalEarnings, totalDeductions },
@@ -303,6 +349,28 @@ export class ReportsService {
         status: r.status,
       })),
     };
+  }
+
+  async getPayrollMonthlyTrend(companyId: string, fromPeriod?: string, toPeriod?: string) {
+    const where: any = { companyId };
+    if (fromPeriod) where.period = { ...where.period, gte: fromPeriod };
+    if (toPeriod) where.period = { ...where.period, lte: toPeriod };
+
+    const grouped = await this.prisma.payroll_records.groupBy({
+      by: ['period'],
+      where,
+      _sum: { totalEarnings: true, totalDeductions: true, netPay: true },
+      _count: { id: true },
+      orderBy: { period: 'asc' },
+    });
+
+    return grouped.map((g: any) => ({
+      period: g.period,
+      count: g._count.id,
+      totalEarnings: Number(g._sum.totalEarnings ?? 0),
+      totalDeductions: Number(g._sum.totalDeductions ?? 0),
+      totalNet: Number(g._sum.netPay ?? 0),
+    }));
   }
 
   // ── POS ─────────────────────────────────────────────────────────────────────
@@ -361,6 +429,26 @@ export class ReportsService {
     };
   }
 
+  async getPosPaymentBreakdown(companyId: string, from?: string, to?: string) {
+    const where: any = { companyId };
+    if (from) where.createdAt = { ...where.createdAt, gte: new Date(from) };
+    if (to) where.createdAt = { ...where.createdAt, lte: new Date(to) };
+
+    // PosSale tiene paymentMethod (enum: CASH | CARD | TRANSFER | MIXED) y companyId
+    const grouped = await this.prisma.posSale.groupBy({
+      by: ['paymentMethod'],
+      where,
+      _count: { id: true },
+      _sum: { total: true },
+    });
+
+    return grouped.map((g: any) => ({
+      paymentMethod: g.paymentMethod,
+      count: g._count.id,
+      total: Number(g._sum.total ?? 0),
+    }));
+  }
+
   // ── Cartera detallada ────────────────────────────────────────────────────────
 
   async getCollectionsReport(companyId: string, asOf?: string) {
@@ -379,11 +467,7 @@ export class ReportsService {
     const items = invoices.map(inv => {
       const dueDate = inv.dueDate ? new Date(inv.dueDate) : null;
       const diffDays = dueDate ? Math.floor((cutoff.getTime() - dueDate.getTime()) / 86400000) : 0;
-      let aging = 'CURRENT';
-      if (diffDays > 90) aging = 'OVER_90';
-      else if (diffDays > 60) aging = 'DAYS_61_90';
-      else if (diffDays > 30) aging = 'DAYS_31_60';
-      else if (diffDays > 0) aging = 'DAYS_1_30';
+      const aging = this.classifyAging(diffDays);
 
       return {
         id: inv.id,
@@ -416,8 +500,6 @@ export class ReportsService {
   // ── Excel genérico ───────────────────────────────────────────────────────────
 
   downloadExcel(type: string, data: any): Buffer {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const XLSX = require('xlsx');
     let wsData: any[][] = [];
 
     if (type === 'invoices') {
@@ -467,6 +549,33 @@ export class ReportsService {
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Reporte');
+    return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+  }
+
+  async getDashboardXlsx(companyId: string, year: number, month: number): Promise<Buffer> {
+    const [kpis, monthly] = await Promise.all([
+      this.getDashboardKpis(companyId, year, month),
+      this.getMonthlyRevenue(companyId, year),
+    ]);
+
+    const wb = XLSX.utils.book_new();
+
+    // Hoja 1: KPIs
+    const kpiRows = [
+      ['Métrica', 'Valor', 'Período'],
+      ['Ingresos del mes', kpis.revenue?.current ?? 0, `${month}/${year}`],
+      ['Facturas emitidas', kpis.invoices?.current ?? 0, `${month}/${year}`],
+      ['IVA generado', kpis.taxes?.current ?? 0, `${month}/${year}`],
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kpiRows), 'KPIs');
+
+    // Hoja 2: Ingresos mensuales
+    const monthlyRows = [
+      ['Mes', 'Año', 'Ingresos', 'IVA', 'Facturas'],
+      ...monthly.map((m: any) => [m.month, m.year, m.revenue, m.taxes, m.invoiceCount]),
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(monthlyRows), 'Ingresos mensuales');
+
     return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
   }
 }
