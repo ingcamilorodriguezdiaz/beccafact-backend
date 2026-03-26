@@ -4,6 +4,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { CarteraService } from './cartera.service';
+import { RegisterPaymentDto } from './dto/register-payment.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { PlanGuard } from '../common/guards/plan.guard';
@@ -21,12 +22,20 @@ import { DEFAULT_LIMIT, DEFAULT_PAGE } from '@/common/constants/pagination.const
 export class CarteraController {
   constructor(private carteraService: CarteraService) {}
 
-  // ── Dashboard ── ADMIN, MANAGER, OPERATOR (solo lectura para operador)
+  // ── Dashboard ── ADMIN, MANAGER, OPERATOR
   @Get('dashboard')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR')
-  @ApiOperation({ summary: 'Resumen ejecutivo de cartera' })
+  @ApiOperation({ summary: 'Resumen ejecutivo y aging de cartera' })
   getDashboard(@CurrentUser('companyId') companyId: string) {
     return this.carteraService.getDashboard(companyId);
+  }
+
+  // ── Aging report ── ADMIN, MANAGER, OPERATOR
+  @Get('aging')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @ApiOperation({ summary: 'Informe de antigüedad de saldos por cliente' })
+  getAgingReport(@CurrentUser('companyId') companyId: string) {
+    return this.carteraService.getAgingReport(companyId);
   }
 
   // ── Listado ── ADMIN, MANAGER, OPERATOR
@@ -43,7 +52,7 @@ export class CarteraController {
   ) {
     const pageNumber = Number(page) || DEFAULT_PAGE;
     const limitNumber = Number(limit) || DEFAULT_LIMIT;
-    return this.carteraService.findAll(companyId, { search, status, customerId, page:pageNumber, limit:limitNumber });
+    return this.carteraService.findAll(companyId, { search, status, customerId, page: pageNumber, limit: limitNumber });
   }
 
   // ── Cartera por cliente ── ADMIN, MANAGER, OPERATOR
@@ -57,6 +66,17 @@ export class CarteraController {
     return this.carteraService.getClienteCartera(companyId, customerId);
   }
 
+  // ── Historial de pagos de una factura ── ADMIN, MANAGER, OPERATOR
+  @Get(':invoiceId/pagos')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @ApiOperation({ summary: 'Ver historial de pagos de una factura' })
+  getPaymentHistory(
+    @CurrentUser('companyId') companyId: string,
+    @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
+  ) {
+    return this.carteraService.getPaymentHistory(companyId, invoiceId);
+  }
+
   // ── Registrar pago ── ADMIN, MANAGER (OPERADOR NO puede registrar pagos)
   @Post(':invoiceId/pago')
   @Roles('ADMIN', 'MANAGER')
@@ -66,18 +86,12 @@ export class CarteraController {
     @CurrentUser('companyId') companyId: string,
     @CurrentUser('sub') userId: string,
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
-    @Body() dto: {
-      monto: number;
-      fecha: string;
-      medioPago: string;
-      referencia?: string;
-      notas?: string;
-    },
+    @Body() dto: RegisterPaymentDto,
   ) {
     return this.carteraService.registrarPago(companyId, invoiceId, dto, userId);
   }
 
-  // ── Enviar recordatorio ── ADMIN, MANAGER (OPERADOR NO)
+  // ── Enviar recordatorio ── ADMIN, MANAGER
   @Post(':invoiceId/recordatorio')
   @Roles('ADMIN', 'MANAGER')
   @HttpCode(HttpStatus.OK)

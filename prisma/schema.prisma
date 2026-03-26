@@ -100,6 +100,7 @@ model Company {
   pos_sessions     PosSession[]
   pos_sales        PosSale[]
   posCashMovements PosCashMovement[]
+  carteraPayments  CarteraPayment[]
   dianTestSets     DianTestSet[]
   @@index([status])
   @@index([nit])
@@ -173,6 +174,7 @@ model User {
   importJobs       ImportJob[]
   pos_sessions     PosSession[]
   posCashMovements PosCashMovement[]
+  carteraPayments  CarteraPayment[]
 
   @@index([companyId])
   @@index([email])
@@ -378,9 +380,10 @@ model Invoice {
   updatedAt       DateTime      @updatedAt
   deletedAt       DateTime?
 
-  company  Company       @relation(fields: [companyId], references: [id])
-  customer Customer      @relation(fields: [customerId], references: [id])
+  company  Company          @relation(fields: [companyId], references: [id])
+  customer Customer         @relation(fields: [customerId], references: [id])
   items    InvoiceItem[]
+  payments CarteraPayment[]
   // Auto-relación notas (NC / ND referencia factura original)
   originalInvoice      Invoice?   @relation("InvoiceNotes", fields: [originalInvoiceId], references: [id])
   creditDebitNotes     Invoice[]  @relation("InvoiceNotes")
@@ -411,6 +414,31 @@ model InvoiceItem {
 
   @@index([invoiceId])
   @@map("invoice_items")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CARTERA — Historial de pagos por factura
+// ─────────────────────────────────────────────────────────────────────────────
+
+model CarteraPayment {
+  id            String   @id @default(uuid())
+  companyId     String
+  invoiceId     String
+  userId        String
+  amount        Decimal  @db.Decimal(12, 2)
+  paymentMethod String                         // EFECTIVO | TRANSFERENCIA | CHEQUE | TARJETA | CONSIGNACION
+  reference     String?                        // N° comprobante / transferencia
+  notes         String?  @db.Text
+  paymentDate   DateTime
+  createdAt     DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id])
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([invoiceId])
+  @@index([companyId, paymentDate])
+  @@map("cartera_payments")
 }
 
 enum InvoiceType {
