@@ -121,19 +121,22 @@ enum CompanyStatus {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Branch {
-  id         String    @id @default(uuid())
-  companyId  String
-  name       String
-  address    String?
-  city       String?
-  department String?
-  phone      String?
-  email      String?
-  isMain     Boolean   @default(false)
-  isActive   Boolean   @default(true)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  deletedAt  DateTime?
+  id             String    @id @default(uuid())
+  companyId      String
+  name           String
+  address        String?
+  city           String?
+  department     String?
+  cityCode       String?
+  departmentCode String?
+  country        String?   @default("CO")
+  phone          String?
+  email          String?
+  isMain         Boolean   @default(false)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
   company      Company      @relation(fields: [companyId], references: [id])
   products     Product[]

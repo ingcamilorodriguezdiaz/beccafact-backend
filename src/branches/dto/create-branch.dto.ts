@@ -29,6 +29,21 @@ export class CreateBranchDto {
   @IsString()
   department?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  cityCode?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  departmentCode?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  country?: string;
+
   @ApiPropertyOptional({ example: '6012345678' })
   @IsOptional()
   @IsString()
