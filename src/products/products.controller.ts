@@ -32,6 +32,7 @@ export class ProductsController {
     @Query('search') search?: string,
     @Query('categoryId') categoryId?: string,
     @Query('status') status?: string,
+    @Query('branchId') branchId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
@@ -39,6 +40,7 @@ export class ProductsController {
       search,
       categoryId,
       status,
+      branchId,
       page: page ? Number(page) : DEFAULT_PAGE,
       limit: limit ? Number(limit) : DEFAULT_LIMIT,
     });
@@ -48,8 +50,11 @@ export class ProductsController {
   @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
   @PlanFeature('has_inventory')
   @ApiOperation({ summary: 'Productos con stock bajo o agotado' })
-  getLowStock(@CurrentUser('companyId') companyId: string) {
-    return this.productsService.getLowStock(companyId);
+  getLowStock(
+    @CurrentUser('companyId') companyId: string,
+    @Query('branchId') branchId?: string,
+  ) {
+    return this.productsService.getLowStock(companyId, branchId);
   }
 
   @Get(':id')

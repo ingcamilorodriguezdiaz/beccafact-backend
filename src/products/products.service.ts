@@ -14,8 +14,9 @@ export class ProductsService {
 
   async findAll(companyId: string, filters: {
     search?: string; categoryId?: string; status?: string; page?: number; limit?: number;
+    branchId?: string;
   }) {
-    const { search, categoryId, status, page = 1, limit = 20 } = filters;
+    const { search, categoryId, status, page = 1, limit = 20, branchId } = filters;
     const skip = (page - 1) * +limit;
 
     const where: any = { companyId, deletedAt: null };
@@ -28,6 +29,9 @@ export class ProductsService {
     }
     if (categoryId) where.categoryId = categoryId;
     if (status) where.status = status;
+    if (branchId !== undefined) {
+      where.branchId = branchId || null; // empty string → null (company-wide)
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.product.findMany({
@@ -43,13 +47,12 @@ export class ProductsService {
     return { data, total, page: +page, limit: +limit, totalPages: Math.ceil(total / +limit) };
   }
 
-  async getLowStock(companyId: string) {
+  async getLowStock(companyId: string, branchId?: string) {
+    const where: any = { companyId, deletedAt: null, status: 'ACTIVE' };
+    if (branchId) where.branchId = branchId;
+
     const products = await this.prisma.product.findMany({
-      where: {
-        companyId,
-        deletedAt: null,
-        status: 'ACTIVE',
-      },
+      where,
       include: { category: { select: { id: true, name: true } } },
       orderBy: { stock: 'asc' },
     });
@@ -62,7 +65,7 @@ export class ProductsService {
   async findOne(companyId: string, id: string) {
     const product = await this.prisma.product.findFirst({
       where: { id, companyId, deletedAt: null },
-      include: { category: true },
+      include: { category: true, branch: { select: { id: true, name: true } } },
     });
     if (!product) throw new NotFoundException('Producto no encontrado');
     return product;
@@ -70,13 +73,24 @@ export class ProductsService {
 
   async create(companyId: string, dto: CreateProductDto) {
     const existing = await this.prisma.product.findFirst({
-      where: { companyId, sku: dto.sku, deletedAt: null },
+      where: {
+        companyId,
+        sku: dto.sku,
+        branchId: dto.branchId ?? null,
+        deletedAt: null,
+      },
     });
-    if (existing) throw new ConflictException(`El SKU "${dto.sku}" ya existe en esta empresa`);
+    if (existing) {
+      const scope = dto.branchId ? 'en esta sucursal' : 'en esta empresa';
+      throw new ConflictException(`El SKU "${dto.sku}" ya existe ${scope}`);
+    }
 
     return this.prisma.product.create({
       data: { ...dto, companyId },
-      include: { category: { select: { id: true, name: true } } },
+      include: {
+        category: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+      },
     });
   }
 
@@ -85,7 +99,7 @@ export class ProductsService {
 
     if (dto.sku && dto.sku !== product.sku) {
       const existing = await this.prisma.product.findFirst({
-        where: { companyId, sku: dto.sku, deletedAt: null, id: { not: id } },
+        where: { companyId, sku: dto.sku, branchId: product.branchId, deletedAt: null, id: { not: id } },
       });
       if (existing) throw new ConflictException(`El SKU "${dto.sku}" ya existe`);
     }

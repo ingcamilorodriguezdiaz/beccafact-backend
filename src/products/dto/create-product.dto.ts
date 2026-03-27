@@ -85,4 +85,9 @@ export class CreateProductDto {
   @IsEnum(ProductStatus)
   status?: ProductStatus;
 
+  @ApiPropertyOptional({ description: 'ID de la sucursal a la que pertenece este producto' })
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
+
 }

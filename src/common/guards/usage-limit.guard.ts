@@ -56,10 +56,14 @@ export class UsageLimitGuard implements CanActivate {
       const feature = subscription.plan.features.find((f) => f.key === metric);
       limitStr = feature?.value;
     }
+    
+    const unlimitedValues = ['unlimited', 'true', '-1', undefined, null, ''];
 
-    if (!limitStr || limitStr === 'unlimited') return true;
+    if (unlimitedValues.includes(limitStr)) {
+      return true; // ilimitado
+    }
 
-    const limit = parseInt(limitStr, 10);
+    const limit = parseInt(String(limitStr), 10);
     const current = usageRecord?.value ?? 0;
 
     if (current >= limit) {
