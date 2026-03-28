@@ -14,6 +14,7 @@ export interface JwtPayload {
   sub: string;
   email: string;
   companyId: string | null;
+  branchId?: string | null;
   isSuperAdmin: boolean;
   roles: string[];
 }
@@ -24,15 +25,20 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private config: ConfigService,
-  ) {}
+  ) { }
 
   async validateUser(email: string, password: string) {
     const user = await this.prisma.user.findUnique({
       where: { email, deletedAt: null },
       include: {
-        roles: { include: { role: { include: { permissions: true } } } },
+        roles: {
+          include: { role: { include: { permissions: true } } },
+        },
         company: true,
-      },
+        userBranches: {
+          include: { branch: true },
+        },
+      }
     });
 
     if (!user || !user.isActive) throw new UnauthorizedException('Credenciales inválidas');
@@ -58,7 +64,7 @@ export class AuthService {
       isSuperAdmin: user.isSuperAdmin,
       roles,
     };
-    
+
     const [accessToken, refreshToken] = await Promise.all([
       this.generateAccessToken(payload),
       this.generateRefreshToken(user.id),
