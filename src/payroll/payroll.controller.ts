@@ -24,7 +24,7 @@ export class PayrollController {
   // ── EMPLOYEES ─────────────────────────────────────────────────────────────
 
   @Get('employees')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @ApiOperation({ summary: 'List employees' })
   findAllEmployees(
     @CurrentUser('companyId') companyId: string,
@@ -42,7 +42,7 @@ export class PayrollController {
   }
 
   @Get('employees/:id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @ApiOperation({ summary: 'Get employee detail' })
   findEmployee(
     @CurrentUser('companyId') companyId: string,
@@ -89,7 +89,7 @@ export class PayrollController {
   // ── PAYROLL RECORDS ────────────────────────────────────────────────────────
 
   @Get('records')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @ApiOperation({ summary: 'List payroll records' })
   findAllPayroll(
     @CurrentUser('companyId') companyId: string,
@@ -107,7 +107,7 @@ export class PayrollController {
   }
 
   @Get('records/summary/:period')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @ApiOperation({ summary: 'Period summary (YYYY-MM)' })
   getPeriodSummary(
     @CurrentUser('companyId') companyId: string,
@@ -117,7 +117,7 @@ export class PayrollController {
   }
 
   @Get('records/:id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @ApiOperation({ summary: 'Get payroll record detail' })
   findPayrollRecord(
     @CurrentUser('companyId') companyId: string,
@@ -127,7 +127,7 @@ export class PayrollController {
   }
 
   @Post('records')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @ApiOperation({ summary: 'Create payroll draft record' })
   createPayroll(
     @CurrentUser('companyId') companyId: string,
@@ -138,7 +138,7 @@ export class PayrollController {
   }
 
   @Post('preview')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Preview payroll calculation without saving' })
   previewPayroll(@Body() dto: CreatePayrollDto) {
@@ -218,7 +218,7 @@ export class PayrollController {
    * Solo disponible para registros que hayan sido transmitidos (tienen xmlSigned en BD).
    */
   @Get('records/:id/download')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @ApiOperation({ summary: 'Get signed XML + ZIP as base64 for download' })
   downloadPayrollFiles(
     @CurrentUser('companyId') companyId: string,

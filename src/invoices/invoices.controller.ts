@@ -21,6 +21,7 @@ export class InvoicesController {
   constructor(private invoicesService: InvoicesService) {}
 
   @Get()
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
   findAll(
     @CurrentUser('companyId') companyId: string,
     @Query('search')     search?:     string,
@@ -36,6 +37,7 @@ export class InvoicesController {
   }
 
   @Get('summary')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
   @ApiOperation({ summary: 'Resumen financiero por período' })
   getSummary(
     @CurrentUser('companyId') companyId: string,
@@ -46,6 +48,7 @@ export class InvoicesController {
   }
 
   @Get(':id')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
   findOne(
     @CurrentUser('companyId') companyId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -54,7 +57,7 @@ export class InvoicesController {
   }
 
   @Post()
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   @ApiOperation({ summary: 'Crear factura' })
   create(
     @CurrentUser('companyId') companyId: string,
@@ -66,7 +69,7 @@ export class InvoicesController {
   // ── DIAN: Enviar factura ────────────────────────────────────────────────
 
   @Post(':id/issue')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   @ApiOperation({ summary: 'Generar XML UBL 2.1, firmar y enviar a la DIAN (SendTestSetAsync en habilitación)' })
   @HttpCode(HttpStatus.OK)
   issue(
@@ -77,7 +80,7 @@ export class InvoicesController {
   }
 
   @Patch(':id/send-dian')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   @ApiOperation({ summary: 'Alias de /issue — envío a DIAN' })
   sendToDian(
     @CurrentUser('companyId') companyId: string,
@@ -89,7 +92,7 @@ export class InvoicesController {
   // ── DIAN: Consultar estado ──────────────────────────────────────────────
 
   @Post(':id/dian-status')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   @ApiOperation({ summary: 'Consultar estado de validación en la DIAN (GetStatusZip / GetStatus)' })
   @HttpCode(HttpStatus.OK)
   queryDianStatus(
@@ -102,7 +105,7 @@ export class InvoicesController {
   // ── DIAN: Descargar XML firmado ────────────────────────────────────────
 
   @Get(':id/xml')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   @ApiOperation({ summary: 'Descargar XML UBL 2.1 firmado generado para la DIAN' })
   async downloadXml(
     @CurrentUser('companyId') companyId: string,
@@ -129,6 +132,7 @@ export class InvoicesController {
   }
 
    @Get(':id/pdf')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
   @ApiOperation({ summary: 'Previsualización HTML de la factura (renderizable como PDF)' })
   async getPdf(
     @CurrentUser('companyId') companyId: string,
@@ -145,7 +149,7 @@ export class InvoicesController {
   }
 
   @Patch(':id/paid')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   @ApiOperation({ summary: 'Marcar factura como pagada' })
   @HttpCode(HttpStatus.OK)
   markAsPaid(
@@ -158,6 +162,7 @@ export class InvoicesController {
   // ── Notas Crédito / Débito vinculadas a una factura ──────────────────────
 
   @Get(':id/notes')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
   @ApiOperation({ summary: 'Listar notas crédito y débito asociadas a esta factura' })
   getNotes(
     @CurrentUser('companyId') companyId: string,
@@ -167,6 +172,7 @@ export class InvoicesController {
   }
 
   @Get(':id/balance')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
   @ApiOperation({ summary: 'Obtener saldo disponible de la factura (total menos notas crédito)' })
   getBalance(
     @CurrentUser('companyId') companyId: string,
@@ -176,7 +182,7 @@ export class InvoicesController {
   }
 
   @Post(':id/credit-note')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @ApiOperation({ summary: 'Crear nota crédito referenciando esta factura' })
   createCreditNote(
     @CurrentUser('companyId') companyId: string,
@@ -189,7 +195,7 @@ export class InvoicesController {
   }
 
   @Post(':id/debit-note')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @ApiOperation({ summary: 'Crear nota débito referenciando esta factura' })
   createDebitNote(
     @CurrentUser('companyId') companyId: string,
@@ -202,7 +208,7 @@ export class InvoicesController {
   }
 
   @Patch(':id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
   @ApiOperation({ summary: 'Actualizar estado o campos de la factura' })
   @HttpCode(HttpStatus.OK)
   update(

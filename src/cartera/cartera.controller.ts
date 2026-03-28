@@ -24,7 +24,7 @@ export class CarteraController {
 
   // ── Dashboard ── ADMIN, MANAGER, OPERATOR
   @Get('dashboard')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Resumen ejecutivo y aging de cartera' })
   getDashboard(@CurrentUser('companyId') companyId: string) {
     return this.carteraService.getDashboard(companyId);
@@ -32,7 +32,7 @@ export class CarteraController {
 
   // ── Aging report ── ADMIN, MANAGER, OPERATOR
   @Get('aging')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Informe de antigüedad de saldos por cliente' })
   getAgingReport(@CurrentUser('companyId') companyId: string) {
     return this.carteraService.getAgingReport(companyId);
@@ -40,7 +40,7 @@ export class CarteraController {
 
   // ── Listado ── ADMIN, MANAGER, OPERATOR
   @Get()
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Listar cartera (facturas por cobrar)' })
   findAll(
     @CurrentUser('companyId') companyId: string,
@@ -57,7 +57,7 @@ export class CarteraController {
 
   // ── Cartera por cliente ── ADMIN, MANAGER, OPERATOR
   @Get('cliente/:customerId')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Ver cartera de un cliente específico' })
   getClienteCartera(
     @CurrentUser('companyId') companyId: string,
@@ -68,7 +68,7 @@ export class CarteraController {
 
   // ── Historial de pagos de una factura ── ADMIN, MANAGER, OPERATOR
   @Get(':invoiceId/pagos')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Ver historial de pagos de una factura' })
   getPaymentHistory(
     @CurrentUser('companyId') companyId: string,

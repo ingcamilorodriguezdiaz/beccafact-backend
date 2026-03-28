@@ -227,6 +227,19 @@ async function main() {
         { resource: 'payroll', action: 'transmit' },
       ],
     },
+    {
+      name: 'CAJERO',
+      displayName: 'Cajero',
+      description: 'Acceso al punto de venta, ventas y cobros en caja',
+      isSystem: true,
+      permissions: [
+        { resource: 'pos', action: 'create' },
+        { resource: 'pos', action: 'read' },
+        { resource: 'invoices', action: 'create' },
+        { resource: 'invoices', action: 'read' },
+        { resource: 'customers', action: 'read' },
+      ],
+    },
   ];
 
   for (const roleData of rolesData) {

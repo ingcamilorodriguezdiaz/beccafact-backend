@@ -36,19 +36,19 @@ export class PosController {
   // ── Sessions ──────────────────────────────────────────────────────────────
 
   @Post('sessions')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
   openSession(@CurrentUser() user: any, @Body() dto: CreatePosSessionDto) {
     return this.posService.openSession(user.companyId, user.sub, dto);
   }
 
   @Get('sessions/active')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
   getActiveSession(@CurrentUser() user: any) {
     return this.posService.getActiveSession(user.companyId, user.sub);
   }
 
   @Get('sessions')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
   findSessions(
     @CurrentUser() user: any,
     @Query('status') status?: string,
@@ -66,13 +66,13 @@ export class PosController {
   }
 
   @Get('sessions/:id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
   findOneSession(@CurrentUser() user: any, @Param('id') id: string) {
     return this.posService.findOneSession(user.companyId, id);
   }
 
   @Patch('sessions/:id/close')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
   closeSession(
     @CurrentUser() user: any,
     @Param('id') id: string,
@@ -84,7 +84,7 @@ export class PosController {
   // ── Sales ─────────────────────────────────────────────────────────────────
 
   @Post('sales')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
   @HttpCode(HttpStatus.CREATED)
   createSale(@CurrentUser() user: any, @Body() dto: CreatePosSaleDto) {
     return this.posService.createSale(user.companyId, dto);
@@ -103,7 +103,7 @@ export class PosController {
   }
 
   @Get('sales')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'VIEWER')
   findSales(
     @CurrentUser() user: any,
     @Query('sessionId') sessionId?: string,
@@ -122,13 +122,13 @@ export class PosController {
   }
 
   @Get('sales/:id/receipt')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
   getReceipt(@CurrentUser() user: any, @Param('id') id: string) {
     return this.posService.getReceipt(user.companyId, id);
   }
 
   @Post('sales/:id/invoice')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
   @HttpCode(HttpStatus.CREATED)
   generateInvoice(@CurrentUser() user: any, @Param('id') id: string) {
     return this.posService.generateInvoiceFromSale(user.companyId, id);
@@ -168,7 +168,7 @@ export class PosController {
   }
 
   @Get('sessions/:id/cash-movements')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
   getCashMovements(
     @CurrentUser() user: any,
     @Param('id') sessionId: string,
