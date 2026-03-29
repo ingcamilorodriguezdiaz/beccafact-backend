@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer, RequestMethod } from '@nestjs/common';
+import { BranchContextMiddleware } from './common/middleware/branch-context.middleware';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bull';
@@ -75,4 +76,11 @@ import { BranchesModule } from './branches/branches.module';
     BranchesModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(BranchContextMiddleware)
+      .exclude({ path: 'api/v1/auth/(.*)', method: RequestMethod.ALL })
+      .forRoutes('*');
+  }
+}

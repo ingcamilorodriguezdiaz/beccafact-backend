@@ -30,7 +30,7 @@ export class ProductsService {
     if (categoryId) where.categoryId = categoryId;
     if (status) where.status = status;
     if (branchId !== undefined) {
-      where.branchId = branchId || null; // empty string → null (company-wide)
+      where.branchId = branchId || null;
     }
 
     const [data, total] = await Promise.all([

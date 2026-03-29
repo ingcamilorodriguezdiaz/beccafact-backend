@@ -56,12 +56,17 @@ export class InvoicesService {
 
   async findAll(companyId: string, filters: {
     search?: string; status?: string; type?: string;
+    branchId?: string;
     from?: string; to?: string; customerId?: string;
     page?: number; limit?: number;
   }) {
     const { search, status, type, from, to, customerId, page = 1, limit = 20 } = filters;
     const skip = (page - 1) * limit;
     const where: any = { companyId, deletedAt: null };
+    // FILTRO NUEVO — FILTRAR POR SEDE
+    if (filters.branchId) {
+      where.branchId = filters.branchId;
+    }
 
     if (search) {
       where.OR = [
@@ -95,9 +100,9 @@ export class InvoicesService {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async findOne(companyId: string, id: string) {
+  async findOne(companyId: string, branchId: string, id: string) {
     const invoice = await this.prisma.invoice.findFirst({
-      where: { id, companyId, deletedAt: null },
+      where: { id, companyId, deletedAt: null, branchId },
       include: {
         customer: true,
         items: {
@@ -110,7 +115,7 @@ export class InvoicesService {
     return invoice;
   }
 
-  async create(companyId: string, dto: CreateInvoiceDto) {
+  async create(companyId: string, branchId: string | null, dto: CreateInvoiceDto) {
     const canCreate = await this.companiesService.checkLimit(companyId, 'max_documents_per_month');
     if (!canCreate) throw new ForbiddenException('Has alcanzado el límite mensual de documentos. Actualiza tu plan.');
 
@@ -126,9 +131,18 @@ export class InvoicesService {
           `Las notas de ${dto.type === 'NOTA_CREDITO' ? 'crédito' : 'débito'} deben referenciar una factura original (originalInvoiceId).`
         );
       }
-      const originalInvoice = await this.prisma.invoice.findFirst({
-        where: { id: dto.originalInvoiceId, companyId, deletedAt: null },
-      });
+      const where: any = {
+        id: dto.originalInvoiceId,
+        companyId,
+        deletedAt: null,
+      };
+
+      // Si el branchId viene definido → filtra por él
+      if (branchId) {
+        where.branchId = branchId;
+      }
+
+      const originalInvoice = await this.prisma.invoice.findFirst({ where });
       if (!originalInvoice) {
         throw new NotFoundException('La factura original referenciada no existe.');
       }
@@ -234,8 +248,8 @@ export class InvoicesService {
     return invoice;
   }
 
-  async cancel(companyId: string, invoiceId: string, reason: string) {
-    const invoice = await this.findOne(companyId, invoiceId);
+  async cancel(companyId: string, branchId: string, invoiceId: string, reason: string) {
+    const invoice = await this.findOne(companyId, branchId, invoiceId);
     if (['CANCELLED', 'PAID'].includes(invoice.status)) {
       throw new BadRequestException('Esta factura no puede cancelarse');
     }
@@ -251,14 +265,14 @@ export class InvoicesService {
     });
   }
 
-  async markAsPaid(companyId: string, invoiceId: string) {
-    const invoice = await this.findOne(companyId, invoiceId);
+  async markAsPaid(companyId: string, branchId: string, invoiceId: string) {
+    const invoice = await this.findOne(companyId, branchId, invoiceId);
     if (invoice.status === 'PAID') throw new BadRequestException('La factura ya está pagada');
     return this.prisma.invoice.update({ where: { id: invoiceId }, data: { status: 'PAID' } });
   }
 
-  async getRemainingBalance(companyId: string, invoiceId: string) {
-    const invoice = await this.findOne(companyId, invoiceId);
+  async getRemainingBalance(companyId: string, branchId: string, invoiceId: string) {
+    const invoice = await this.findOne(companyId, branchId, invoiceId);
     if (invoice.type !== 'VENTA') {
       throw new BadRequestException('El saldo solo aplica a facturas de venta.');
     }
@@ -285,24 +299,24 @@ export class InvoicesService {
       }),
     ]);
     const totalCredits = Number(creditResult._sum.total ?? 0);
-    const totalDebits  = Number(debitResult._sum.total ?? 0);
-    const original     = Number(invoice.total);
-    const remaining    = original - totalCredits + totalDebits;
+    const totalDebits = Number(debitResult._sum.total ?? 0);
+    const original = Number(invoice.total);
+    const remaining = original - totalCredits + totalDebits;
     return {
       invoiceId,
       invoiceNumber: (invoice as any).invoiceNumber,
-      originalTotal:  original,
+      originalTotal: original,
       totalCredits,
       totalDebits,
-      creditCount:   creditResult._count.id,
-      debitCount:    debitResult._count.id,
+      creditCount: creditResult._count.id,
+      debitCount: debitResult._count.id,
       remainingBalance: Math.max(0, remaining),
       fullyOffset: remaining <= 0,
     };
   }
 
-  async getAssociatedNotes(companyId: string, invoiceId: string) {
-    await this.findOne(companyId, invoiceId); // validates ownership
+  async getAssociatedNotes(companyId: string, branchId: string, invoiceId: string) {
+    await this.findOne(companyId, branchId, invoiceId); // validates ownership
     return this.prisma.invoice.findMany({
       where: { originalInvoiceId: invoiceId, companyId, deletedAt: null },
       include: { customer: { select: { id: true, name: true } }, items: true },
@@ -1931,9 +1945,9 @@ ${keyInfoXml}
     });
   }
 
-  async generatePdf(companyId: string, invoiceId: string): Promise<Buffer> {
+  async generatePdf(companyId: string, branchId: string, invoiceId: string): Promise<Buffer> {
 
-    const invoice = await this.findOne(companyId, invoiceId);
+    const invoice = await this.findOne(companyId, branchId, invoiceId);
 
     // Fetch company info for header
     const company = await this.prisma.company.findUnique({

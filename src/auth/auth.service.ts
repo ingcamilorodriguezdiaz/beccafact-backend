@@ -186,29 +186,22 @@ export class AuthService {
             },
           },
         },
+        userBranches: {
+          include: {
+            branch: {
+              select: { id: true, name: true, isMain: true, isActive: true },
+            },
+          },
+          orderBy: [{ branch: { isMain: 'desc' } }, { createdAt: 'asc' }],
+        },
       },
     });
 
     if (!user) return null;
 
-    // Fetch branch assignments separately to avoid Prisma select-type limitations
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore – userBranch exists at runtime; run prisma generate to refresh types
-    const userBranches = await this.prisma.userBranch.findMany({
-      where: { userId },
-      select: {
-        id: true,
-        branchId: true,
-        branch: {
-          select: { id: true, name: true, isMain: true, isActive: true },
-        },
-      },
-      orderBy: [{ branch: { isMain: 'desc' } }, { createdAt: 'asc' }],
-    });
-
     // Flatten roles to string[] so the frontend can use them directly
     const roles = user.roles.map((ur) => ur.role.name);
 
-    return { ...user, roles, userBranches };
+    return { ...user, roles };
   }
 }

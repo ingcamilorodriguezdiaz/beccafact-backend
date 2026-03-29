@@ -266,7 +266,7 @@ export class DianTestSetsService {
     const facturaDocs = docs.filter((d) => d.docType === 'FACTURA');
     for (const doc of facturaDocs) {
       try {
-        const invoice = await this.invoicesService.create(companyId, {
+        const invoice = await this.invoicesService.create(companyId,null , {
           customerId,
           type: 'VENTA' as any,
           prefix: 'SETP',
@@ -353,7 +353,7 @@ export class DianTestSetsService {
       }
 
       try {
-        const nota = await this.invoicesService.create(companyId, {
+        const nota = await this.invoicesService.create(companyId,null, {
           customerId,
           type: 'NOTA_DEBITO' as any,
           prefix: 'SETP',
@@ -442,7 +442,7 @@ export class DianTestSetsService {
       }
 
       try {
-        const nota = await this.invoicesService.create(companyId, {
+        const nota = await this.invoicesService.create(companyId,null, {
           customerId,
           type: 'NOTA_CREDITO' as any,
           prefix: 'SETP',

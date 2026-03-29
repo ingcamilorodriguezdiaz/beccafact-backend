@@ -7,33 +7,59 @@ import { Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
-import { JwtAuthGuard }       from '../common/guards/jwt-auth.guard';
-import { RolesGuard }         from '../common/guards/roles.guard';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
 import { CompanyStatusGuard } from '../common/guards/company-status.guard';
-import { CurrentUser }        from '../common/decorators/current-user.decorator';
-import { Roles }              from '../common/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
+import { ProductsService } from '@/products/products.service';
+import { DEFAULT_LIMIT, DEFAULT_PAGE } from '@/common/constants/pagination.constants';
+import { CurrentBranchId } from '@/common/decorators/current-branch-id.decorator';
 
 @ApiTags('invoices')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard, CompanyStatusGuard)
 @Controller({ path: 'invoices', version: '1' })
 export class InvoicesController {
-  constructor(private invoicesService: InvoicesService) {}
+  constructor(private invoicesService: InvoicesService, private productsService: ProductsService) { }
 
   @Get()
   @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
   findAll(
     @CurrentUser('companyId') companyId: string,
-    @Query('search')     search?:     string,
-    @Query('status')     status?:     string,
-    @Query('type')       type?:       string,
-    @Query('from')       from?:       string,
-    @Query('to')         to?:         string,
+    @CurrentBranchId() branchId: string,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('type') type?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
     @Query('customerId') customerId?: string,
-    @Query('page')       page?:       number,
-    @Query('limit')      limit?:      number,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
   ) {
-    return this.invoicesService.findAll(companyId, { search, status, type, from, to, customerId, page, limit });
+    return this.invoicesService.findAll(companyId, { search, status, type, branchId, from, to, customerId, page, limit });
+  }
+
+  @Get('products')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER', 'CONTADOR')
+  @ApiOperation({ summary: 'Listar productos' })
+  findAllProducts(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string | undefined,
+    @Query('search') search?: string,
+    @Query('categoryId') categoryId?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.productsService.findAll(companyId, {
+      search,
+      categoryId,
+      status,
+      branchId,
+      page: page ? Number(page) : DEFAULT_PAGE,
+      limit: limit ? Number(limit) : DEFAULT_LIMIT,
+    });
   }
 
   @Get('summary')
@@ -42,7 +68,7 @@ export class InvoicesController {
   getSummary(
     @CurrentUser('companyId') companyId: string,
     @Query('from') from: string,
-    @Query('to')   to:   string,
+    @Query('to') to: string,
   ) {
     return this.invoicesService.getSummary(companyId, from, to);
   }
@@ -51,9 +77,10 @@ export class InvoicesController {
   @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
   findOne(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.invoicesService.findOne(companyId, id);
+    return this.invoicesService.findOne(companyId,branchId, id);
   }
 
   @Post()
@@ -61,9 +88,10 @@ export class InvoicesController {
   @ApiOperation({ summary: 'Crear factura' })
   create(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Body() dto: CreateInvoiceDto,
   ) {
-    return this.invoicesService.create(companyId, dto);
+    return this.invoicesService.create(companyId,branchId, dto);
   }
 
   // ── DIAN: Enviar factura ────────────────────────────────────────────────
@@ -125,25 +153,27 @@ export class InvoicesController {
   @ApiOperation({ summary: 'Anular factura' })
   cancel(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body('reason') reason: string,
   ) {
-    return this.invoicesService.cancel(companyId, id, reason);
+    return this.invoicesService.cancel(companyId, branchId,id, reason);
   }
 
-   @Get(':id/pdf')
+  @Get(':id/pdf')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
   @ApiOperation({ summary: 'Previsualización HTML de la factura (renderizable como PDF)' })
   async getPdf(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    const buffer = await this.invoicesService.generatePdf(companyId, id);
+    const buffer = await this.invoicesService.generatePdf(companyId,branchId, id);
     res.set({
-      'Content-Type':        'text/html; charset=utf-8',
+      'Content-Type': 'text/html; charset=utf-8',
       'Content-Disposition': `inline; filename="factura-${id}.html"`,
-      'Cache-Control':       'no-cache',
+      'Cache-Control': 'no-cache',
     });
     return new StreamableFile(buffer);
   }
@@ -154,9 +184,10 @@ export class InvoicesController {
   @HttpCode(HttpStatus.OK)
   markAsPaid(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.invoicesService.markAsPaid(companyId, id);
+    return this.invoicesService.markAsPaid(companyId,branchId, id);
   }
 
   // ── Notas Crédito / Débito vinculadas a una factura ──────────────────────
@@ -166,9 +197,10 @@ export class InvoicesController {
   @ApiOperation({ summary: 'Listar notas crédito y débito asociadas a esta factura' })
   getNotes(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.invoicesService.getAssociatedNotes(companyId, id);
+    return this.invoicesService.getAssociatedNotes(companyId,branchId, id);
   }
 
   @Get(':id/balance')
@@ -176,9 +208,10 @@ export class InvoicesController {
   @ApiOperation({ summary: 'Obtener saldo disponible de la factura (total menos notas crédito)' })
   getBalance(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.invoicesService.getRemainingBalance(companyId, id);
+    return this.invoicesService.getRemainingBalance(companyId,branchId, id);
   }
 
   @Post(':id/credit-note')
@@ -186,12 +219,13 @@ export class InvoicesController {
   @ApiOperation({ summary: 'Crear nota crédito referenciando esta factura' })
   createCreditNote(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateInvoiceDto,
   ) {
     dto.type = 'NOTA_CREDITO' as any;
     dto.originalInvoiceId = id;
-    return this.invoicesService.create(companyId, dto);
+    return this.invoicesService.create(companyId,branchId, dto);
   }
 
   @Post(':id/debit-note')
@@ -199,12 +233,13 @@ export class InvoicesController {
   @ApiOperation({ summary: 'Crear nota débito referenciando esta factura' })
   createDebitNote(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateInvoiceDto,
   ) {
     dto.type = 'NOTA_DEBITO' as any;
     dto.originalInvoiceId = id;
-    return this.invoicesService.create(companyId, dto);
+    return this.invoicesService.create(companyId,branchId, dto);
   }
 
   @Patch(':id')
@@ -213,10 +248,13 @@ export class InvoicesController {
   @HttpCode(HttpStatus.OK)
   update(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: { status?: string; notes?: string },
   ) {
-    if (body.status === 'PAID') return this.invoicesService.markAsPaid(companyId, id);
-    return this.invoicesService.findOne(companyId, id);
+    if (body.status === 'PAID') return this.invoicesService.markAsPaid(companyId,branchId, id);
+    return this.invoicesService.findOne(companyId,branchId, id);
   }
+
+
 }

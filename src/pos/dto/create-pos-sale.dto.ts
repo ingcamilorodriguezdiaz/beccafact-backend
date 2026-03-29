@@ -74,6 +74,11 @@ export class CreatePosSaleDto {
   @IsBoolean()
   generateInvoice?: boolean;
 
+  /** Si true, registra un anticipo (pago parcial). No genera factura hasta entregar y pagar el resto. */
+  @IsOptional()
+  @IsBoolean()
+  isAdvancePayment?: boolean;
+
   /** Descuento global sobre el total (0-100%) */
   @IsOptional()
   @IsNumber()

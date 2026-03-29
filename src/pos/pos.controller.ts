@@ -22,8 +22,11 @@ import { PosService } from './pos.service';
 import { CreatePosSessionDto } from './dto/create-pos-session.dto';
 import { ClosePosSessionDto } from './dto/close-pos-session.dto';
 import { CreatePosSaleDto } from './dto/create-pos-sale.dto';
+import { AddPaymentDto } from './dto/add-payment.dto';
+import { DeliverSaleDto } from './dto/deliver-sale.dto';
 import { RefundSaleDto } from './dto/refund-sale.dto';
 import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
+import { CurrentBranchId } from '@/common/decorators/current-branch-id.decorator';
 
 @ApiTags('pos')
 @ApiBearerAuth()
@@ -86,8 +89,8 @@ export class PosController {
   @Post('sales')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
   @HttpCode(HttpStatus.CREATED)
-  createSale(@CurrentUser() user: any, @Body() dto: CreatePosSaleDto) {
-    return this.posService.createSale(user.companyId, dto);
+  createSale(@CurrentUser() user: any, @CurrentBranchId() branchId: string, @Body() dto: CreatePosSaleDto) {
+    return this.posService.createSale(user.companyId,branchId, dto);
   }
 
   // IMPORTANT: literal routes before /:id to avoid route conflicts
@@ -130,8 +133,30 @@ export class PosController {
   @Post('sales/:id/invoice')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
   @HttpCode(HttpStatus.CREATED)
-  generateInvoice(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.posService.generateInvoiceFromSale(user.companyId, id);
+  generateInvoice(@CurrentUser() user: any,@CurrentBranchId() branchId: string, @Param('id') id: string) {
+    return this.posService.generateInvoiceFromSale(user.companyId, branchId, id);
+  }
+
+  @Patch('sales/:id/pay')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
+  addPayment(
+    @CurrentUser() user: any,
+    @CurrentBranchId() branchId: string,
+    @Param('id') id: string,
+    @Body() dto: AddPaymentDto,
+  ) {
+    return this.posService.addPayment(user.companyId, branchId, id, dto);
+  }
+
+  @Patch('sales/:id/deliver')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
+  markDelivered(
+    @CurrentUser() user: any,
+    @CurrentBranchId() branchId: string,
+    @Param('id') id: string,
+    @Body() dto: DeliverSaleDto,
+  ) {
+    return this.posService.markDelivered(user.companyId, branchId, id, dto);
   }
 
   @Patch('sales/:id/cancel')
