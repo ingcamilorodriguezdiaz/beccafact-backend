@@ -231,14 +231,22 @@ export class BranchesService {
         );
       }
 
-      // Find matching product in destination branch by SKU
-      const destProduct = await tx.product.findFirst({
+      // Find or create matching product in destination branch by SKU
+      let destProduct = await tx.product.findFirst({
         where: { companyId, branchId: toBranchId, sku: sourceProduct.sku, deletedAt: null },
       });
+      const wasCreated = !destProduct;
+
       if (!destProduct) {
-        throw new NotFoundException(
-          `El producto SKU "${sourceProduct.sku}" no existe en la sucursal de destino`,
-        );
+        // Auto-create product in destination branch with stock 0
+        const { id: _id, branchId: _b, stock: _s, createdAt: _c, updatedAt: _u, deletedAt: _d, ...productData } = sourceProduct as any;
+        destProduct = await tx.product.create({
+          data: {
+            ...productData,
+            branchId: toBranchId,
+            stock: 0,
+          },
+        });
       }
 
       await tx.product.update({
@@ -255,7 +263,8 @@ export class BranchesService {
         toBranchId,
         sku: sourceProduct.sku,
         quantity,
-        message: `Transferencia de ${quantity} unidades realizada`,
+        productCreated: !destProduct,
+        message: `Transferencia de ${quantity} unidades realizada${wasCreated ? '. Producto creado automáticamente en sucursal destino.' : ''}`,
       };
     });
   }

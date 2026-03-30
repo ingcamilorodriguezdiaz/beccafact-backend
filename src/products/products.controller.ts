@@ -16,6 +16,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { PlanFeature } from '../common/decorators/plan-feature.decorator';
 import { UsageMetric } from '../common/decorators/usage-metric.decorator';
 import { DEFAULT_LIMIT, DEFAULT_PAGE } from '@/common/constants/pagination.constants';
+import { CurrentBranchId } from '@/common/decorators/current-branch-id.decorator';
 
 @ApiTags('products')
 @ApiBearerAuth()
@@ -29,10 +30,10 @@ export class ProductsController {
   @ApiOperation({ summary: 'Listar productos' })
   findAll(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Query('search') search?: string,
     @Query('categoryId') categoryId?: string,
     @Query('status') status?: string,
-    @Query('branchId') branchId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
