@@ -14,17 +14,20 @@ export class CarteraService {
 
   // ── Dashboard de cartera ──────────────────────────────────────────────────
 
-  async getDashboard(companyId: string) {
+  async getDashboard(companyId: string, branchId?: string) {
     const today = new Date();
     const in30Days = new Date(today);
     in30Days.setDate(in30Days.getDate() + 30);
 
+    const where: any = {
+      companyId,
+      deletedAt: null,
+      status: { in: ['SENT_DIAN', 'ACCEPTED_DIAN', 'OVERDUE'] },
+    };
+    if (branchId) where.branchId = branchId;
+
     const invoices = await this.prisma.invoice.findMany({
-      where: {
-        companyId,
-        deletedAt: null,
-        status: { in: ['SENT_DIAN', 'ACCEPTED_DIAN', 'OVERDUE'] },
-      },
+      where,
       include: {
         customer: { select: { id: true } },
       },
@@ -89,6 +92,7 @@ export class CarteraService {
   async findAll(
     companyId: string,
     filters: {
+      branchId:string;
       search?: string;
       status?: string;
       customerId?: string;
@@ -105,6 +109,11 @@ export class CarteraService {
       deletedAt: null,
       status: { in: ['SENT_DIAN', 'ACCEPTED_DIAN', 'OVERDUE', 'PAID'] },
     };
+
+     if (filters.branchId) {
+      where.branchId = filters.branchId;
+    }
+
 
     if (search) {
       where.OR = [
@@ -179,7 +188,7 @@ export class CarteraService {
 
   // ── Cartera por cliente ──────────────────────────────────────────────────
 
-  async getClienteCartera(companyId: string, customerId: string) {
+  async getClienteCartera(companyId: string,branchId:string, customerId: string) {
     const customer = await this.prisma.customer.findFirst({
       where: { id: customerId, companyId, deletedAt: null },
     });
@@ -190,6 +199,7 @@ export class CarteraService {
       where: {
         companyId,
         customerId,
+        branchId,
         deletedAt: null,
         status: { in: ['SENT_DIAN', 'ACCEPTED_DIAN', 'OVERDUE', 'PAID'] },
       },
@@ -354,14 +364,17 @@ export class CarteraService {
 
   // ── Informe de aging (antigüedad de saldos) ──────────────────────────────
 
-  async getAgingReport(companyId: string) {
+  async getAgingReport(companyId: string, branchId?: string) {
     const today = new Date();
+    const where: any = {
+      companyId,
+      deletedAt: null,
+      status: { in: ['SENT_DIAN', 'ACCEPTED_DIAN', 'OVERDUE'] },
+    };
+    if (branchId) where.branchId = branchId;
+
     const invoices = await this.prisma.invoice.findMany({
-      where: {
-        companyId,
-        deletedAt: null,
-        status: { in: ['SENT_DIAN', 'ACCEPTED_DIAN', 'OVERDUE'] },
-      },
+      where,
       include: {
         customer: { select: { id: true, name: true, documentNumber: true } },
         payments: { select: { amount: true } },

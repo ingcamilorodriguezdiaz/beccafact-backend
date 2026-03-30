@@ -13,6 +13,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { PlanFeature } from '../common/decorators/plan-feature.decorator';
 import { DEFAULT_LIMIT, DEFAULT_PAGE } from '@/common/constants/pagination.constants';
+import { CurrentBranchId } from '@/common/decorators/current-branch-id.decorator';
 
 @ApiTags('cartera')
 @ApiBearerAuth()
@@ -26,16 +27,22 @@ export class CarteraController {
   @Get('dashboard')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Resumen ejecutivo y aging de cartera' })
-  getDashboard(@CurrentUser('companyId') companyId: string) {
-    return this.carteraService.getDashboard(companyId);
+  getDashboard(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+  ) {
+    return this.carteraService.getDashboard(companyId, branchId || undefined);
   }
 
   // ── Aging report ── ADMIN, MANAGER, OPERATOR
   @Get('aging')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Informe de antigüedad de saldos por cliente' })
-  getAgingReport(@CurrentUser('companyId') companyId: string) {
-    return this.carteraService.getAgingReport(companyId);
+  getAgingReport(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+  ) {
+    return this.carteraService.getAgingReport(companyId, branchId || undefined);
   }
 
   // ── Listado ── ADMIN, MANAGER, OPERATOR
@@ -44,6 +51,7 @@ export class CarteraController {
   @ApiOperation({ summary: 'Listar cartera (facturas por cobrar)' })
   findAll(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Query('search') search?: string,
     @Query('status') status?: string,
     @Query('customerId') customerId?: string,
@@ -52,7 +60,7 @@ export class CarteraController {
   ) {
     const pageNumber = Number(page) || DEFAULT_PAGE;
     const limitNumber = Number(limit) || DEFAULT_LIMIT;
-    return this.carteraService.findAll(companyId, { search, status, customerId, page: pageNumber, limit: limitNumber });
+    return this.carteraService.findAll(companyId, { branchId,search, status, customerId, page: pageNumber, limit: limitNumber });
   }
 
   // ── Cartera por cliente ── ADMIN, MANAGER, OPERATOR
@@ -61,9 +69,10 @@ export class CarteraController {
   @ApiOperation({ summary: 'Ver cartera de un cliente específico' })
   getClienteCartera(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Param('customerId', ParseUUIDPipe) customerId: string,
   ) {
-    return this.carteraService.getClienteCartera(companyId, customerId);
+    return this.carteraService.getClienteCartera(companyId,branchId, customerId);
   }
 
   // ── Historial de pagos de una factura ── ADMIN, MANAGER, OPERATOR
