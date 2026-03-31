@@ -325,8 +325,8 @@ export class InvoicesService {
     });
   }
 
-  async getSummary(companyId: string,branchId: string, from: string, to: string) {
-    const where: any = { companyId, deletedAt: null,branchId, issueDate: { gte: new Date(from), lte: new Date(to) } };
+  async getSummary(companyId: string, branchId: string, from: string, to: string) {
+    const where: any = { companyId, deletedAt: null, branchId, issueDate: { gte: new Date(from), lte: new Date(to) } };
     const [invoices, byStatus, byType] = await Promise.all([
       this.prisma.invoice.aggregate({ where, _sum: { total: true, taxAmount: true, subtotal: true }, _count: { id: true } }),
       this.prisma.invoice.groupBy({ by: ['status'], where, _count: { id: true }, _sum: { total: true } }),
@@ -343,7 +343,8 @@ export class InvoicesService {
   // DIAN INTEGRATION — sendToDian (replaces the mock)
   // ══════════════════════════════════════════════════════════════════════════
 
-  async sendToDian(companyId: string, invoiceId: string) {
+  async sendToDian(companyId: string, source: string, invoiceId: string) {
+    const isPos = source && source.toLowerCase() === 'pos';
     const invoice = await this.prisma.invoice.findFirst({
       where: { id: invoiceId, companyId, deletedAt: null },
       include: {
@@ -385,7 +386,7 @@ export class InvoicesService {
       // Extraer solo dígitos del invoiceNumber
       const digits = rawNum.replace(/\D/g, '') || '1';
       // Mapear al rango 990000000: 990000000 + número de factura
-      const rangeBase = Number(company.dianRangoDesde || 990000000);
+      const rangeBase = Number(isPos ? company.dianPosRangoDesde : (company.dianRangoDesde || 990000000));
       numericPart = String(rangeBase + parseInt(digits, 10));
     } else {
       // Producción: prefijo y número reales
@@ -461,16 +462,39 @@ export class InvoicesService {
     const ssc = this.calcSoftwareSecurityCode(softwareId, softwarePin, fullNumber);
 
     // ── Numbering range data ──────────────────────────────────────────────
-    const resolucion = company.dianResolucion || '18760000001';
-    const dianPrefix = company.dianPrefijo || prefix;
-    const rangoDesde = String(company.dianRangoDesde || 1);
-    const rangoHasta = String(company.dianRangoHasta || 5000000);
+
+    // En un helper o dentro del servicio
+    const defaults = {
+      resolucion: '18760000001',
+      desde: 1,
+      hasta: 5000000,
+      fechaDesde: '2019-01-19',
+      fechaHasta: '2030-01-19'
+    };
+    const toDateOnly = (d: Date) => d.toISOString().split('T')[0];
+    // Creamos un objeto con la data "normalizada"
     // Fechas de la resolución: vienen de la DB como Date (ej. 2019-01-19T00:00:00Z).
     // toColombiaDate restaría 5h → 2019-01-18. Para fechas de autorización usamos
     // directamente el valor ISO sin corrección de zona (son fechas de calendario, no timestamps).
-    const toDateOnly = (d: Date) => d.toISOString().split('T')[0];
-    const fechaDesde = company.dianFechaDesde ? toDateOnly(new Date(company.dianFechaDesde)) : '2019-01-19';
-    const fechaHasta = company.dianFechaHasta ? toDateOnly(new Date(company.dianFechaHasta)) : '2030-01-19';
+
+    const { resolucion, dianPrefix, rangoDesde, rangoHasta, fechaDesde, fechaHasta } = isPos
+      ? {
+        resolucion: company.dianPosResolucion || defaults.resolucion,
+        dianPrefix: company.dianPosPrefijo || prefix,
+        rangoDesde: company.dianPosRangoDesde || defaults.desde,
+        rangoHasta: company.dianPosRangoHasta || defaults.hasta,
+        fechaDesde: company.dianPosFechaDesde ? toDateOnly(new Date(company.dianPosFechaDesde)) : defaults.fechaDesde,
+        fechaHasta: company.dianPosFechaHasta ? toDateOnly(new Date(company.dianPosFechaHasta)) : defaults.fechaHasta
+
+      }
+      : {
+        resolucion: company.dianResolucion || defaults.resolucion,
+        dianPrefix: company.dianPrefijo || prefix,
+        rangoDesde: company.dianRangoDesde || defaults.desde,
+        rangoHasta: company.dianRangoHasta || defaults.hasta,
+        fechaDesde: company.dianFechaDesde ? toDateOnly(new Date(company.dianFechaDesde)) : defaults.fechaDesde,
+        fechaHasta: company.dianFechaHasta ? toDateOnly(new Date(company.dianFechaHasta)) : defaults.fechaHasta
+      };
 
     // ── Build UBL 2.1 XML ────────────────────────────────────────────────
     this.logger.log(`[DIAN] Generating XML for ${fullNumber} CUFE=${cufe.slice(0, 16)}…`);

@@ -74,6 +74,12 @@ model Company {
   dianRangoHasta     Int?
   dianFechaDesde     String?
   dianFechaHasta     String?
+  dianPosResolucion  String?
+  dianPosPrefijo     String?
+  dianPosRangoDesde  Int?
+  dianPosRangoHasta  Int?
+  dianPosFechaDesde  String?
+  dianPosFechaHasta  String?
   dianCertificate    String?
   dianCertificateKey String?
   // ── DIAN Nómina Electrónica — credenciales propias por empresa ───────────

@@ -599,27 +599,128 @@ export class SuperAdminService {
     return company;
   }
 
-  async getCompanyDianFacturacion(companyId: string) {
-    const c = await this.getCompanyOrFail(companyId);
+  private mapDianResolutionBlock(
+    resolucion?: string | null,
+    prefijo?: string | null,
+    rangoDesde?: number | null,
+    rangoHasta?: number | null,
+    vigenciaDesde?: string | null,
+    vigenciaHasta?: string | null,
+  ) {
     return {
-      enabled: !!(c.dianSoftwareId && c.dianResolucion),
+      resolucion: resolucion ?? '',
+      prefijo: prefijo ?? '',
+      rangoDesde: rangoDesde ?? null,
+      rangoHasta: rangoHasta ?? null,
+      vigenciaDesde: vigenciaDesde ?? '',
+      vigenciaHasta: vigenciaHasta ?? '',
+    };
+  }
+
+  private async getCompanyDianPosResolution(companyId: string) {
+    try {
+      const rows = await this.prisma.$queryRawUnsafe<any[]>(
+        `
+          SELECT
+            "dianPosResolucion",
+            "dianPosPrefijo",
+            "dianPosRangoDesde",
+            "dianPosRangoHasta",
+            "dianPosFechaDesde",
+            "dianPosFechaHasta"
+          FROM "companies"
+          WHERE "id" = $1
+          LIMIT 1
+        `,
+        companyId,
+      );
+      return rows[0] ?? {};
+    } catch {
+      return {};
+    }
+  }
+
+  private async saveCompanyDianPosResolution(companyId: string, pos: any) {
+    try {
+      await this.prisma.$executeRawUnsafe(
+        `
+          UPDATE "companies"
+          SET
+            "dianPosResolucion" = $1,
+            "dianPosPrefijo" = $2,
+            "dianPosRangoDesde" = $3,
+            "dianPosRangoHasta" = $4,
+            "dianPosFechaDesde" = $5,
+            "dianPosFechaHasta" = $6
+          WHERE "id" = $7
+        `,
+        pos?.resolucion || null,
+        pos?.prefijo || null,
+        pos?.rangoDesde != null ? Number(pos.rangoDesde) : null,
+        pos?.rangoHasta != null ? Number(pos.rangoHasta) : null,
+        pos?.vigenciaDesde || null,
+        pos?.vigenciaHasta || null,
+        companyId,
+      );
+    } catch (error) {
+      throw new BadRequestException(
+        'Las columnas de resolución POS aún no existen en la base de datos. Ejecuta la migración de Prisma y vuelve a intentar.',
+      );
+    }
+  }
+
+  async getCompanyDianFacturacion(companyId: string) {
+    const c = await this.getCompanyOrFail(companyId) as any;
+    const posRow = await this.getCompanyDianPosResolution(companyId);
+    const venta = this.mapDianResolutionBlock(
+      c.dianResolucion,
+      c.dianPrefijo,
+      c.dianRangoDesde,
+      c.dianRangoHasta,
+      c.dianFechaDesde,
+      c.dianFechaHasta,
+    );
+    const pos = this.mapDianResolutionBlock(
+      posRow.dianPosResolucion,
+      posRow.dianPosPrefijo,
+      posRow.dianPosRangoDesde,
+      posRow.dianPosRangoHasta,
+      posRow.dianPosFechaDesde,
+      posRow.dianPosFechaHasta,
+    );
+    return {
+      enabled: !!(c.dianSoftwareId && (c.dianResolucion || posRow.dianPosResolucion)),
       ambiente: c.dianTestMode ? 'habilitacion' : 'produccion',
       softwareId: c.dianSoftwareId ?? '',
       softwarePin: c.dianSoftwarePin ?? '',
       testSetId: c.dianTestSetId ?? '',
       claveTecnica: c.dianClaveTecnica ?? '',
-      resolucion: c.dianResolucion ?? '',
-      prefijo: c.dianPrefijo ?? '',
-      rangoDesde: c.dianRangoDesde ?? null,
-      rangoHasta: c.dianRangoHasta ?? null,
-      vigenciaDesde: c.dianFechaDesde ?? '',
-      vigenciaHasta: c.dianFechaHasta ?? '',
+      venta,
+      pos,
+      ...venta,
       hasCertificate: !!c.dianCertificate,
     };
   }
 
   async updateCompanyDianFacturacion(companyId: string, dto: any) {
-    await this.getCompanyOrFail(companyId);
+    const current = await this.getCompanyOrFail(companyId) as any;
+    const currentPos = await this.getCompanyDianPosResolution(companyId);
+    const venta = dto.venta ?? {
+      resolucion: dto.resolucion,
+      prefijo: dto.prefijo,
+      rangoDesde: dto.rangoDesde,
+      rangoHasta: dto.rangoHasta,
+      vigenciaDesde: dto.vigenciaDesde,
+      vigenciaHasta: dto.vigenciaHasta,
+    };
+    const pos = dto.pos ?? {
+      resolucion: currentPos.dianPosResolucion,
+      prefijo: currentPos.dianPosPrefijo,
+      rangoDesde: currentPos.dianPosRangoDesde,
+      rangoHasta: currentPos.dianPosRangoHasta,
+      vigenciaDesde: currentPos.dianPosFechaDesde,
+      vigenciaHasta: currentPos.dianPosFechaHasta,
+    };
     await this.prisma.company.update({
       where: { id: companyId },
       data: {
@@ -628,14 +729,15 @@ export class SuperAdminService {
         dianSoftwarePin: dto.softwarePin || null,
         dianTestSetId: dto.testSetId || null,
         dianClaveTecnica: dto.claveTecnica || null,
-        dianResolucion: dto.resolucion || null,
-        dianPrefijo: dto.prefijo || null,
-        dianRangoDesde: dto.rangoDesde != null ? Number(dto.rangoDesde) : null,
-        dianRangoHasta: dto.rangoHasta != null ? Number(dto.rangoHasta) : null,
-        dianFechaDesde: dto.vigenciaDesde || null,
-        dianFechaHasta: dto.vigenciaHasta || null,
-      },
+        dianResolucion: venta?.resolucion || null,
+        dianPrefijo: venta?.prefijo || null,
+        dianRangoDesde: venta?.rangoDesde != null ? Number(venta.rangoDesde) : null,
+        dianRangoHasta: venta?.rangoHasta != null ? Number(venta.rangoHasta) : null,
+        dianFechaDesde: venta?.vigenciaDesde || null,
+        dianFechaHasta: venta?.vigenciaHasta || null,
+      } as any,
     });
+    await this.saveCompanyDianPosResolution(companyId, pos);
     return this.getCompanyDianFacturacion(companyId);
   }
 

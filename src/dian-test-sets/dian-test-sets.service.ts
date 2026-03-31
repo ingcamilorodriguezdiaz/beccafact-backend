@@ -291,7 +291,7 @@ export class DianTestSetsService {
         let docStatus = 'SENT';
 
         try {
-          const dianResult = await this.invoicesService.sendToDian(companyId, invoice.id);
+          const dianResult = await this.invoicesService.sendToDian(companyId,'FACT', invoice.id);
           dianZipKey = (dianResult as any)?.dianZipKey ?? undefined;
           dianStatusCode = (dianResult as any)?.dianStatusCode ?? undefined;
           dianStatusMsg = (dianResult as any)?.dianStatusMsg ?? undefined;
@@ -379,7 +379,7 @@ export class DianTestSetsService {
         let docStatus = 'SENT';
 
         try {
-          const dianResult = await this.invoicesService.sendToDian(companyId, nota.id);
+          const dianResult = await this.invoicesService.sendToDian(companyId,'FACT', nota.id);
           dianZipKey = (dianResult as any)?.dianZipKey ?? undefined;
           dianStatusCode = (dianResult as any)?.dianStatusCode ?? undefined;
           dianStatusMsg = (dianResult as any)?.dianStatusMsg ?? undefined;
@@ -468,7 +468,7 @@ export class DianTestSetsService {
         let docStatus = 'SENT';
 
         try {
-          const dianResult = await this.invoicesService.sendToDian(companyId, nota.id);
+          const dianResult = await this.invoicesService.sendToDian(companyId,'FACT', nota.id);
           dianZipKey = (dianResult as any)?.dianZipKey ?? undefined;
           dianStatusCode = (dianResult as any)?.dianStatusCode ?? undefined;
           dianStatusMsg = (dianResult as any)?.dianStatusMsg ?? undefined;

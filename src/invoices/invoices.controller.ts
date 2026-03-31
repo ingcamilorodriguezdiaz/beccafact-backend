@@ -2,6 +2,7 @@ import {
   Controller, Get, Post, Patch, Body, Param, Query,
   UseGuards, ParseUUIDPipe, HttpCode, HttpStatus, Res,
   StreamableFile,
+  Headers,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
@@ -103,9 +104,10 @@ export class InvoicesController {
   @HttpCode(HttpStatus.OK)
   issue(
     @CurrentUser('companyId') companyId: string,
+    @Headers('x-context-source') source: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.invoicesService.sendToDian(companyId, id);
+    return this.invoicesService.sendToDian(companyId,source, id);
   }
 
   @Patch(':id/send-dian')
@@ -113,9 +115,10 @@ export class InvoicesController {
   @ApiOperation({ summary: 'Alias de /issue — envío a DIAN' })
   sendToDian(
     @CurrentUser('companyId') companyId: string,
+    @Headers('x-context-source') source: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.invoicesService.sendToDian(companyId, id);
+    return this.invoicesService.sendToDian(companyId,source, id);
   }
 
   // ── DIAN: Consultar estado ──────────────────────────────────────────────
