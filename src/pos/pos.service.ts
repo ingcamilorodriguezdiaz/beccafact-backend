@@ -882,6 +882,7 @@ ${barcode128}
           customer: { select: { id: true, name: true, documentNumber: true } },
           items: { include: { product: { select: { id: true, name: true, sku: true } } } },
           session: { select: { id: true, openedAt: true } },
+          invoice: { select: { id: true, invoiceNumber: true, status: true, dianZipKey: true, dianStatusCode: true, dianStatusMsg: true, dianCufe: true, dianQrCode: true, dianSentAt: true } },
         },
       }),
       this.prisma.posSale.count({ where }),

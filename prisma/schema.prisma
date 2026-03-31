@@ -138,12 +138,14 @@ model Branch {
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
 
-  company      Company      @relation(fields: [companyId], references: [id])
-  products     Product[]
-  userBranches UserBranch[]
-  invoices     Invoice[]
-  posSessions  PosSession[]
-  posSales     PosSale[]
+  company         Company          @relation(fields: [companyId], references: [id])
+  products        Product[]
+  userBranches    UserBranch[]
+  invoices        Invoice[]
+  posSessions     PosSession[]
+  posSales        PosSale[]
+  employees       employees[]      @relation("EmployeeBranch")
+  payroll_records payroll_records[] @relation("PayrollBranch")
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -442,6 +444,7 @@ model Invoice {
   customer         Customer         @relation(fields: [customerId], references: [id])
   items            InvoiceItem[]
   payments         CarteraPayment[]
+  posSale          PosSale?         @relation("PosSaleInvoice")
   // Auto-relación notas (NC / ND referencia factura original)
   originalInvoice  Invoice?         @relation("InvoiceNotes", fields: [originalInvoiceId], references: [id])
   creditDebitNotes Invoice[]        @relation("InvoiceNotes")
@@ -737,6 +740,7 @@ model Bank {
 model employees {
   id              String            @id @default(uuid())
   companyId       String
+  branchId        String?
   documentType    String            @default("CC")
   documentNumber  String
   firstName       String
@@ -760,16 +764,19 @@ model employees {
   updatedAt       DateTime          @updatedAt
   deletedAt       DateTime?
   companies       Company           @relation(fields: [companyId], references: [id])
+  branch          Branch?           @relation("EmployeeBranch", fields: [branchId], references: [id])
   payroll_records payroll_records[]
 
   @@unique([companyId, documentNumber])
   @@index([companyId])
+  @@index([branchId])
 }
 
 model payroll_records {
   id String @id @default(uuid())
 
   companyId  String
+  branchId   String?
   employeeId String
 
   period  String
@@ -846,6 +853,7 @@ model payroll_records {
   updatedAt DateTime @updatedAt
 
   companies Company   @relation(fields: [companyId], references: [id])
+  branch    Branch?   @relation("PayrollBranch", fields: [branchId], references: [id])
   employees employees @relation(fields: [employeeId], references: [id])
 
   // Auto-referencias para la cadena NIE → NIAE → NIAE
@@ -860,6 +868,7 @@ model payroll_records {
   @@index([companyId, employeeId, period, payrollType])
   @@index([companyId, employeeId, payrollType])
   @@index([companyId, employeeId, originalNieId]) // buscar cadena por NIE raíz
+  @@index([branchId])
 }
 
 enum PayrollType {
@@ -976,6 +985,7 @@ model PosSale {
   branch   Branch?       @relation(fields: [branchId], references: [id])
   session  PosSession    @relation(fields: [sessionId], references: [id])
   customer Customer?     @relation(fields: [customerId], references: [id])
+  invoice  Invoice?      @relation("PosSaleInvoice", fields: [invoiceId], references: [id])
   items    PosSaleItem[]
 
   @@unique([companyId, saleNumber])

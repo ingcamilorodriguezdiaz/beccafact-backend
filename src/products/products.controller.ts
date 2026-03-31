@@ -30,9 +30,9 @@ export class ProductsController {
   @ApiOperation({ summary: 'Listar productos' })
   findAll(
     @CurrentUser('companyId') companyId: string,
-    @CurrentBranchId() branchId: string,
     @Query('search') search?: string,
     @Query('categoryId') categoryId?: string,
+    @Query('branchId') branchIdSearch?: string,
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -41,7 +41,7 @@ export class ProductsController {
       search,
       categoryId,
       status,
-      branchId,
+      branchId:branchIdSearch,
       page: page ? Number(page) : DEFAULT_PAGE,
       limit: limit ? Number(limit) : DEFAULT_LIMIT,
     });

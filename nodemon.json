@@ -3,8 +3,7 @@
   "ext": "ts",
   "ignore": ["src/**/*.spec.ts"],
   "events": {
-    "start": "fuser -k 3000/tcp || true",
-    "restart": "node kill-port.js"
+    "start": "fuser -n tcp -k 3000 || true"
   },
   "exec": "ts-node -r tsconfig-paths/register src/main.ts"
 }

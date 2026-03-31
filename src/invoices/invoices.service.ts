@@ -222,6 +222,7 @@ export class InvoicesService {
 
     const invoice = await this.prisma.invoice.create({
       data: {
+        branchId,
         companyId,
         customerId: dto.customerId,
         invoiceNumber,
@@ -324,8 +325,8 @@ export class InvoicesService {
     });
   }
 
-  async getSummary(companyId: string, from: string, to: string) {
-    const where: any = { companyId, deletedAt: null, issueDate: { gte: new Date(from), lte: new Date(to) } };
+  async getSummary(companyId: string,branchId: string, from: string, to: string) {
+    const where: any = { companyId, deletedAt: null,branchId, issueDate: { gte: new Date(from), lte: new Date(to) } };
     const [invoices, byStatus, byType] = await Promise.all([
       this.prisma.invoice.aggregate({ where, _sum: { total: true, taxAmount: true, subtotal: true }, _count: { id: true } }),
       this.prisma.invoice.groupBy({ by: ['status'], where, _count: { id: true }, _sum: { total: true } }),

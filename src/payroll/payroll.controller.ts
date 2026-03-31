@@ -3,7 +3,7 @@ import {
   Param, Query, UseGuards, ParseUUIDPipe, HttpCode, HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { PayrollService, CreateEmployeeDto, UpdateEmployeeDto, CreatePayrollDto } from './payroll.service';
+import { PayrollService, CreatePayrollDto } from './payroll.service';
 import { JwtAuthGuard }        from '../common/guards/jwt-auth.guard';
 import { RolesGuard }          from '../common/guards/roles.guard';
 import { PlanGuard }           from '../common/guards/plan.guard';
@@ -12,6 +12,8 @@ import { CurrentUser }         from '../common/decorators/current-user.decorator
 import { Roles }               from '../common/decorators/roles.decorator';
 import { PlanFeature }         from '../common/decorators/plan-feature.decorator';
 import { DEFAULT_LIMIT, DEFAULT_PAGE } from '@/common/constants/pagination.constants';
+import { CurrentBranchId } from '@/common/decorators/current-branch-id.decorator';
+import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/create-payroll';
 
 @ApiTags('payroll')
 @ApiBearerAuth()
@@ -28,6 +30,8 @@ export class PayrollController {
   @ApiOperation({ summary: 'List employees' })
   findAllEmployees(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() _currentBranchId: string,
+    @Query('branchId') branchId?: string,
     @Query('search') search?: string,
     @Query('active') active?: string,
     @Query('page')   page?:   string,
@@ -35,6 +39,7 @@ export class PayrollController {
   ) {
     const activeBool = active === 'true' ? true : active === 'false' ? false : undefined;
     return this.payrollService.findAllEmployees(companyId, {
+      branchId: branchId  ? undefined : (branchId || undefined),
       search, active: activeBool,
       page:  Number(page)  || DEFAULT_PAGE,
       limit: Number(limit) || DEFAULT_LIMIT,
@@ -93,6 +98,7 @@ export class PayrollController {
   @ApiOperation({ summary: 'List payroll records' })
   findAllPayroll(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Query('period')     period?:     string,
     @Query('employeeId') employeeId?: string,
     @Query('status')     status?:     string,
@@ -100,6 +106,7 @@ export class PayrollController {
     @Query('limit')      limit?:      string,
   ) {
     return this.payrollService.findAllPayroll(companyId, {
+      branchId: branchId || undefined,
       period, employeeId, status,
       page:  Number(page)  || DEFAULT_PAGE,
       limit: Number(limit) || DEFAULT_LIMIT,
@@ -111,9 +118,10 @@ export class PayrollController {
   @ApiOperation({ summary: 'Period summary (YYYY-MM)' })
   getPeriodSummary(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Param('period') period: string,
   ) {
-    return this.payrollService.getPeriodSummary(companyId, period);
+    return this.payrollService.getPeriodSummary(companyId, period, branchId || undefined);
   }
 
   @Get('records/:id')

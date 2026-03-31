@@ -10,6 +10,7 @@ import { createHash, createSign, randomBytes } from 'crypto';
 import * as archiver from 'archiver';
 import * as https from 'https';
 import * as http from 'http';
+import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/create-payroll';
 
 // ─── Constantes DIAN Nómina Electrónica ── Fallbacks de habilitación ──────────
 // Se usan SOLO cuando la empresa no tiene configuradas sus propias credenciales.
@@ -21,30 +22,6 @@ const NOMINA_TEST_SET_ID_DEFAULT  = '25e4b1c1-982c-465b-a380-eb1dd4a925ec';
 const NOMINA_WS_HAB  = 'https://vpfe-hab.dian.gov.co/WcfDianCustomerServices.svc';
 const NOMINA_WS_PROD = 'https://vpfe.dian.gov.co/WcfDianCustomerServices.svc';
 const NOMINA_SEQUENCE_START = 990000001;
-
-// ─── DTOs ─────────────────────────────────────────────────────────────────────
-
-export interface CreateEmployeeDto {
-  documentType: string;
-  documentNumber: string;
-  firstName: string;
-  lastName: string;
-  email?: string;
-  phone?: string;
-  position: string;
-  baseSalary: number;
-  contractType: string;
-  hireDate: string;
-  city?: string;
-  cityCode?: string;       // DIVIPOLA 5 dígitos
-  departmentCode?: string;
-  country?: string;
-  bankAccount?: string;
-  bankName?: string;
-  bankCode?: string;
-}
-
-export interface UpdateEmployeeDto extends Partial<CreateEmployeeDto> {}
 
 export interface CreatePayrollDto {
   employeeId: string;
@@ -109,6 +86,25 @@ export class PayrollService {
   private readonly logger = new Logger(PayrollService.name);
 
   constructor(private prisma: PrismaService) {}
+
+  private async resolveEmployeeBranchId(companyId: string, branchId?: string | null): Promise<string | null> {
+    if (branchId) {
+      const branch = await this.prisma.branch.findFirst({
+        where: { id: branchId, companyId, deletedAt: null, isActive: true },
+        select: { id: true },
+      });
+      if (!branch) throw new BadRequestException('La sucursal seleccionada no existe o no está activa');
+      return branch.id;
+    }
+
+    const mainBranch = await this.prisma.branch.findFirst({
+      where: { companyId, isMain: true, deletedAt: null, isActive: true },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return mainBranch?.id ?? null;
+  }
 
   /**
    * Convierte cualquier valor (Prisma.Decimal, string, number, null/undefined)
@@ -176,11 +172,12 @@ export class PayrollService {
 
   async findAllEmployees(
     companyId: string,
-    filters: { search?: string; active?: boolean; page?: number; limit?: number },
+    filters: { branchId?: string; search?: string; active?: boolean; page?: number; limit?: number },
   ) {
-    const { search, active, page = 1, limit = 20 } = filters;
+    const { branchId, search, active, page = 1, limit = 20 } = filters;
     const skip = (page - 1) * limit;
     const where: any = { companyId, deletedAt: null };
+    if (branchId) where.branchId = branchId;
     if (active !== undefined) where.isActive = active;
     if (search) {
       where.OR = [
@@ -191,7 +188,11 @@ export class PayrollService {
       ];
     }
     const [data, total] = await Promise.all([
-      this.prisma.employees.findMany({ where, orderBy: { lastName: 'asc' }, skip, take: limit }),
+      this.prisma.employees.findMany({
+        where,
+        include: { branch: { select: { id: true, name: true, isMain: true } } },
+        orderBy: { lastName: 'asc' }, skip, take: limit,
+      }),
       this.prisma.employees.count({ where }),
     ]);
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
@@ -213,9 +214,11 @@ export class PayrollService {
     if (exists) throw new ConflictException(`Employee with document ${dto.documentNumber} already exists`);
 
     const loc = await this.resolveLocation(dto);
+    const resolvedBranchId = await this.resolveEmployeeBranchId(companyId, dto.branchId);
 
     const createData: any = {
       companyId,
+      branchId:       resolvedBranchId,
       documentType:   dto.documentType,
       documentNumber: dto.documentNumber,
       firstName:      dto.firstName,
@@ -249,14 +252,20 @@ export class PayrollService {
 
   async updateEmployee(companyId: string, id: string, dto: UpdateEmployeeDto, userId: string) {
     const before = await this.findEmployee(companyId, id);
+    const filteredData: any = {};
 
+    for (const [key, value] of Object.entries(dto)) {
+      if (value !== null && value !== undefined && value !== '') {
+        filteredData[key] = value;
+      }
+    }
     const hasLocationData =
       dto.cityCode       !== undefined ||
       dto.city           !== undefined ||
       dto.departmentCode !== undefined ||
       dto.country        !== undefined;
 
-    const data: any = { ...dto };
+    const data: any = { ...filteredData }; 
     if (dto.hireDate) data.hireDate = new Date(dto.hireDate);
 
     if (hasLocationData) {
@@ -266,6 +275,10 @@ export class PayrollService {
       data.departmentCode = loc.departmentCode;
       data.country        = loc.country ?? 'CO';
     }
+
+    
+    data.branchId = await this.resolveEmployeeBranchId(companyId, dto.branchId ?? null);
+    
 
     const updated = await this.prisma.employees.update({ where: { id }, data });
     await this.prisma.auditLog.create({
@@ -289,11 +302,12 @@ export class PayrollService {
 
   async findAllPayroll(
     companyId: string,
-    filters: { period?: string; employeeId?: string; status?: string; page?: number; limit?: number },
+    filters: { branchId?: string; period?: string; employeeId?: string; status?: string; page?: number; limit?: number },
   ) {
-    const { period, employeeId, status, page = 1, limit = 20 } = filters;
+    const { branchId, period, employeeId, status, page = 1, limit = 20 } = filters;
     const skip = (page - 1) * limit;
     const where: any = { companyId };
+    if (branchId)   where.branchId   = branchId;
     if (period)     where.period     = period;
     if (employeeId) where.employeeId = employeeId;
     if (status)     where.status     = status;
@@ -369,6 +383,7 @@ export class PayrollService {
     record = await this.prisma.payroll_records.create({
       data: {
         companyId,
+        branchId:           (employee as any).branchId ?? undefined,
         employeeId:         dto.employeeId,
         period:             dto.period,
         payDate:            new Date(dto.payDate),
@@ -954,9 +969,11 @@ export class PayrollService {
     };
   }
 
-  async getPeriodSummary(companyId: string, period: string) {
+  async getPeriodSummary(companyId: string, period: string, branchId?: string) {
+    const summaryWhere: any = { companyId, period, status: { not: 'VOIDED' } };
+    if (branchId) summaryWhere.branchId = branchId;
     const records = await this.prisma.payroll_records.findMany({
-      where: { companyId, period, status: { not: 'VOIDED' } },
+      where: summaryWhere,
       include: {
         employees: { select: { id: true, firstName: true, lastName: true, position: true } },
       },

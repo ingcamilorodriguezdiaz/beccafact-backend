@@ -67,10 +67,11 @@ export class InvoicesController {
   @ApiOperation({ summary: 'Resumen financiero por período' })
   getSummary(
     @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
     @Query('from') from: string,
     @Query('to') to: string,
   ) {
-    return this.invoicesService.getSummary(companyId, from, to);
+    return this.invoicesService.getSummary(companyId,branchId, from, to);
   }
 
   @Get(':id')

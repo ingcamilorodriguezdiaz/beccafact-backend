@@ -129,7 +129,7 @@ export class CompaniesService {
       customLimits[metric] ??
       subscription.plan.features.find((f) => f.key === metric)?.value;
 
-    if (!limitVal || limitVal === 'unlimited') return true;
+    if (!limitVal || limitVal === 'unlimited' || limitVal === '-1' || limitVal === 'true') return true;
     if (limitVal === 'false') return false;
 
     const limit = parseInt(limitVal);
