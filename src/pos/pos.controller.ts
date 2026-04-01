@@ -106,7 +106,7 @@ export class PosController {
   }
 
   @Get('sales')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
   findSales(
     @CurrentUser() user: any,
     @Query('sessionId') sessionId?: string,

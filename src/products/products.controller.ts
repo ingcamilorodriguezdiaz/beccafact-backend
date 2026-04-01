@@ -26,7 +26,7 @@ export class ProductsController {
   constructor(private productsService: ProductsService) { }
 
   @Get()
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
   @ApiOperation({ summary: 'Listar productos' })
   findAll(
     @CurrentUser('companyId') companyId: string,
@@ -48,7 +48,7 @@ export class ProductsController {
   }
 
   @Get('low-stock')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
   @PlanFeature('has_inventory')
   @ApiOperation({ summary: 'Productos con stock bajo o agotado' })
   getLowStock(
@@ -59,7 +59,7 @@ export class ProductsController {
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
   @PlanFeature('has_inventory')
   findOne(
     @CurrentUser('companyId') companyId: string,

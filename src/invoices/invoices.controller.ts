@@ -25,7 +25,7 @@ export class InvoicesController {
   constructor(private invoicesService: InvoicesService, private productsService: ProductsService) { }
 
   @Get()
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   findAll(
     @CurrentUser('companyId') companyId: string,
     @CurrentBranchId() branchId: string,
@@ -42,7 +42,7 @@ export class InvoicesController {
   }
 
   @Get('products')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
   @ApiOperation({ summary: 'Listar productos' })
   findAllProducts(
     @CurrentUser('companyId') companyId: string,
@@ -64,7 +64,7 @@ export class InvoicesController {
   }
 
   @Get('summary')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   @ApiOperation({ summary: 'Resumen financiero por período' })
   getSummary(
     @CurrentUser('companyId') companyId: string,
@@ -76,7 +76,7 @@ export class InvoicesController {
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   findOne(
     @CurrentUser('companyId') companyId: string,
     @CurrentBranchId() branchId: string,
@@ -165,7 +165,7 @@ export class InvoicesController {
   }
 
   @Get(':id/pdf')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   @ApiOperation({ summary: 'Previsualización HTML de la factura (renderizable como PDF)' })
   async getPdf(
     @CurrentUser('companyId') companyId: string,
@@ -197,7 +197,7 @@ export class InvoicesController {
   // ── Notas Crédito / Débito vinculadas a una factura ──────────────────────
 
   @Get(':id/notes')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   @ApiOperation({ summary: 'Listar notas crédito y débito asociadas a esta factura' })
   getNotes(
     @CurrentUser('companyId') companyId: string,
@@ -208,7 +208,7 @@ export class InvoicesController {
   }
 
   @Get(':id/balance')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   @ApiOperation({ summary: 'Obtener saldo disponible de la factura (total menos notas crédito)' })
   getBalance(
     @CurrentUser('companyId') companyId: string,

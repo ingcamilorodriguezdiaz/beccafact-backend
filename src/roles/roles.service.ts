@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../config/prisma.service';
 
 /** Roles del sistema que no se pueden eliminar */
-const SYSTEM_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER', 'CONTADOR', 'CAJERO'];
+const SYSTEM_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR', 'CAJERO'];
 
 @Injectable()
 export class RolesService {

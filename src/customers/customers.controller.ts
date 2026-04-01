@@ -21,7 +21,7 @@ export class CustomersController {
   constructor(private customersService: CustomersService) { }
 
   @Get()
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'VIEWER', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   @ApiOperation({ summary: 'Listar clientes de la empresa' })
   findAll(
     @CurrentUser('companyId') companyId: string,
@@ -44,7 +44,7 @@ export class CustomersController {
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'VIEWER', 'CONTADOR')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   findOne(
     @CurrentUser('companyId') companyId: string,
     @Param('id', ParseUUIDPipe) id: string,

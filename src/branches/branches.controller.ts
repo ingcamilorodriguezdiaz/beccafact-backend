@@ -35,14 +35,14 @@ export class BranchesController {
   // ─── Branch CRUD ─────────────────────────────────────────────────────────────
 
   @Get()
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
   @ApiOperation({ summary: 'Listar sucursales de la empresa' })
   findAll(@CurrentUser('companyId') companyId: string) {
     return this.branchesService.findAll(companyId);
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
   @ApiOperation({ summary: 'Obtener sucursal por ID' })
   findOne(
     @CurrentUser('companyId') companyId: string,
@@ -96,7 +96,7 @@ export class BranchesController {
   // ─── Stock Management ─────────────────────────────────────────────────────────
 
   @Get(':id/stocks')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
   @ApiOperation({ summary: 'Obtener stocks de la sucursal' })
   getStocks(
     @CurrentUser('companyId') companyId: string,

@@ -196,18 +196,6 @@ async function main() {
       ],
     },
     {
-      name: 'VIEWER',
-      displayName: 'Consultor',
-      description: 'Solo lectura en todos los módulos',
-      isSystem: true,
-      permissions: [
-        { resource: 'invoices', action: 'read' },
-        { resource: 'products', action: 'read' },
-        { resource: 'customers', action: 'read' },
-        { resource: 'reports', action: 'read' },
-      ],
-    },
-    {
       name: 'CONTADOR',
       displayName: 'Contador',
       description: 'Acceso a módulos contables: facturación, nómina y reportes',

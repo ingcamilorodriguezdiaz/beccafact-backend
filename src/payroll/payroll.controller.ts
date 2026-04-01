@@ -14,6 +14,7 @@ import { PlanFeature }         from '../common/decorators/plan-feature.decorator
 import { DEFAULT_LIMIT, DEFAULT_PAGE } from '@/common/constants/pagination.constants';
 import { CurrentBranchId } from '@/common/decorators/current-branch-id.decorator';
 import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/create-payroll';
+import { BranchesService } from '@/branches/branches.service';
 
 @ApiTags('payroll')
 @ApiBearerAuth()
@@ -21,7 +22,14 @@ import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/create-payroll';
 @PlanFeature('has_payroll')
 @Controller({ path: 'payroll', version: '1' })
 export class PayrollController {
-  constructor(private payrollService: PayrollService) {}
+  constructor(private payrollService: PayrollService,private branchesService: BranchesService) {}
+
+  @Get('branches')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR','CONTADOR')
+  @ApiOperation({ summary: 'Listar sucursales de la empresa' })
+  findAll(@CurrentUser('companyId') companyId: string) {
+    return this.branchesService.findAll(companyId);
+  }
 
   // ── EMPLOYEES ─────────────────────────────────────────────────────────────
 

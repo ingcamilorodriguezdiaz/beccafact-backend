@@ -32,7 +32,7 @@ export class ImportController {
    * No requiere feature de plan — disponible para todos los roles.
    */
   @Post('template')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Generar y descargar plantilla Excel para importación masiva' })
   async downloadTemplate(

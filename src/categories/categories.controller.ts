@@ -20,7 +20,7 @@ export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
   @Get()
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
   @ApiOperation({ summary: 'Listar categorías de la empresa' })
   findAll(
     @CurrentUser('companyId') companyId: string,
@@ -32,7 +32,7 @@ export class CategoriesController {
   }
 
   @Get(':id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR')
   findOne(
     @CurrentUser('companyId') companyId: string,
     @Param('id', ParseUUIDPipe) id: string,
