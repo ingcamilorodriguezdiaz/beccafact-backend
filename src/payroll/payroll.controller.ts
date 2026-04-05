@@ -1,7 +1,8 @@
 import {
   Controller, Get, Post, Put, Patch, Body,
-  Param, Query, UseGuards, ParseUUIDPipe, HttpCode, HttpStatus,
+  Param, Query, UseGuards, ParseUUIDPipe, HttpCode, HttpStatus, Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { PayrollService, CreatePayrollDto } from './payroll.service';
 import { JwtAuthGuard }        from '../common/guards/jwt-auth.guard';
@@ -130,6 +131,19 @@ export class PayrollController {
     @Param('period') period: string,
   ) {
     return this.payrollService.getPeriodSummary(companyId, period, branchId || undefined);
+  }
+
+  @Get('records/:id/receipt')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Generar comprobante de pago HTML' })
+  async getPayrollReceipt(
+    @Res() res: Response,
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const buffer = await this.payrollService.generatePayrollReceipt(companyId, id);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(buffer);
   }
 
   @Get('records/:id')

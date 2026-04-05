@@ -10,6 +10,7 @@ import { createHash, createSign, randomBytes } from 'crypto';
 import * as archiver from 'archiver';
 import * as https from 'https';
 import * as http from 'http';
+import * as QRCode from 'qrcode';
 import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/create-payroll';
 
 // ─── Constantes DIAN Nómina Electrónica ── Fallbacks de habilitación ──────────
@@ -327,12 +328,13 @@ export class PayrollService {
   }
 
   async findPayrollRecord(companyId: string, id: string) {
-    const record = await this.prisma.payroll_records.findFirst({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const record = await (this.prisma.payroll_records as any).findFirst({
       where: { id, companyId },
-      include: { employees: true },
+      include: { employees: true, invoice: true },
     });
     if (!record) throw new NotFoundException('Payroll record not found');
-    return record;
+    return record as any;
   }
 
   async createPayroll(companyId: string, dto: CreatePayrollDto, userId: string) {
@@ -1710,5 +1712,357 @@ export class PayrollService {
   previewPayroll(dto: CreatePayrollDto) {
     const { autoTransport, ...preview } = this.calculatePayroll(dto);
     return preview;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // COMPROBANTE DE PAGO (tirilla HTML + QR)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  private async qrGenSvg(text: string): Promise<string> {
+    return QRCode.toString(text, { type: 'svg', width: 180, margin: 2 });
+  }
+
+  async generatePayrollReceipt(companyId: string, id: string): Promise<Buffer> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const record: any = await (this.prisma.payroll_records as any).findFirst({
+      where: { id, companyId },
+      include: {
+        employees: true,
+        companies: true,
+        invoice: true,
+      },
+    });
+    if (!record) throw new NotFoundException('Payroll record not found');
+
+    const company  = record.companies as any;
+    const employee = record.employees as any;
+    const inv      = record.invoice   as any;
+    const isTestMode = company.dianTestMode ?? true;
+    const qrBase     = isTestMode
+      ? 'https://catalogo-vpfe-hab.dian.gov.co/document/searchqr?documentkey='
+      : 'https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=';
+
+    // ── Determinar contenido del QR ─────────────────────────────────────────
+    let qrContent: string;
+    if (inv?.dianQrCode) {
+      qrContent = inv.dianQrCode;
+    } else if (inv?.dianCufe) {
+      qrContent = `${qrBase}${inv.dianCufe}`;
+    } else if (record.cune) {
+      qrContent = `${qrBase}${record.cune}`;
+    } else {
+      qrContent = `BeccaFact:Nomina:${record.payrollNumber ?? record.id}`;
+    }
+
+    const svgQR = await this.qrGenSvg(qrContent);
+
+    // ── Formateo de moneda ──────────────────────────────────────────────────
+    const fmt = (v: any) =>
+      Number(v ?? 0).toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
+
+    const baseSalary         = this.safeNum(record.baseSalary);
+    const overtimeHours      = this.safeNum(record.overtimeHours);
+    const bonuses            = this.safeNum(record.bonuses);
+    const commissions        = this.safeNum(record.commissions);
+    const transportAllowance = this.safeNum(record.transportAllowance);
+    const vacationPay        = this.safeNum(record.vacationPay);
+    const totalEarnings      = this.safeNum(record.totalEarnings);
+    const healthEmployee     = this.safeNum(record.healthEmployee);
+    const pensionEmployee    = this.safeNum(record.pensionEmployee);
+    const sickLeave          = this.safeNum(record.sickLeave);
+    const loans              = this.safeNum(record.loans);
+    const otherDeductions    = this.safeNum(record.otherDeductions);
+    const totalDeductions    = this.safeNum(record.totalDeductions);
+    const netPay             = this.safeNum(record.netPay);
+
+    // ── Sección DIAN / factura / fallback ───────────────────────────────────
+    let dianSection = '';
+    if (record.cune) {
+      dianSection = `
+        <div class="dian-box">
+          <div class="dian-title">Documento Validado DIAN — Nómina Electrónica</div>
+          <div class="dian-cune"><strong>CUNE:</strong> <span class="mono">${record.cune}</span></div>
+          <div class="qr-wrap">${svgQR}</div>
+          <div class="qr-caption">Consulta en el portal DIAN</div>
+        </div>`;
+    } else if (inv) {
+      const invLabel = inv.invoiceNumber ? `Factura ${inv.invoiceNumber}` : `Factura vinculada`;
+      dianSection = `
+        <div class="dian-box">
+          <div class="dian-title">Factura Electrónica Vinculada</div>
+          <div class="dian-cune"><strong>${invLabel}</strong>${inv.dianCufe ? ` — CUFE: <span class="mono">${inv.dianCufe}</span>` : ''}</div>
+          <div class="qr-wrap">${svgQR}</div>
+          <div class="qr-caption">Consulta en el portal DIAN</div>
+        </div>`;
+    } else {
+      dianSection = `
+        <div class="dian-box dian-box--soft">
+          <div class="dian-title">Comprobante Interno</div>
+          <div class="qr-wrap">${svgQR}</div>
+          <div class="qr-caption">Escanea para verificar este comprobante</div>
+        </div>`;
+    }
+
+    const generatedAt = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Comprobante de Pago — ${record.payrollNumber ?? record.id}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f0f4f8;
+      color: #1e293b;
+      padding: 24px 12px;
+      font-size: 13px;
+    }
+    .page {
+      max-width: 720px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 4px 24px rgba(26,64,126,.13);
+      overflow: hidden;
+    }
+    /* ── Header ── */
+    .header {
+      background: #1a407e;
+      color: #fff;
+      padding: 24px 32px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .header-left h1 { font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
+    .header-left .subtitle { font-size: 11px; opacity: .75; margin-top: 3px; }
+    .header-right { text-align: right; }
+    .header-right .doc-title {
+      font-size: 13px; font-weight: 600;
+      background: rgba(255,255,255,.15);
+      border-radius: 6px; padding: 6px 12px;
+      letter-spacing: .3px;
+    }
+    .header-right .doc-num { font-size: 20px; font-weight: 800; margin-top: 4px; }
+    /* ── Meta strip ── */
+    .meta-strip {
+      background: #f0f4f8;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex; flex-wrap: wrap; gap: 0;
+    }
+    .meta-cell {
+      flex: 1 1 180px;
+      padding: 10px 20px;
+      border-right: 1px solid #e2e8f0;
+    }
+    .meta-cell:last-child { border-right: none; }
+    .meta-cell .label { font-size: 10px; text-transform: uppercase; color: #64748b; letter-spacing: .5px; }
+    .meta-cell .value { font-size: 13px; font-weight: 600; color: #1a407e; margin-top: 2px; }
+    /* ── Body ── */
+    .body { padding: 24px 32px; }
+    /* ── Section card ── */
+    .section { margin-bottom: 20px; }
+    .section-title {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .8px; color: #64748b;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 6px; margin-bottom: 12px;
+    }
+    /* ── Employee card ── */
+    .emp-card {
+      background: #f8fafc; border: 1px solid #e2e8f0;
+      border-radius: 8px; padding: 14px 18px;
+      display: flex; flex-wrap: wrap; gap: 16px;
+    }
+    .emp-field { flex: 1 1 160px; }
+    .emp-field .lbl { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: .4px; }
+    .emp-field .val { font-size: 13px; font-weight: 600; margin-top: 2px; }
+    /* ── Tables ── */
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    th {
+      background: #1a407e; color: #fff;
+      padding: 8px 12px; text-align: left;
+      font-size: 11px; font-weight: 600; letter-spacing: .3px;
+    }
+    th:last-child { text-align: right; }
+    td { padding: 7px 12px; border-bottom: 1px solid #f1f5f9; }
+    td:last-child { text-align: right; font-weight: 500; }
+    tr:last-child td { border-bottom: none; }
+    tr.total-row td {
+      background: #f0f4f8; font-weight: 700;
+      font-size: 13px; color: #1a407e;
+      border-top: 2px solid #cbd5e1;
+    }
+    /* ── Net pay box ── */
+    .net-box {
+      background: linear-gradient(135deg, #1a407e 0%, #2563eb 100%);
+      color: #fff; border-radius: 10px;
+      padding: 20px 28px; margin: 24px 0;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .net-box .net-label { font-size: 14px; font-weight: 600; opacity: .9; }
+    .net-box .net-amount { font-size: 28px; font-weight: 800; letter-spacing: -1px; }
+    .net-box .net-days { font-size: 11px; opacity: .7; margin-top: 3px; }
+    /* ── DIAN box ── */
+    .dian-box {
+      border: 2px solid #1a407e; border-radius: 10px;
+      padding: 18px 20px; text-align: center; margin-top: 8px;
+    }
+    .dian-box--soft { border-color: #cbd5e1; }
+    .dian-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .6px; color: #1a407e; margin-bottom: 8px;
+    }
+    .dian-box--soft .dian-title { color: #64748b; }
+    .dian-cune {
+      font-size: 11px; color: #475569; word-break: break-all;
+      margin-bottom: 12px; line-height: 1.5;
+    }
+    .mono { font-family: 'Courier New', monospace; font-size: 10px; }
+    .qr-wrap { display: inline-block; padding: 6px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; }
+    .qr-wrap svg { display: block; }
+    .qr-caption { font-size: 10px; color: #94a3b8; margin-top: 6px; }
+    /* ── Footer ── */
+    .footer {
+      background: #f8fafc; border-top: 1px solid #e2e8f0;
+      padding: 14px 32px; display: flex;
+      justify-content: space-between; align-items: center;
+      font-size: 11px; color: #94a3b8;
+    }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .page { box-shadow: none; border-radius: 0; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <h1>${company.razonSocial ?? company.name ?? 'Empresa'}</h1>
+      <div class="subtitle">NIT ${company.nit ?? ''}${company.address ? ' · ' + company.address : ''}${company.city ? ', ' + company.city : ''}</div>
+    </div>
+    <div class="header-right">
+      <div class="doc-title">COMPROBANTE DE PAGO DE NÓMINA</div>
+      <div class="doc-num">${record.payrollNumber ?? record.id.slice(0, 8).toUpperCase()}</div>
+    </div>
+  </div>
+
+  <!-- Meta strip -->
+  <div class="meta-strip">
+    <div class="meta-cell">
+      <div class="label">Período</div>
+      <div class="value">${record.period}</div>
+    </div>
+    <div class="meta-cell">
+      <div class="label">Fecha de pago</div>
+      <div class="value">${new Date(record.payDate).toLocaleDateString('es-CO')}</div>
+    </div>
+    <div class="meta-cell">
+      <div class="label">Días trabajados</div>
+      <div class="value">${record.daysWorked} días</div>
+    </div>
+    <div class="meta-cell">
+      <div class="label">Estado</div>
+      <div class="value">${record.status}</div>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- Empleado -->
+    <div class="section">
+      <div class="section-title">Información del Empleado</div>
+      <div class="emp-card">
+        <div class="emp-field">
+          <div class="lbl">Nombre completo</div>
+          <div class="val">${employee.firstName ?? ''} ${employee.lastName ?? ''}</div>
+        </div>
+        <div class="emp-field">
+          <div class="lbl">Documento</div>
+          <div class="val">${employee.documentType ?? 'CC'} ${employee.documentNumber ?? ''}</div>
+        </div>
+        <div class="emp-field">
+          <div class="lbl">Cargo</div>
+          <div class="val">${employee.position ?? '—'}</div>
+        </div>
+        <div class="emp-field">
+          <div class="lbl">Tipo de contrato</div>
+          <div class="val">${employee.contractType ?? '—'}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Devengados -->
+    <div class="section">
+      <div class="section-title">Devengados</div>
+      <table>
+        <thead>
+          <tr><th>Concepto</th><th>Valor</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Salario base (${record.daysWorked} días)</td><td>${fmt(baseSalary)}</td></tr>
+          ${overtimeHours > 0 ? `<tr><td>Horas extras (${overtimeHours} h)</td><td>${fmt(overtimeHours * (baseSalary / 240) * 1.25)}</td></tr>` : ''}
+          ${transportAllowance > 0 ? `<tr><td>Auxilio de transporte</td><td>${fmt(transportAllowance)}</td></tr>` : ''}
+          ${vacationPay > 0 ? `<tr><td>Vacaciones</td><td>${fmt(vacationPay)}</td></tr>` : ''}
+          ${bonuses > 0 ? `<tr><td>Bonificaciones</td><td>${fmt(bonuses)}</td></tr>` : ''}
+          ${commissions > 0 ? `<tr><td>Comisiones</td><td>${fmt(commissions)}</td></tr>` : ''}
+          <tr class="total-row"><td>Total devengado</td><td>${fmt(totalEarnings)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Deducciones -->
+    <div class="section">
+      <div class="section-title">Deducciones</div>
+      <table>
+        <thead>
+          <tr><th>Concepto</th><th>Valor</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Salud empleado (4%)</td><td>${fmt(healthEmployee)}</td></tr>
+          <tr><td>Pensión empleado (4%)</td><td>${fmt(pensionEmployee)}</td></tr>
+          ${sickLeave > 0 ? `<tr><td>Incapacidades</td><td>${fmt(sickLeave)}</td></tr>` : ''}
+          ${loans > 0 ? `<tr><td>Préstamos</td><td>${fmt(loans)}</td></tr>` : ''}
+          ${otherDeductions > 0 ? `<tr><td>Otras deducciones</td><td>${fmt(otherDeductions)}</td></tr>` : ''}
+          <tr class="total-row"><td>Total deducido</td><td>${fmt(totalDeductions)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Neto a pagar -->
+    <div class="net-box">
+      <div>
+        <div class="net-label">Neto a Pagar</div>
+        <div class="net-days">${record.daysWorked} días trabajados · Período ${record.period}</div>
+      </div>
+      <div class="net-amount">${fmt(netPay)}</div>
+    </div>
+
+    <!-- DIAN / QR -->
+    <div class="section">
+      <div class="section-title">Validación${record.cune ? ' DIAN' : inv ? ' Factura Electrónica' : ''}</div>
+      ${dianSection}
+    </div>
+
+  </div><!-- /body -->
+
+  <!-- Footer -->
+  <div class="footer">
+    <span>Generado por BeccaFact · ${generatedAt}</span>
+    <span>${record.payrollNumber ? 'Ref: ' + record.payrollNumber : ''}</span>
+  </div>
+
+</div>
+</body>
+</html>`;
+
+    return Buffer.from(html, 'utf-8');
   }
 }

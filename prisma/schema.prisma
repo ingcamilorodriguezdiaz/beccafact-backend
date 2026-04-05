@@ -454,6 +454,7 @@ model Invoice {
   // Auto-relación notas (NC / ND referencia factura original)
   originalInvoice  Invoice?         @relation("InvoiceNotes", fields: [originalInvoiceId], references: [id])
   creditDebitNotes Invoice[]        @relation("InvoiceNotes")
+  payrollRecord    payroll_records? @relation("PayrollInvoice")
 
   @@unique([companyId, invoiceNumber])
   @@index([companyId])
@@ -857,6 +858,9 @@ model payroll_records {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  invoiceId String?  @unique
+  invoice   Invoice? @relation("PayrollInvoice", fields: [invoiceId], references: [id])
 
   companies Company   @relation(fields: [companyId], references: [id])
   branch    Branch?   @relation("PayrollBranch", fields: [branchId], references: [id])

@@ -182,6 +182,42 @@ export class InvoicesController {
     return new StreamableFile(buffer);
   }
 
+  @Get(':id/pdf/download')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
+  @ApiOperation({ summary: 'Descargar factura en PDF' })
+  async downloadPdf(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { buffer, filename } = await this.invoicesService.generatePdfDocument(companyId, branchId, id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'no-cache',
+    });
+    return new StreamableFile(buffer);
+  }
+
+  @Get(':id/zip')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
+  @ApiOperation({ summary: 'Descargar ZIP con PDF y XML de la factura electrónica' })
+  async downloadZip(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { buffer, filename } = await this.invoicesService.generateInvoiceZip(companyId, branchId, id);
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'no-cache',
+    });
+    return new StreamableFile(buffer);
+  }
+
   @Patch(':id/paid')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   @ApiOperation({ summary: 'Marcar factura como pagada' })
