@@ -173,6 +173,14 @@ export class CustomersService {
     });
   }
 
+  async toggle(companyId: string, id: string) {
+    const customer = await this.findOne(companyId, id);
+    return this.prisma.customer.update({
+      where: { id },
+      data: { isActive: !customer.isActive },
+    });
+  }
+
   async getBalance(companyId: string, customerId: string) {
     await this.findOne(companyId, customerId);
     const invoices = await this.prisma.invoice.findMany({

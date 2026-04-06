@@ -111,6 +111,18 @@ export const FEATURE_CATALOG: FeatureDef[] = [
     icon: 'M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43-.893.892C3.74 11.846 4.632 14 6.414 14H15a1 1 0 000-2H6.414l1-1H14a1 1 0 00.894-.553l3-6A1 1 0 0017 3H6.28l-.31-1.243A1 1 0 005 1H3zM16 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM6.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z',
   },
   {
+    key: 'has_accounting', label: 'Contabilidad',
+    description: 'Módulo de contabilidad con plan de cuentas PUC y comprobantes de partida doble',
+    type: 'bool', defaultValue: 'false', group: 'modules',
+    icon: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z',
+  },
+  {
+    key: 'has_purchasing', label: 'Compras y proveedores',
+    description: 'Gestión de proveedores y órdenes de compra',
+    type: 'bool', defaultValue: 'false', group: 'modules',
+    icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z',
+  },
+  {
     key: 'has_brach', label: 'Multisede',
     description: 'Administra varias sedes de tu empresa desde una sola cuenta',
     type: 'bool', defaultValue: 'false', group: 'modules',

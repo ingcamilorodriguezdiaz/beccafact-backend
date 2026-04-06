@@ -24,6 +24,10 @@ import { BanksModule } from './banks/banks.module';
 import { PosModule } from './pos/pos.module';
 import { DianTestSetsModule } from './dian-test-sets/dian-test-sets.module';
 import { BranchesModule } from './branches/branches.module';
+import { AccountingModule } from './accounting/accounting.module';
+import { PurchasingModule } from './purchasing/purchasing.module';
+import { QuotesModule } from './quotes/quotes.module';
+import { MailerModule } from './common/mailer/mailer.module';
 
 @Module({
   imports: [
@@ -74,6 +78,10 @@ import { BranchesModule } from './branches/branches.module';
     PosModule,
     DianTestSetsModule,
     BranchesModule,
+    AccountingModule,
+    PurchasingModule,
+    QuotesModule,
+    MailerModule,
   ],
 })
 export class AppModule implements NestModule {
