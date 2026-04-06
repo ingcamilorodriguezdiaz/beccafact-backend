@@ -12,7 +12,10 @@ import {
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
+  Res,
+  StreamableFile,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { QuotesService } from './quotes.service';
 import { CreateQuoteDto } from './dto/create-quote.dto';
@@ -117,6 +120,42 @@ export class QuotesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.quotesService.convertToInvoice(companyId, id);
+  }
+
+  // ─── Vista previa PDF de cotización ──────────────────────────────────────
+  @Get(':id/pdf')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Vista previa PDF de la cotización (inline)' })
+  async getPdf(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const buffer = await this.quotesService.generatePdf(companyId, id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="cotizacion-${id}.pdf"`,
+      'Cache-Control': 'no-cache',
+    });
+    return new StreamableFile(buffer);
+  }
+
+  // ─── Descargar PDF de cotización ──────────────────────────────────────────
+  @Get(':id/pdf/download')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Descargar cotización en PDF' })
+  async downloadPdf(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const buffer = await this.quotesService.generatePdf(companyId, id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="cotizacion-${id}.pdf"`,
+      'Cache-Control': 'no-cache',
+    });
+    return new StreamableFile(buffer);
   }
 
   // ─── Eliminar cotización (soft-delete, solo DRAFT) ────────────────────────

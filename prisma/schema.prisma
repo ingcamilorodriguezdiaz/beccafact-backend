@@ -110,6 +110,7 @@ model Company {
   dianTestSets       DianTestSet[]
   branches           Branch[]
   accountingAccounts AccountingAccount[]
+  accountingPeriods  AccountingPeriod[]
   journalEntries     JournalEntry[]
   purchaseOrders     PurchaseOrder[]
   quotes             Quote[]
@@ -1170,6 +1171,33 @@ model AccountingAccount {
 enum AccountNature {
   DEBIT
   CREDIT
+}
+
+model AccountingPeriod {
+  id        String                 @id @default(uuid())
+  companyId String
+  name      String
+  year      Int
+  month     Int
+  startDate DateTime
+  endDate   DateTime
+  status    AccountingPeriodStatus @default(OPEN)
+  isLocked  Boolean                @default(false)
+  closedAt  DateTime?
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, year, month])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@map("accounting_periods")
+}
+
+enum AccountingPeriodStatus {
+  OPEN
+  CLOSED
 }
 
 model JournalEntry {

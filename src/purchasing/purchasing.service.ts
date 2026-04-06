@@ -33,58 +33,34 @@ export class PurchasingService {
 
   private mapOrderSupplierToCustomer(order: any) {
     if (!order) return order;
-    const { supplier, ...rest } = order;
+    const {
+      customer,
+      items,
+      number,
+      ...rest
+    } = order;
     return {
       ...rest,
-      customer: supplier
+      orderNumber: number,
+      customer: customer
         ? {
-            ...supplier,
-            creditDays: supplier.paymentTerms ?? null,
-            paymentTermDays: supplier.paymentTerms ?? null,
+            ...customer,
+            creditDays: customer.creditDays ?? null,
+            paymentTermDays: customer.creditDays ?? null,
           }
         : null,
+      lines: Array.isArray(items)
+        ? items.map((item) => ({
+            ...item,
+            taxPercent: Number(item.taxRate ?? 0),
+            discountPercent: Number(item.discount ?? 0),
+          }))
+        : undefined,
     };
   }
 
-  private async findSupplierByCustomer(companyId: string, customerId: string) {
-    const customer = await this.customersService.findOne(companyId, customerId);
-    const supplier = await this.prisma.supplier.findFirst({
-      where: {
-        companyId,
-        documentType: customer.documentType,
-        documentNumber: customer.documentNumber,
-        deletedAt: null,
-      },
-    });
-
-    return { customer, supplier };
-  }
-
-  private async ensureSupplierForCustomer(companyId: string, customerId: string) {
-    const { customer, supplier } = await this.findSupplierByCustomer(companyId, customerId);
-    if (supplier) return supplier;
-
-    return this.prisma.supplier.create({
-      data: {
-        companyId,
-        documentType: customer.documentType,
-        documentNumber: customer.documentNumber,
-        name: customer.name,
-        email: customer.email,
-        phone: customer.phone,
-        address: customer.address,
-        city: customer.city,
-        department: customer.department,
-        cityCode: customer.cityCode,
-        departmentCode: customer.departmentCode,
-        country: customer.country,
-        taxLevelCode: customer.taxLevelCode,
-        creditLimit: customer.creditLimit,
-        paymentTerms: customer.creditDays,
-        notes: customer.notes,
-        isActive: customer.isActive,
-      },
-    });
+  private async ensureCustomerForOrder(companyId: string, customerId: string) {
+    return this.customersService.findOne(companyId, customerId);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -667,28 +643,27 @@ export class PurchasingService {
 
   async findOneCustomer(companyId: string, id: string) {
     const customer = await this.customersService.findOne(companyId, id);
-    const { supplier } = await this.findSupplierByCustomer(companyId, id);
-
-    const purchaseOrders = supplier
-      ? await this.prisma.purchaseOrder.findMany({
-          where: { companyId, supplierId: supplier.id, deletedAt: null },
-          orderBy: { issueDate: 'desc' },
-          take: 5,
-          select: {
-            id: true,
-            number: true,
-            status: true,
-            issueDate: true,
-            dueDate: true,
-            total: true,
-            currency: true,
-          },
-        })
-      : [];
+    const purchaseOrders = await this.prisma.purchaseOrder.findMany({
+      where: { companyId, customerId: id, deletedAt: null },
+      orderBy: { issueDate: 'desc' },
+      take: 5,
+      select: {
+        id: true,
+        number: true,
+        status: true,
+        issueDate: true,
+        dueDate: true,
+        total: true,
+        currency: true,
+      },
+    });
 
     return {
       ...this.mapCustomerForPurchasing(customer),
-      purchaseOrders,
+      purchaseOrders: purchaseOrders.map((order) => ({
+        ...order,
+        orderNumber: order.number,
+      })),
     };
   }
 
@@ -698,62 +673,17 @@ export class PurchasingService {
   }
 
   async updateCustomer(companyId: string, id: string, dto: UpdateCustomerDto) {
-    const { supplier } = await this.findSupplierByCustomer(companyId, id);
     const updated = await this.customersService.update(companyId, id, dto);
-
-    if (supplier) {
-      await this.prisma.supplier.update({
-        where: { id: supplier.id },
-        data: {
-          documentType: updated.documentType,
-          documentNumber: updated.documentNumber,
-          name: updated.name,
-          email: updated.email,
-          phone: updated.phone,
-          address: updated.address,
-          city: updated.city,
-          department: updated.department,
-          cityCode: updated.cityCode,
-          departmentCode: updated.departmentCode,
-          country: updated.country,
-          taxLevelCode: updated.taxLevelCode,
-          creditLimit: updated.creditLimit,
-          paymentTerms: updated.creditDays,
-          notes: updated.notes,
-          isActive: updated.isActive,
-          deletedAt: updated.deletedAt,
-        },
-      });
-    }
-
     return this.mapCustomerForPurchasing(updated);
   }
 
   async toggleCustomer(companyId: string, id: string) {
-    const { supplier } = await this.findSupplierByCustomer(companyId, id);
     const updated = await this.customersService.toggle(companyId, id);
-
-    if (supplier) {
-      await this.prisma.supplier.update({
-        where: { id: supplier.id },
-        data: { isActive: updated.isActive },
-      });
-    }
-
     return this.mapCustomerForPurchasing(updated);
   }
 
   async removeCustomer(companyId: string, id: string) {
-    const { supplier } = await this.findSupplierByCustomer(companyId, id);
     const removed = await this.customersService.remove(companyId, id);
-
-    if (supplier) {
-      await this.prisma.supplier.update({
-        where: { id: supplier.id },
-        data: { deletedAt: removed.deletedAt ?? new Date() },
-      });
-    }
-
     return this.mapCustomerForPurchasing(removed);
   }
 
@@ -780,17 +710,14 @@ export class PurchasingService {
     if (search) {
       where.OR = [
         { number: { contains: search, mode: 'insensitive' } },
-        { supplier: { name: { contains: search, mode: 'insensitive' } } },
+        { customer: { name: { contains: search, mode: 'insensitive' } } },
       ];
     }
 
     if (status) where.status = status;
     if (customerId) {
-      const { supplier } = await this.findSupplierByCustomer(companyId, customerId);
-      if (!supplier) {
-        return { data: [], total: 0, page: +page, limit: +limit, totalPages: 0 };
-      }
-      where.supplierId = supplier.id;
+      await this.customersService.findOne(companyId, customerId);
+      where.customerId = customerId;
     }
 
     if (dateFrom || dateTo) {
@@ -806,7 +733,7 @@ export class PurchasingService {
         skip,
         take: +limit,
         include: {
-          supplier: {
+          customer: {
             select: { id: true, name: true, documentNumber: true },
           },
         },
@@ -827,7 +754,7 @@ export class PurchasingService {
     const order = await this.prisma.purchaseOrder.findFirst({
       where: { id, companyId, deletedAt: null },
       include: {
-        supplier: true,
+        customer: true,
         items: {
           orderBy: { position: 'asc' },
         },
@@ -843,8 +770,8 @@ export class PurchasingService {
       throw new BadRequestException('El cliente asociado a la orden es obligatorio');
     }
 
-    const supplier = await this.ensureSupplierForCustomer(companyId, customerId);
-    if (!supplier) throw new NotFoundException('Cliente no encontrado');
+    const customer = await this.ensureCustomerForOrder(companyId, customerId);
+    if (!customer) throw new NotFoundException('Cliente no encontrado');
 
     const number = await this.generateOrderNumber(companyId);
     const { subtotal, taxAmount, total, computed } = this.calcOrderTotals(dto.items);
@@ -852,7 +779,7 @@ export class PurchasingService {
     return this.prisma.purchaseOrder.create({
       data: {
         companyId,
-        supplierId: supplier.id,
+        customerId: customer.id,
         number,
         issueDate: new Date(dto.issueDate),
         dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
@@ -867,7 +794,7 @@ export class PurchasingService {
         },
       },
       include: {
-        supplier: { select: { id: true, name: true, documentNumber: true } },
+        customer: { select: { id: true, name: true, documentNumber: true, email: true, phone: true, address: true, creditDays: true } },
         items: { orderBy: { position: 'asc' } },
       },
     }).then((order) => this.mapOrderSupplierToCustomer(order));
@@ -911,7 +838,7 @@ export class PurchasingService {
         ...itemsData,
       },
       include: {
-        supplier: { select: { id: true, name: true, documentNumber: true } },
+        customer: { select: { id: true, name: true, documentNumber: true, email: true, phone: true, address: true, creditDays: true } },
         items: { orderBy: { position: 'asc' } },
       },
     }).then((order) => this.mapOrderSupplierToCustomer(order));
@@ -925,7 +852,7 @@ export class PurchasingService {
       where: { id },
       data: { status: dto.status },
       include: {
-        supplier: { select: { id: true, name: true, documentNumber: true } },
+        customer: { select: { id: true, name: true, documentNumber: true, email: true, phone: true, address: true, creditDays: true } },
       },
     }).then((order) => this.mapOrderSupplierToCustomer(order));
   }

@@ -20,6 +20,7 @@ import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { CreateJournalEntryDto } from './dto/create-journal-entry.dto';
 import { UpdateJournalEntryDto } from './dto/update-journal-entry.dto';
+import { CreateAccountingPeriodDto } from './dto/create-accounting-period.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CompanyStatusGuard } from '../common/guards/company-status.guard';
@@ -35,6 +36,74 @@ import { DEFAULT_PAGE, DEFAULT_LIMIT } from '../common/constants/pagination.cons
 @Controller({ path: 'accounting', version: '1' })
 export class AccountingController {
   constructor(private accountingService: AccountingService) {}
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // PERÍODOS CONTABLES
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @Get('periods')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Listar períodos contables configurados' })
+  findAllPeriods(
+    @CurrentUser('companyId') companyId: string,
+    @Query('year') year?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.accountingService.findAllPeriods(companyId, {
+      year: year ? Number(year) : undefined,
+      status: status?.toUpperCase(),
+    });
+  }
+
+  @Post('periods')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Crear período contable mensual' })
+  createPeriod(
+    @CurrentUser('companyId') companyId: string,
+    @Body() dto: CreateAccountingPeriodDto,
+  ) {
+    return this.accountingService.createPeriod(companyId, dto);
+  }
+
+  @Patch('periods/:id/close')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Cerrar período contable y bloquear contabilización' })
+  closePeriod(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.accountingService.closePeriod(companyId, id);
+  }
+
+  @Patch('periods/:id/reopen')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Reabrir período contable previamente cerrado' })
+  reopenPeriod(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.accountingService.reopenPeriod(companyId, id);
+  }
+
+  @Patch('periods/:id/lock')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Bloquear manualmente un período abierto' })
+  lockPeriod(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.accountingService.lockPeriod(companyId, id);
+  }
+
+  @Patch('periods/:id/unlock')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Desbloquear manualmente un período abierto' })
+  unlockPeriod(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.accountingService.unlockPeriod(companyId, id);
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // CUENTAS CONTABLES
@@ -216,5 +285,77 @@ export class AccountingController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.accountingService.removeEntry(companyId, id);
+  }
+
+  @Get('reports/trial-balance')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Reporte de balance de prueba por rango de fechas' })
+  getTrialBalance(
+    @CurrentUser('companyId') companyId: string,
+    @Query('dateFrom') dateFrom: string,
+    @Query('dateTo') dateTo: string,
+    @Query('level') level?: string,
+    @Query('search') search?: string,
+    @Query('includeZero') includeZero?: string,
+  ) {
+    return this.accountingService.getTrialBalance(companyId, {
+      dateFrom,
+      dateTo,
+      level: level ? Number(level) : undefined,
+      search,
+      includeZero: includeZero === 'true',
+    });
+  }
+
+  @Get('reports/general-ledger')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Libro mayor por cuenta con saldo inicial, movimientos y saldo final' })
+  getGeneralLedger(
+    @CurrentUser('companyId') companyId: string,
+    @Query('dateFrom') dateFrom: string,
+    @Query('dateTo') dateTo: string,
+    @Query('level') level?: string,
+    @Query('search') search?: string,
+    @Query('includeZero') includeZero?: string,
+  ) {
+    return this.accountingService.getGeneralLedger(companyId, {
+      dateFrom,
+      dateTo,
+      level: level ? Number(level) : undefined,
+      search,
+      includeZero: includeZero === 'true',
+    });
+  }
+
+  @Get('reports/account-auxiliary')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Auxiliar contable detallado por cuenta' })
+  getAccountAuxiliary(
+    @CurrentUser('companyId') companyId: string,
+    @Query('accountId') accountId: string,
+    @Query('dateFrom') dateFrom: string,
+    @Query('dateTo') dateTo: string,
+  ) {
+    return this.accountingService.getAccountAuxiliary(companyId, {
+      accountId,
+      dateFrom,
+      dateTo,
+    });
+  }
+
+  @Get('reports/financial-statements')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Estados financieros base: balance general y estado de resultados' })
+  getFinancialStatements(
+    @CurrentUser('companyId') companyId: string,
+    @Query('dateFrom') dateFrom: string,
+    @Query('dateTo') dateTo: string,
+    @Query('level') level?: string,
+  ) {
+    return this.accountingService.getFinancialStatements(companyId, {
+      dateFrom,
+      dateTo,
+      level: level ? Number(level) : undefined,
+    });
   }
 }
