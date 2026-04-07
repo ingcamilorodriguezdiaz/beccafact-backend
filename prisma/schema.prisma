@@ -1,6 +1,3 @@
-// BeccaFact - Prisma Schema
-// Multi-tenant SaaS ERP for Colombia
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,22 +7,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PLANS & FEATURES
-// ─────────────────────────────────────────────────────────────────────────────
-
 model Plan {
-  id          String   @id @default(uuid())
-  name        String   @unique // BASIC | EMPRESARIAL | CORPORATIVO
-  displayName String
-  description String?
-  price       Decimal  @db.Decimal(12, 2)
-  currency    String   @default("COP")
-  isActive    Boolean  @default(true)
-  isCustom    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
+  id            String         @id @default(uuid())
+  name          String         @unique
+  displayName   String
+  description   String?
+  price         Decimal        @db.Decimal(12, 2)
+  currency      String         @default("COP")
+  isActive      Boolean        @default(true)
+  isCustom      Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   features      PlanFeature[]
   subscriptions Subscription[]
 
@@ -35,128 +27,115 @@ model Plan {
 model PlanFeature {
   id     String  @id @default(uuid())
   planId String
-  key    String // max_documents_per_month | max_products | max_integrations | storage_months | etc.
-  value  String // "300" | "unlimited" | "true" | "false"
+  key    String
+  value  String
   label  String?
-
-  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  plan   Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@unique([planId, key])
   @@map("plan_features")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// COMPANIES
-// ─────────────────────────────────────────────────────────────────────────────
-
 model Company {
-  id                 String        @id @default(uuid())
-  name               String
-  nit                String        @unique
-  razonSocial        String
-  email              String
-  phone              String?
-  address            String?
-  city               String?
-  department         String?
-  cityCode           String?
-  departmentCode     String?
-  country            String        @default("CO")
-  status             CompanyStatus @default(ACTIVE)
-  dianTestMode       Boolean       @default(true)
-  dianSoftwareId     String?
-  dianSoftwarePin    String?
-  dianTestSetId      String?
-  dianClaveTecnica   String?
-  dianResolucion     String?
-  dianPrefijo        String?
-  dianRangoDesde     Int?
-  dianRangoHasta     Int?
-  dianFechaDesde     String?
-  dianFechaHasta     String?
-  dianPosResolucion  String?
-  dianPosPrefijo     String?
-  dianPosRangoDesde  Int?
-  dianPosRangoHasta  Int?
-  dianPosFechaDesde  String?
-  dianPosFechaHasta  String?
-  dianCertificate    String?
-  dianCertificateKey String?
-  // ── DIAN Nómina Electrónica — credenciales propias por empresa ───────────
-  nominaSoftwareId   String? // Software ID registrado en DIAN para nómina electrónica
-  nominaSoftwarePin  String? // PIN numérico del software de nómina
-  nominaTestSetId    String? // TestSetId UUID del ambiente de habilitación nómina
-  logoUrl            String?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
-  deletedAt          DateTime?
-
-  users            User[]
-  subscriptions    Subscription[]
-  products         Product[]
-  categories       Category[]
-  invoices         Invoice[]
-  customers        Customer[]
-  integrations     Integration[]
-  usageTracking    UsageTracking[]
-  auditLogs        AuditLog[]
-  importJobs       ImportJob[]
-  employees        employees[]
-  payroll_records  payroll_records[]
-  pos_sessions     PosSession[]
-  pos_sales        PosSale[]
-  posCashMovements PosCashMovement[]
-  carteraPayments    CarteraPayment[]
-  dianTestSets       DianTestSet[]
-  branches           Branch[]
-  accountingAccounts AccountingAccount[]
-  accountingPeriods  AccountingPeriod[]
-  journalEntries     JournalEntry[]
-  purchaseOrders     PurchaseOrder[]
-  quotes             Quote[]
+  id                         String                      @id @default(uuid())
+  name                       String
+  nit                        String                      @unique
+  razonSocial                String
+  email                      String
+  phone                      String?
+  address                    String?
+  city                       String?
+  department                 String?
+  cityCode                   String?
+  departmentCode             String?
+  country                    String                      @default("CO")
+  status                     CompanyStatus               @default(ACTIVE)
+  dianTestMode               Boolean                     @default(true)
+  dianSoftwareId             String?
+  dianSoftwarePin            String?
+  dianTestSetId              String?
+  dianClaveTecnica           String?
+  dianResolucion             String?
+  dianPrefijo                String?
+  dianRangoDesde             Int?
+  dianRangoHasta             Int?
+  dianFechaDesde             String?
+  dianFechaHasta             String?
+  dianCertificate            String?
+  dianCertificateKey         String?
+  logoUrl                    String?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  deletedAt                  DateTime?
+  nominaSoftwareId           String?
+  nominaSoftwarePin          String?
+  nominaTestSetId            String?
+  dianPosResolucion          String?
+  dianPosPrefijo             String?
+  dianPosRangoDesde          Int?
+  dianPosRangoHasta          Int?
+  dianPosFechaDesde          String?
+  dianPosFechaHasta          String?
+  accountingAccounts         AccountingAccount[]
+  accountingPeriods          AccountingPeriod[]
+  auditLogs                  AuditLog[]
+  branches                   Branch[]
+  carteraAdjustments         CarteraAdjustment[]
+  carteraCollectionFollowUps CarteraCollectionFollowUp[]
+  carteraPaymentPromises     CarteraPaymentPromise[]
+  carteraPayments            CarteraPayment[]
+  carteraReceiptApplications CarteraReceiptApplication[]
+  carteraReceipts            CarteraReceipt[]
+  carteraBankMovements       CarteraBankMovement[]
+  categories                 Category[]
+  customers                  Customer[]
+  dianTestSets               DianTestSet[]
+  employees                  employees[]
+  importJobs                 ImportJob[]
+  integrations               Integration[]
+  invoices                   Invoice[]
+  journalEntries             JournalEntry[]
+  payroll_records            payroll_records[]
+  posCashMovements           PosCashMovement[]
+  pos_sales                  PosSale[]
+  pos_sessions               PosSession[]
+  products                   Product[]
+  purchaseOrders             PurchaseOrder[]
+  quotes                     Quote[]
+  subscriptions              Subscription[]
+  usageTracking              UsageTracking[]
+  users                      User[]
 
   @@index([status])
   @@index([nit])
   @@map("companies")
 }
 
-enum CompanyStatus {
-  ACTIVE
-  SUSPENDED
-  CANCELLED
-  TRIAL
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SUCURSALES
-// ─────────────────────────────────────────────────────────────────────────────
-
 model Branch {
-  id             String    @id @default(uuid())
-  companyId      String
-  name           String
-  address        String?
-  city           String?
-  department     String?
-  cityCode       String?
-  departmentCode String?
-  country        String?   @default("CO")
-  phone          String?
-  email          String?
-  isMain         Boolean   @default(false)
-  isActive       Boolean   @default(true)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  deletedAt      DateTime?
-
-  company         Company          @relation(fields: [companyId], references: [id])
+  id              String            @id @default(uuid())
+  companyId       String
+  name            String
+  address         String?
+  city            String?
+  department      String?
+  phone           String?
+  email           String?
+  isMain          Boolean           @default(false)
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  deletedAt       DateTime?
+  cityCode        String?
+  country         String?           @default("CO")
+  departmentCode  String?
+  company         Company           @relation(fields: [companyId], references: [id])
+  employees       employees[]       @relation("EmployeeBranch")
+  invoices        Invoice[]
+  payroll_records payroll_records[] @relation("PayrollBranch")
+  posSales        PosSale[]
+  posSessions     PosSession[]
   products        Product[]
   userBranches    UserBranch[]
-  invoices        Invoice[]
-  posSessions     PosSession[]
-  posSales        PosSale[]
-  employees       employees[]      @relation("EmployeeBranch")
-  payroll_records payroll_records[] @relation("PayrollBranch")
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -170,18 +149,13 @@ model UserBranch {
   branchId  String
   companyId String
   createdAt DateTime @default(now())
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, branchId])
   @@index([companyId])
   @@map("user_branches")
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SUBSCRIPTIONS
-// ─────────────────────────────────────────────────────────────────────────────
 
 model Subscription {
   id           String             @id @default(uuid())
@@ -191,56 +165,50 @@ model Subscription {
   startDate    DateTime
   endDate      DateTime?
   trialEndsAt  DateTime?
-  customLimits Json? // Override per-company limits
+  customLimits Json?
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id])
-  plan    Plan    @relation(fields: [planId], references: [id])
+  company      Company            @relation(fields: [companyId], references: [id])
+  plan         Plan               @relation(fields: [planId], references: [id])
 
   @@index([companyId])
   @@index([status])
   @@map("subscriptions")
 }
 
-enum SubscriptionStatus {
-  ACTIVE
-  TRIAL
-  SUSPENDED
-  CANCELLED
-  EXPIRED
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// USERS & ROLES
-// ─────────────────────────────────────────────────────────────────────────────
-
 model User {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  password     String
-  firstName    String
-  lastName     String
-  phone        String?
-  avatar       String?
-  isActive     Boolean   @default(true)
-  isSuperAdmin Boolean   @default(false)
-  hasSeenTour  Boolean   @default(false)
-  companyId    String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime?
-  lastLoginAt  DateTime?
-  refreshToken String?   @db.Text
-
-  company          Company?          @relation(fields: [companyId], references: [id])
-  roles            UserRole[]
-  auditLogs        AuditLog[]
-  importJobs       ImportJob[]
-  pos_sessions     PosSession[]
-  posCashMovements PosCashMovement[]
-  carteraPayments  CarteraPayment[]
-  userBranches     UserBranch[]
+  id                                String                      @id @default(uuid())
+  email                             String                      @unique
+  password                          String
+  firstName                         String
+  lastName                          String
+  phone                             String?
+  avatar                            String?
+  isActive                          Boolean                     @default(true)
+  isSuperAdmin                      Boolean                     @default(false)
+  companyId                         String?
+  createdAt                         DateTime                    @default(now())
+  updatedAt                         DateTime                    @updatedAt
+  deletedAt                         DateTime?
+  lastLoginAt                       DateTime?
+  refreshToken                      String?
+  hasSeenTour                       Boolean                     @default(false)
+  auditLogs                         AuditLog[]
+  approvedCarteraAdjustments        CarteraAdjustment[]         @relation("CarteraAdjustmentApprovedBy")
+  importedCarteraBankMovements      CarteraBankMovement[]       @relation("CarteraBankMovementImportedBy")
+  reconciledCarteraBankMovements    CarteraBankMovement[]       @relation("CarteraBankMovementReconciledBy")
+  requestedCarteraAdjustments       CarteraAdjustment[]         @relation("CarteraAdjustmentRequestedBy")
+  createdCarteraCollectionFollowUps CarteraCollectionFollowUp[] @relation("CarteraCollectionFollowUpCreatedBy")
+  createdCarteraPaymentPromises     CarteraPaymentPromise[]     @relation("CarteraPaymentPromiseCreatedBy")
+  carteraPayments                   CarteraPayment[]
+  carteraReceiptApplications        CarteraReceiptApplication[]
+  carteraReceipts                   CarteraReceipt[]
+  importJobs                        ImportJob[]
+  posCashMovements                  PosCashMovement[]
+  pos_sessions                      PosSession[]
+  userBranches                      UserBranch[]
+  roles                             UserRole[]
+  company                           Company?                    @relation(fields: [companyId], references: [id])
 
   @@index([companyId])
   @@index([email])
@@ -248,13 +216,12 @@ model User {
 }
 
 model Role {
-  id          String   @id @default(uuid())
-  name        String   @unique // SUPER_ADMIN | ADMIN | MANAGER | OPERATOR | VIEWER
+  id          String           @id @default(uuid())
+  name        String           @unique
   displayName String
   description String?
-  isSystem    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-
+  isSystem    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
   permissions RolePermission[]
   userRoles   UserRole[]
 
@@ -264,10 +231,9 @@ model Role {
 model RolePermission {
   id       String @id @default(uuid())
   roleId   String
-  resource String // invoices | products | customers | reports | etc.
-  action   String // create | read | update | delete | export | import
-
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  resource String
+  action   String
+  role     Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@unique([roleId, resource, action])
   @@map("role_permissions")
@@ -278,33 +244,27 @@ model UserRole {
   userId    String
   roleId    String
   createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, roleId])
   @@map("user_roles")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PRODUCTS & CATEGORIES
-// ─────────────────────────────────────────────────────────────────────────────
-
 model Category {
-  id          String    @id @default(uuid())
+  id          String     @id @default(uuid())
   companyId   String
   name        String
   description String?
   parentId    String?
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
   deletedAt   DateTime?
-
-  company  Company    @relation(fields: [companyId], references: [id])
-  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
-  children Category[] @relation("CategoryTree")
-  products Product[]
+  company     Company    @relation(fields: [companyId], references: [id])
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryTree")
+  products    Product[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -312,33 +272,32 @@ model Category {
 }
 
 model Product {
-  id          String        @id @default(uuid())
-  companyId   String
-  branchId    String?
-  categoryId  String?
-  sku         String
-  name        String
-  description String?       @db.Text
-  price       Decimal       @db.Decimal(12, 2)
-  cost        Decimal       @default(0) @db.Decimal(12, 2)
-  stock       Int           @default(0)
-  minStock    Int           @default(0)
-  unit        String        @default("UND")
-  taxRate     Decimal       @default(19) @db.Decimal(5, 2)
-  taxType     TaxType       @default(IVA)
-  unspscCode  String?
-  status      ProductStatus @default(ACTIVE)
-  imageUrl    String?
-  barcode     String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  deletedAt   DateTime?
-
-  company            Company             @relation(fields: [companyId], references: [id])
-  branch             Branch?             @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  category           Category?           @relation(fields: [categoryId], references: [id])
+  id                 String              @id @default(uuid())
+  companyId          String
+  categoryId         String?
+  sku                String
+  name               String
+  description        String?
+  price              Decimal             @db.Decimal(12, 2)
+  cost               Decimal             @default(0) @db.Decimal(12, 2)
+  stock              Int                 @default(0)
+  minStock           Int                 @default(0)
+  unit               String              @default("UND")
+  taxRate            Decimal             @default(19) @db.Decimal(5, 2)
+  taxType            TaxType             @default(IVA)
+  unspscCode         String?
+  status             ProductStatus       @default(ACTIVE)
+  imageUrl           String?
+  barcode            String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  deletedAt          DateTime?
+  branchId           String?
   invoiceItems       InvoiceItem[]
   posSaleItems       PosSaleItem[]
+  branch             Branch?             @relation(fields: [branchId], references: [id])
+  category           Category?           @relation(fields: [categoryId], references: [id])
+  company            Company             @relation(fields: [companyId], references: [id])
   purchaseOrderItems PurchaseOrderItem[]
   quoteItems         QuoteItem[]
 
@@ -347,6 +306,925 @@ model Product {
   @@index([companyId])
   @@index([companyId, status])
   @@map("products")
+}
+
+model Customer {
+  id                         String                      @id @default(uuid())
+  companyId                  String
+  documentType               DocumentType                @default(NIT)
+  documentNumber             String
+  name                       String
+  email                      String?
+  phone                      String?
+  address                    String?
+  city                       String?
+  department                 String?
+  cityCode                   String?
+  departmentCode             String?
+  country                    String                      @default("CO")
+  isActive                   Boolean                     @default(true)
+  creditLimit                Decimal?                    @db.Decimal(12, 2)
+  creditDays                 Int?
+  notes                      String?
+  taxLevelCode               String?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  deletedAt                  DateTime?
+  carteraAdjustments         CarteraAdjustment[]
+  carteraCollectionFollowUps CarteraCollectionFollowUp[]
+  carteraPaymentPromises     CarteraPaymentPromise[]
+  carteraReceipts            CarteraReceipt[]
+  company                    Company                     @relation(fields: [companyId], references: [id])
+  invoices                   Invoice[]
+  pos_sales                  PosSale[]
+  purchaseOrders             PurchaseOrder[]
+  quotes                     Quote[]
+
+  @@unique([companyId, documentType, documentNumber])
+  @@index([companyId])
+  @@map("customers")
+}
+
+model Invoice {
+  id                         String                      @id @default(uuid())
+  companyId                  String
+  customerId                 String
+  invoiceNumber              String
+  prefix                     String                      @default("FV")
+  type                       InvoiceType                 @default(VENTA)
+  status                     InvoiceStatus               @default(DRAFT)
+  issueDate                  DateTime
+  dueDate                    DateTime?
+  subtotal                   Decimal                     @db.Decimal(12, 2)
+  taxAmount                  Decimal                     @db.Decimal(12, 2)
+  discountAmount             Decimal                     @default(0) @db.Decimal(12, 2)
+  total                      Decimal                     @db.Decimal(12, 2)
+  notes                      String?
+  dianCufe                   String?                     @unique
+  dianQrCode                 String?
+  dianStatus                 String?
+  dianStatusCode             String?
+  dianStatusMsg              String?
+  dianErrors                 String?
+  dianZipKey                 String?
+  dianXmlBase64              String?
+  dianSentAt                 DateTime?
+  dianResponseAt             DateTime?
+  dianAttempts               Int                         @default(0)
+  xmlContent                 String?
+  xmlSigned                  String?
+  pdfUrl                     String?
+  xmlUrl                     String?
+  currency                   String                      @default("COP")
+  exchangeRate               Decimal                     @default(1) @db.Decimal(12, 4)
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  deletedAt                  DateTime?
+  dianCude                   String?                     @unique
+  discrepancyReason          String?
+  discrepancyReasonCode      String?
+  originalInvoiceId          String?
+  branchId                   String?
+  carteraAdjustments         CarteraAdjustment[]         @relation("CarteraAdjustmentInvoice")
+  sourceCarteraAdjustments   CarteraAdjustment[]         @relation("CarteraAdjustmentSourceInvoice")
+  carteraCollectionFollowUps CarteraCollectionFollowUp[]
+  carteraPaymentPromises     CarteraPaymentPromise[]
+  payments                   CarteraPayment[]
+  receiptApplications        CarteraReceiptApplication[]
+  items                      InvoiceItem[]
+  branch                     Branch?                     @relation(fields: [branchId], references: [id])
+  company                    Company                     @relation(fields: [companyId], references: [id])
+  customer                   Customer                    @relation(fields: [customerId], references: [id])
+  originalInvoice            Invoice?                    @relation("InvoiceNotes", fields: [originalInvoiceId], references: [id])
+  creditDebitNotes           Invoice[]                   @relation("InvoiceNotes")
+  payrollRecord              payroll_records?            @relation("PayrollInvoice")
+  posSale                    PosSale?                    @relation("PosSaleInvoice")
+  quote                      Quote?                      @relation("QuoteInvoice")
+
+  @@unique([companyId, invoiceNumber])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([companyId, issueDate])
+  @@index([originalInvoiceId])
+  @@index([branchId])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  productId   String?
+  description String
+  quantity    Decimal  @db.Decimal(12, 4)
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  taxRate     Decimal  @db.Decimal(5, 2)
+  taxAmount   Decimal  @db.Decimal(12, 2)
+  discount    Decimal  @default(0) @db.Decimal(5, 2)
+  total       Decimal  @db.Decimal(12, 2)
+  position    Int
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product     Product? @relation(fields: [productId], references: [id])
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+model CarteraPayment {
+  id            String   @id @default(uuid())
+  companyId     String
+  invoiceId     String
+  userId        String
+  amount        Decimal  @db.Decimal(12, 2)
+  paymentMethod String
+  reference     String?
+  notes         String?
+  paymentDate   DateTime
+  createdAt     DateTime @default(now())
+  company       Company  @relation(fields: [companyId], references: [id])
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id])
+
+  @@index([invoiceId])
+  @@index([companyId, paymentDate])
+  @@map("cartera_payments")
+}
+
+model CarteraReceipt {
+  id              String                      @id
+  companyId       String
+  customerId      String
+  number          String
+  amount          Decimal                     @db.Decimal(12, 2)
+  appliedAmount   Decimal                     @default(0) @db.Decimal(12, 2)
+  unappliedAmount Decimal                     @db.Decimal(12, 2)
+  paymentMethod   String
+  reference       String?
+  notes           String?
+  paymentDate     DateTime
+  status          String                      @default("OPEN")
+  createdById     String
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+  adjustments     CarteraAdjustment[]
+  applications    CarteraReceiptApplication[]
+  bankMovements   CarteraBankMovement[]
+  company         Company                     @relation(fields: [companyId], references: [id])
+  createdBy       User                        @relation(fields: [createdById], references: [id])
+  customer        Customer                    @relation(fields: [customerId], references: [id])
+
+  @@unique([companyId, number])
+  @@index([companyId, paymentDate])
+  @@index([customerId])
+  @@map("cartera_receipts")
+}
+
+model CarteraReceiptApplication {
+  id          String         @id
+  companyId   String
+  receiptId   String
+  invoiceId   String
+  amount      Decimal        @db.Decimal(12, 2)
+  appliedAt   DateTime
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  company     Company        @relation(fields: [companyId], references: [id])
+  createdBy   User           @relation(fields: [createdById], references: [id])
+  invoice     Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  receipt     CarteraReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, appliedAt])
+  @@index([receiptId])
+  @@index([invoiceId])
+  @@map("cartera_receipt_applications")
+}
+
+model CarteraPaymentPromise {
+  id           String    @id
+  companyId    String
+  customerId   String
+  invoiceId    String?
+  amount       Decimal   @db.Decimal(12, 2)
+  promisedDate DateTime
+  status       String    @default("OPEN")
+  notes        String?
+  createdById  String
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  company      Company   @relation(fields: [companyId], references: [id])
+  createdBy    User      @relation("CarteraPaymentPromiseCreatedBy", fields: [createdById], references: [id])
+  customer     Customer  @relation(fields: [customerId], references: [id])
+  invoice      Invoice?  @relation(fields: [invoiceId], references: [id])
+
+  @@index([companyId, promisedDate])
+  @@index([customerId])
+  @@index([invoiceId])
+  @@map("cartera_payment_promises")
+}
+
+model CarteraCollectionFollowUp {
+  id             String    @id
+  companyId      String
+  customerId     String
+  invoiceId      String?
+  activityType   String
+  outcome        String
+  nextActionDate DateTime?
+  nextAction     String?
+  createdById    String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  company        Company   @relation(fields: [companyId], references: [id])
+  createdBy      User      @relation("CarteraCollectionFollowUpCreatedBy", fields: [createdById], references: [id])
+  customer       Customer  @relation(fields: [customerId], references: [id])
+  invoice        Invoice?  @relation(fields: [invoiceId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([customerId])
+  @@index([invoiceId])
+  @@map("cartera_collection_followups")
+}
+
+model CarteraAdjustment {
+  id              String          @id
+  companyId       String
+  customerId      String
+  invoiceId       String?
+  receiptId       String?
+  sourceInvoiceId String?
+  type            String
+  status          String          @default("PENDING_APPROVAL")
+  amount          Decimal         @db.Decimal(12, 2)
+  reason          String
+  notes           String?
+  requestedById   String
+  approvedById    String?
+  approvedAt      DateTime?
+  appliedAt       DateTime?
+  rejectedAt      DateTime?
+  rejectedReason  String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @default(now()) @updatedAt
+  approvedBy      User?           @relation("CarteraAdjustmentApprovedBy", fields: [approvedById], references: [id])
+  company         Company         @relation(fields: [companyId], references: [id])
+  customer        Customer        @relation(fields: [customerId], references: [id])
+  invoice         Invoice?        @relation("CarteraAdjustmentInvoice", fields: [invoiceId], references: [id])
+  receipt         CarteraReceipt? @relation(fields: [receiptId], references: [id])
+  requestedBy     User            @relation("CarteraAdjustmentRequestedBy", fields: [requestedById], references: [id])
+  sourceInvoice   Invoice?        @relation("CarteraAdjustmentSourceInvoice", fields: [sourceInvoiceId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([customerId])
+  @@index([invoiceId])
+  @@index([receiptId])
+  @@index([status, type])
+  @@map("cartera_adjustments")
+}
+
+model CarteraBankMovement {
+  id              String          @id
+  companyId       String
+  bankCode        String?
+  accountNumber   String?
+  movementDate    DateTime
+  reference       String?
+  description     String?
+  amount          Decimal         @db.Decimal(12, 2)
+  status          String          @default("UNRECONCILED")
+  matchedReceiptId String?
+  reconciledById  String?
+  reconciledAt    DateTime?
+  importedById    String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @default(now()) @updatedAt
+  company         Company         @relation(fields: [companyId], references: [id])
+  importedBy      User            @relation("CarteraBankMovementImportedBy", fields: [importedById], references: [id])
+  matchedReceipt  CarteraReceipt? @relation(fields: [matchedReceiptId], references: [id])
+  reconciledBy    User?           @relation("CarteraBankMovementReconciledBy", fields: [reconciledById], references: [id])
+
+  @@index([companyId, movementDate])
+  @@index([status])
+  @@index([matchedReceiptId])
+  @@map("cartera_bank_movements")
+}
+
+model Integration {
+  id         String            @id @default(uuid())
+  companyId  String
+  type       IntegrationType
+  name       String
+  config     Json
+  isActive   Boolean           @default(true)
+  lastSyncAt DateTime?
+  status     IntegrationStatus @default(PENDING)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  company    Company           @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@map("integrations")
+}
+
+model UsageTracking {
+  id        String   @id @default(uuid())
+  companyId String
+  metric    String
+  value     Int      @default(0)
+  period    String
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, metric, period])
+  @@index([companyId, period])
+  @@map("usage_tracking")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  companyId  String?
+  userId     String?
+  action     String
+  resource   String
+  resourceId String?
+  before     Json?
+  after      Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  company    Company? @relation(fields: [companyId], references: [id])
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([userId])
+  @@index([resource, resourceId])
+  @@map("audit_logs")
+}
+
+model ImportJob {
+  id            String        @id @default(uuid())
+  companyId     String
+  userId        String
+  type          String        @default("PRODUCTS")
+  status        ImportStatus  @default(PENDING)
+  fileName      String
+  fileUrl       String
+  totalRows     Int           @default(0)
+  processedRows Int           @default(0)
+  successRows   Int           @default(0)
+  errorRows     Int           @default(0)
+  reportUrl     String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  errors        ImportError[]
+  company       Company       @relation(fields: [companyId], references: [id])
+  user          User          @relation(fields: [userId], references: [id])
+
+  @@index([companyId])
+  @@index([status])
+  @@map("import_jobs")
+}
+
+model ImportError {
+  id          String    @id @default(uuid())
+  importJobId String
+  rowNumber   Int
+  field       String?
+  value       String?
+  message     String
+  rawData     Json?
+  createdAt   DateTime  @default(now())
+  importJob   ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+
+  @@index([importJobId])
+  @@map("import_errors")
+}
+
+model Parameter {
+  id        String   @id @default(uuid())
+  category  String
+  value     String
+  label     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@map("parameters")
+}
+
+model Country {
+  id          String       @id @default(uuid())
+  code        String       @unique
+  name        String
+  isActive    Boolean      @default(true)
+  departments Department[]
+
+  @@index([code])
+  @@map("countries")
+}
+
+model Department {
+  id             String         @id @default(uuid())
+  code           String         @unique
+  name           String
+  countryCode    String         @default("CO")
+  isActive       Boolean        @default(true)
+  country        Country        @relation(fields: [countryCode], references: [code])
+  municipalities Municipality[]
+
+  @@index([code])
+  @@index([countryCode])
+  @@map("departments")
+}
+
+model Municipality {
+  id             String     @id @default(uuid())
+  code           String     @unique
+  name           String
+  departmentCode String
+  isActive       Boolean    @default(true)
+  department     Department @relation(fields: [departmentCode], references: [code])
+
+  @@index([code])
+  @@index([departmentCode])
+  @@map("municipalities")
+}
+
+model Bank {
+  id        String      @id @default(uuid())
+  code      String      @unique
+  name      String
+  isActive  Boolean     @default(true)
+  employees employees[]
+
+  @@index([code])
+  @@map("banks")
+}
+
+model employees {
+  id              String            @id @default(uuid())
+  companyId       String
+  documentType    String            @default("CC")
+  documentNumber  String
+  firstName       String
+  lastName        String
+  email           String?
+  phone           String?
+  position        String
+  baseSalary      Decimal           @db.Decimal(12, 2)
+  contractType    String            @default("INDEFINITE")
+  hireDate        DateTime
+  city            String?
+  bankAccount     String?
+  bankName        String?
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  deletedAt       DateTime?
+  bankCode        String?
+  cityCode        String?
+  country         String            @default("CO")
+  departmentCode  String?
+  branchId        String?
+  bank            Bank?             @relation(fields: [bankCode], references: [code])
+  branch          Branch?           @relation("EmployeeBranch", fields: [branchId], references: [id])
+  companies       Company           @relation(fields: [companyId], references: [id])
+  payroll_records payroll_records[]
+
+  @@unique([companyId, documentNumber])
+  @@index([companyId])
+  @@index([branchId])
+}
+
+model payroll_records {
+  id                 String            @id @default(uuid())
+  companyId          String
+  employeeId         String
+  period             String
+  payDate            DateTime
+  status             String            @default("DRAFT")
+  cune               String?           @unique
+  cuneHash           String?
+  cuneInput          String?
+  payrollType        PayrollType       @default(NOMINA_ELECTRONICA)
+  payrollNumber      String?
+  xmlSigned          String?
+  xmlUrl             String?
+  pdfUrl             String?
+  dianZipKey         String?
+  dianStatus         String?
+  dianStatusCode     String?
+  dianStatusMsg      String?
+  dianErrors         String?
+  dianAttempts       Int               @default(0)
+  cuneRef            String?
+  payrollNumberRef   String?
+  fechaGenRef        String?
+  tipoAjuste         String?
+  originalNieId      String?
+  predecessorId      String?
+  isAnulado          Boolean           @default(false)
+  submittedAt        DateTime?
+  baseSalary         Decimal           @db.Decimal(12, 2)
+  daysWorked         Int               @default(30)
+  overtimeHours      Decimal           @default(0) @db.Decimal(8, 2)
+  bonuses            Decimal           @default(0) @db.Decimal(12, 2)
+  commissions        Decimal           @default(0) @db.Decimal(12, 2)
+  transportAllowance Decimal           @default(0) @db.Decimal(12, 2)
+  vacationPay        Decimal           @default(0) @db.Decimal(12, 2)
+  healthEmployee     Decimal           @default(0) @db.Decimal(12, 2)
+  pensionEmployee    Decimal           @default(0) @db.Decimal(12, 2)
+  sickLeave          Decimal           @default(0) @db.Decimal(12, 2)
+  loans              Decimal           @default(0) @db.Decimal(12, 2)
+  otherDeductions    Decimal           @default(0) @db.Decimal(12, 2)
+  healthEmployer     Decimal           @default(0) @db.Decimal(12, 2)
+  pensionEmployer    Decimal           @default(0) @db.Decimal(12, 2)
+  arl                Decimal           @default(0) @db.Decimal(12, 2)
+  compensationFund   Decimal           @default(0) @db.Decimal(12, 2)
+  totalEarnings      Decimal           @db.Decimal(12, 2)
+  totalDeductions    Decimal           @db.Decimal(12, 2)
+  netPay             Decimal           @db.Decimal(12, 2)
+  totalEmployerCost  Decimal           @db.Decimal(12, 2)
+  notes              String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  branchId           String?
+  invoiceId          String?           @unique
+  branch             Branch?           @relation("PayrollBranch", fields: [branchId], references: [id])
+  companies          Company           @relation(fields: [companyId], references: [id])
+  employees          employees         @relation(fields: [employeeId], references: [id])
+  invoice            Invoice?          @relation("PayrollInvoice", fields: [invoiceId], references: [id])
+  originalNie        payroll_records?  @relation("NieChain", fields: [originalNieId], references: [id])
+  adjustments        payroll_records[] @relation("NieChain")
+  predecessor        payroll_records?  @relation("NiaeChain", fields: [predecessorId], references: [id])
+  successors         payroll_records[] @relation("NiaeChain")
+
+  @@index([companyId, employeeId, period, payrollType])
+  @@index([companyId, employeeId, payrollType])
+  @@index([companyId, employeeId, originalNieId])
+  @@index([branchId])
+}
+
+model DianXmlTemplate {
+  id            String           @id @default(uuid())
+  documentType  DianDocumentType
+  version       String           @default("V1.0:2021")
+  name          String
+  description   String?
+  xmlTemplate   String
+  xsdSchemaUrl  String?
+  namespace     String?
+  rootElement   String?
+  hashAlgorithm String?
+  hashFields    String?
+  isActive      Boolean          @default(true)
+  isCurrent     Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  createdBy     String?
+
+  @@unique([documentType, version])
+  @@index([documentType, isActive])
+  @@map("dian_xml_templates")
+}
+
+model PosSession {
+  id                String            @id @default(uuid())
+  companyId         String
+  userId            String
+  status            PosSessionStatus  @default(OPEN)
+  openedAt          DateTime          @default(now())
+  closedAt          DateTime?
+  initialCash       Decimal           @default(0) @db.Decimal(12, 2)
+  finalCash         Decimal?          @db.Decimal(12, 2)
+  expectedCash      Decimal?          @db.Decimal(12, 2)
+  cashDifference    Decimal?          @db.Decimal(12, 2)
+  totalSales        Decimal           @default(0) @db.Decimal(12, 2)
+  totalTransactions Int               @default(0)
+  notes             String?
+  branchId          String?
+  cashMovements     PosCashMovement[]
+  sales             PosSale[]
+  branch            Branch?           @relation(fields: [branchId], references: [id])
+  company           Company           @relation(fields: [companyId], references: [id])
+  user              User              @relation(fields: [userId], references: [id])
+
+  @@index([companyId, status])
+  @@index([companyId, openedAt])
+  @@index([branchId])
+  @@map("pos_sessions")
+}
+
+model PosSale {
+  id              String         @id @default(uuid())
+  companyId       String
+  sessionId       String
+  customerId      String?
+  saleNumber      String
+  subtotal        Decimal        @db.Decimal(12, 2)
+  taxAmount       Decimal        @db.Decimal(12, 2)
+  discountAmount  Decimal        @default(0) @db.Decimal(12, 2)
+  total           Decimal        @db.Decimal(12, 2)
+  paymentMethod   PaymentMethod  @default(CASH)
+  amountPaid      Decimal        @db.Decimal(12, 2)
+  change          Decimal        @default(0) @db.Decimal(12, 2)
+  status          PosSaleStatus  @default(COMPLETED)
+  invoiceId       String?        @unique
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  branchId        String?
+  advanceAmount   Decimal        @default(0) @db.Decimal(12, 2)
+  deliveryStatus  DeliveryStatus @default(DELIVERED)
+  remainingAmount Decimal        @default(0) @db.Decimal(12, 2)
+  items           PosSaleItem[]
+  branch          Branch?        @relation(fields: [branchId], references: [id])
+  company         Company        @relation(fields: [companyId], references: [id])
+  customer        Customer?      @relation(fields: [customerId], references: [id])
+  invoice         Invoice?       @relation("PosSaleInvoice", fields: [invoiceId], references: [id])
+  session         PosSession     @relation(fields: [sessionId], references: [id])
+
+  @@unique([companyId, saleNumber])
+  @@index([companyId, createdAt])
+  @@index([sessionId])
+  @@index([branchId])
+  @@map("pos_sales")
+}
+
+model PosSaleItem {
+  id          String   @id @default(uuid())
+  saleId      String
+  productId   String?
+  description String
+  quantity    Decimal  @db.Decimal(12, 4)
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  taxRate     Decimal  @db.Decimal(5, 2)
+  taxAmount   Decimal  @db.Decimal(12, 2)
+  discount    Decimal  @default(0) @db.Decimal(5, 2)
+  subtotal    Decimal  @db.Decimal(12, 2)
+  total       Decimal  @db.Decimal(12, 2)
+  product     Product? @relation(fields: [productId], references: [id])
+  sale        PosSale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+  @@map("pos_sale_items")
+}
+
+model PosCashMovement {
+  id        String           @id @default(uuid())
+  companyId String
+  sessionId String
+  userId    String
+  type      CashMovementType
+  amount    Decimal          @db.Decimal(12, 2)
+  reason    String
+  createdAt DateTime         @default(now())
+  company   Company          @relation(fields: [companyId], references: [id])
+  session   PosSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id])
+
+  @@index([sessionId])
+  @@index([companyId, createdAt])
+  @@map("pos_cash_movements")
+}
+
+model DianTestSet {
+  id           String                @id @default(uuid())
+  companyId    String
+  type         DianTestSetType
+  status       DianTestSetStatus     @default(PENDING)
+  totalDocs    Int
+  sentDocs     Int                   @default(0)
+  acceptedDocs Int                   @default(0)
+  rejectedDocs Int                   @default(0)
+  errorDocs    Int                   @default(0)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  notes        String?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  documents    DianTestSetDocument[]
+  company      Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("dian_test_sets")
+}
+
+model DianTestSetDocument {
+  id             String      @id @default(uuid())
+  testSetId      String
+  sequence       Int
+  docType        String
+  invoiceId      String?
+  payrollId      String?
+  status         String      @default("PENDING")
+  dianZipKey     String?
+  dianStatusCode String?
+  dianStatusMsg  String?
+  errorMsg       String?
+  sentAt         DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  testSet        DianTestSet @relation(fields: [testSetId], references: [id], onDelete: Cascade)
+
+  @@map("dian_test_set_documents")
+}
+
+model AccountingAccount {
+  id        String              @id @default(uuid())
+  companyId String
+  code      String
+  name      String
+  level     Int
+  parentId  String?
+  nature    AccountNature       @default(DEBIT)
+  isActive  Boolean             @default(true)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  company   Company             @relation(fields: [companyId], references: [id])
+  parent    AccountingAccount?  @relation("AccountTree", fields: [parentId], references: [id])
+  children  AccountingAccount[] @relation("AccountTree")
+  lines     JournalEntryLine[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([companyId, level])
+  @@map("accounting_accounts")
+}
+
+model AccountingPeriod {
+  id        String                 @id @default(uuid())
+  companyId String
+  name      String
+  year      Int
+  month     Int
+  startDate DateTime
+  endDate   DateTime
+  status    AccountingPeriodStatus @default(OPEN)
+  isLocked  Boolean                @default(false)
+  closedAt  DateTime?
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+  company   Company                @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, year, month])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@map("accounting_periods")
+}
+
+model JournalEntry {
+  id          String             @id @default(uuid())
+  companyId   String
+  number      String
+  date        DateTime
+  description String
+  reference   String?
+  sourceType  JournalSourceType  @default(MANUAL)
+  sourceId    String?
+  status      JournalEntryStatus @default(DRAFT)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  deletedAt   DateTime?
+  company     Company            @relation(fields: [companyId], references: [id])
+  lines       JournalEntryLine[]
+
+  @@unique([companyId, number])
+  @@index([companyId])
+  @@index([companyId, date])
+  @@index([companyId, status])
+  @@map("journal_entries")
+}
+
+model JournalEntryLine {
+  id          String            @id @default(uuid())
+  entryId     String
+  accountId   String
+  description String?
+  debit       Decimal           @default(0) @db.Decimal(12, 2)
+  credit      Decimal           @default(0) @db.Decimal(12, 2)
+  position    Int
+  account     AccountingAccount @relation(fields: [accountId], references: [id])
+  entry       JournalEntry      @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+  @@index([accountId])
+  @@map("journal_entry_lines")
+}
+
+model PurchaseOrder {
+  id             String              @id @default(uuid())
+  companyId      String
+  number         String
+  status         PurchaseOrderStatus @default(DRAFT)
+  issueDate      DateTime
+  dueDate        DateTime?
+  subtotal       Decimal             @db.Decimal(12, 2)
+  taxAmount      Decimal             @db.Decimal(12, 2)
+  discountAmount Decimal             @default(0) @db.Decimal(12, 2)
+  total          Decimal             @db.Decimal(12, 2)
+  notes          String?
+  currency       String              @default("COP")
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  deletedAt      DateTime?
+  customerId     String
+  items          PurchaseOrderItem[]
+  company        Company             @relation(fields: [companyId], references: [id])
+  customer       Customer            @relation(fields: [customerId], references: [id])
+
+  @@unique([companyId, number])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([companyId, issueDate])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id          String        @id @default(uuid())
+  orderId     String
+  productId   String?
+  description String
+  quantity    Decimal       @db.Decimal(12, 4)
+  unitPrice   Decimal       @db.Decimal(12, 2)
+  taxRate     Decimal       @db.Decimal(5, 2)
+  taxAmount   Decimal       @db.Decimal(12, 2)
+  discount    Decimal       @default(0) @db.Decimal(5, 2)
+  total       Decimal       @db.Decimal(12, 2)
+  position    Int
+  order       PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product?      @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@map("purchase_order_items")
+}
+
+model Quote {
+  id             String      @id @default(uuid())
+  companyId      String
+  customerId     String
+  number         String
+  status         QuoteStatus @default(DRAFT)
+  issueDate      DateTime
+  expiresAt      DateTime?
+  subtotal       Decimal     @db.Decimal(12, 2)
+  taxAmount      Decimal     @db.Decimal(12, 2)
+  discountAmount Decimal     @default(0) @db.Decimal(12, 2)
+  total          Decimal     @db.Decimal(12, 2)
+  notes          String?
+  terms          String?
+  invoiceId      String?     @unique
+  currency       String      @default("COP")
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  deletedAt      DateTime?
+  items          QuoteItem[]
+  company        Company     @relation(fields: [companyId], references: [id])
+  customer       Customer    @relation(fields: [customerId], references: [id])
+  invoice        Invoice?    @relation("QuoteInvoice", fields: [invoiceId], references: [id])
+
+  @@unique([companyId, number])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([companyId, issueDate])
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id          String   @id @default(uuid())
+  quoteId     String
+  productId   String?
+  description String
+  quantity    Decimal  @db.Decimal(12, 4)
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  taxRate     Decimal  @db.Decimal(5, 2)
+  taxAmount   Decimal  @db.Decimal(12, 2)
+  discount    Decimal  @default(0) @db.Decimal(5, 2)
+  total       Decimal  @db.Decimal(12, 2)
+  position    Int
+  product     Product? @relation(fields: [productId], references: [id])
+  quote       Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+  @@map("quote_items")
+}
+
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+  TRIAL
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIAL
+  SUSPENDED
+  CANCELLED
+  EXPIRED
 }
 
 enum ProductStatus {
@@ -362,162 +1240,12 @@ enum TaxType {
   NONE
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CUSTOMERS
-// ─────────────────────────────────────────────────────────────────────────────
-
-model Customer {
-  id             String       @id @default(uuid())
-  companyId      String
-  documentType   DocumentType @default(NIT)
-  documentNumber String
-  name           String
-  email          String?
-  phone          String?
-  address        String?
-  city           String?
-  department     String?
-  cityCode       String?
-  departmentCode String?
-  country        String       @default("CO")
-  isActive       Boolean      @default(true)
-  creditLimit    Decimal?     @db.Decimal(12, 2)
-  creditDays     Int?
-  notes          String?      @db.Text
-  taxLevelCode   String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  deletedAt      DateTime?
-
-  company   Company   @relation(fields: [companyId], references: [id])
-  invoices  Invoice[]
-  pos_sales PosSale[]
-  quotes    Quote[]
-  purchaseOrders PurchaseOrder[]
-
-  @@unique([companyId, documentType, documentNumber])
-  @@index([companyId])
-  @@map("customers")
-}
-
 enum DocumentType {
   NIT
   CC
   CE
   PASSPORT
   TI
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// INVOICES
-// ─────────────────────────────────────────────────────────────────────────────
-
-model Invoice {
-  id                    String        @id @default(uuid())
-  companyId             String
-  branchId              String?
-  customerId            String
-  invoiceNumber         String
-  prefix                String        @default("FV")
-  type                  InvoiceType   @default(VENTA)
-  status                InvoiceStatus @default(DRAFT)
-  issueDate             DateTime
-  dueDate               DateTime?
-  subtotal              Decimal       @db.Decimal(12, 2)
-  taxAmount             Decimal       @db.Decimal(12, 2)
-  discountAmount        Decimal       @default(0) @db.Decimal(12, 2)
-  total                 Decimal       @db.Decimal(12, 2)
-  notes                 String?       @db.Text
-  dianCufe              String?       @unique
-  dianQrCode            String?       @db.Text
-  dianStatus            String? // raw DIAN status code stored for reference
-  dianStatusCode        String? // 00=aceptado, 99=rechazado, 66=no encontrado
-  dianStatusMsg         String?       @db.Text // statusMessage / statusDescription from DIAN
-  dianErrors            String?       @db.Text // JSON array: ErrorMessageList from GetStatusZip
-  dianZipKey            String? // trackId returned by SendTestSetAsync/SendBillAsync
-  dianXmlBase64         String?       @db.Text // ApplicationResponse XML (base64) from DIAN
-  dianSentAt            DateTime?
-  dianResponseAt        DateTime?
-  dianAttempts          Int           @default(0) // number of send attempts
-  // ── Nota Crédito / Nota Débito — referencia a factura original ───────────
-  originalInvoiceId     String? // FK: nota referencia esta factura de origen
-  discrepancyReasonCode String? // Código DIAN: 1=devol.parcial 2=anulación 3=rebaja 4=ajuste calidad 5=rescisión 6=otros
-  discrepancyReason     String?       @db.Text // Descripción libre del motivo del ajuste
-  dianCude              String?       @unique // CUDE para notas crédito/débito (distinto del CUFE de facturas)
-  xmlContent            String?
-  xmlSigned             String?       @db.Text // signed UBL 2.1 XML sent to DIAN
-  pdfUrl                String?
-  xmlUrl                String?
-  currency              String        @default("COP")
-  exchangeRate          Decimal       @default(1) @db.Decimal(12, 4)
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
-  deletedAt             DateTime?
-
-  company          Company          @relation(fields: [companyId], references: [id])
-  branch           Branch?          @relation(fields: [branchId], references: [id])
-  customer         Customer         @relation(fields: [customerId], references: [id])
-  items            InvoiceItem[]
-  payments         CarteraPayment[]
-  posSale          PosSale?         @relation("PosSaleInvoice")
-  // Auto-relación notas (NC / ND referencia factura original)
-  originalInvoice  Invoice?         @relation("InvoiceNotes", fields: [originalInvoiceId], references: [id])
-  creditDebitNotes Invoice[]        @relation("InvoiceNotes")
-  payrollRecord    payroll_records? @relation("PayrollInvoice")
-  quote            Quote?           @relation("QuoteInvoice")
-
-  @@unique([companyId, invoiceNumber])
-  @@index([companyId])
-  @@index([companyId, status])
-  @@index([companyId, issueDate])
-  @@index([originalInvoiceId])
-  @@index([branchId])
-  @@map("invoices")
-}
-
-model InvoiceItem {
-  id          String  @id @default(uuid())
-  invoiceId   String
-  productId   String?
-  description String
-  quantity    Decimal @db.Decimal(12, 4)
-  unitPrice   Decimal @db.Decimal(12, 2)
-  taxRate     Decimal @db.Decimal(5, 2)
-  taxAmount   Decimal @db.Decimal(12, 2)
-  discount    Decimal @default(0) @db.Decimal(5, 2)
-  total       Decimal @db.Decimal(12, 2)
-  position    Int
-
-  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  product Product? @relation(fields: [productId], references: [id])
-
-  @@index([invoiceId])
-  @@map("invoice_items")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CARTERA — Historial de pagos por factura
-// ─────────────────────────────────────────────────────────────────────────────
-
-model CarteraPayment {
-  id            String   @id @default(uuid())
-  companyId     String
-  invoiceId     String
-  userId        String
-  amount        Decimal  @db.Decimal(12, 2)
-  paymentMethod String // EFECTIVO | TRANSFERENCIA | CHEQUE | TARJETA | CONSIGNACION
-  reference     String? // N° comprobante / transferencia
-  notes         String?  @db.Text
-  paymentDate   DateTime
-  createdAt     DateTime @default(now())
-
-  company Company @relation(fields: [companyId], references: [id])
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id])
-
-  @@index([invoiceId])
-  @@index([companyId, paymentDate])
-  @@map("cartera_payments")
 }
 
 enum InvoiceType {
@@ -537,28 +1265,6 @@ enum InvoiceStatus {
   OVERDUE
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// INTEGRATIONS
-// ─────────────────────────────────────────────────────────────────────────────
-
-model Integration {
-  id         String            @id @default(uuid())
-  companyId  String
-  type       IntegrationType
-  name       String
-  config     Json
-  isActive   Boolean           @default(true)
-  lastSyncAt DateTime?
-  status     IntegrationStatus @default(PENDING)
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id])
-
-  @@index([companyId])
-  @@map("integrations")
-}
-
 enum IntegrationType {
   DIAN
   NOMINA
@@ -575,98 +1281,6 @@ enum IntegrationStatus {
   SUSPENDED
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// USAGE TRACKING
-// ─────────────────────────────────────────────────────────────────────────────
-
-model UsageTracking {
-  id        String   @id @default(uuid())
-  companyId String
-  metric    String // documents_issued | products_created | storage_used
-  value     Int      @default(0)
-  period    String // YYYY-MM
-  updatedAt DateTime @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id])
-
-  @@unique([companyId, metric, period])
-  @@index([companyId, period])
-  @@map("usage_tracking")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// AUDIT LOGS
-// ─────────────────────────────────────────────────────────────────────────────
-
-model AuditLog {
-  id         String   @id @default(uuid())
-  companyId  String?
-  userId     String?
-  action     String // CREATE | UPDATE | DELETE | LOGIN | EXPORT | etc.
-  resource   String // invoice | product | user | etc.
-  resourceId String?
-  before     Json?
-  after      Json?
-  ip         String?
-  userAgent  String?
-  createdAt  DateTime @default(now())
-
-  company Company? @relation(fields: [companyId], references: [id])
-  user    User?    @relation(fields: [userId], references: [id])
-
-  @@index([companyId, createdAt])
-  @@index([userId])
-  @@index([resource, resourceId])
-  @@map("audit_logs")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// IMPORT JOBS
-// ─────────────────────────────────────────────────────────────────────────────
-
-model ImportJob {
-  id            String       @id @default(uuid())
-  companyId     String
-  userId        String
-  type          String       @default("PRODUCTS")
-  status        ImportStatus @default(PENDING)
-  fileName      String
-  fileUrl       String
-  totalRows     Int          @default(0)
-  processedRows Int          @default(0)
-  successRows   Int          @default(0)
-  errorRows     Int          @default(0)
-  reportUrl     String?
-  startedAt     DateTime?
-  completedAt   DateTime?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-
-  company Company       @relation(fields: [companyId], references: [id])
-  user    User          @relation(fields: [userId], references: [id])
-  errors  ImportError[]
-
-  @@index([companyId])
-  @@index([status])
-  @@map("import_jobs")
-}
-
-model ImportError {
-  id          String   @id @default(uuid())
-  importJobId String
-  rowNumber   Int
-  field       String?
-  value       String?
-  message     String
-  rawData     Json?
-  createdAt   DateTime @default(now())
-
-  importJob ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
-
-  @@index([importJobId])
-  @@map("import_errors")
-}
-
 enum ImportStatus {
   PENDING
   PROCESSING
@@ -675,364 +1289,20 @@ enum ImportStatus {
   CANCELLED
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PARAMETERS
-// ─────────────────────────────────────────────────────────────────────────────
-
-model Parameter {
-  id       String  @id @default(uuid())
-  category String
-  value    String
-  label    String?
-  isActive Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([category])
-  @@map("parameters")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GEOGRAPHIC LOCATION
-// ─────────────────────────────────────────────────────────────────────────────
-
-model Country {
-  id       String  @id @default(uuid())
-  code     String  @unique // ISO 3166-1 alpha-2: CO, US, MX ...
-  name     String
-  isActive Boolean @default(true)
-
-  departments Department[]
-
-  @@index([code])
-  @@map("countries")
-}
-
-model Department {
-  id          String  @id @default(uuid())
-  code        String  @unique // DIVIPOLA 2 dígitos: 05, 11, 25 ...
-  name        String
-  countryCode String  @default("CO")
-  isActive    Boolean @default(true)
-
-  country        Country        @relation(fields: [countryCode], references: [code])
-  municipalities Municipality[]
-
-  @@index([code])
-  @@index([countryCode])
-  @@map("departments")
-}
-
-model Municipality {
-  id             String  @id @default(uuid())
-  code           String  @unique // DIVIPOLA 5 dígitos: 05001, 11001, 25473 ...
-  name           String
-  departmentCode String // primeros 2 dígitos del código municipal
-  isActive       Boolean @default(true)
-
-  department Department @relation(fields: [departmentCode], references: [code])
-
-  @@index([code])
-  @@index([departmentCode])
-  @@map("municipalities")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BANKS — Catálogo global de bancos colombianos (códigos ACH/DIAN)
-// ─────────────────────────────────────────────────────────────────────────────
-
-model Bank {
-  id       String  @id @default(uuid())
-  code     String  @unique // Código ACH 3 dígitos: "007", "051", etc.
-  name     String
-  isActive Boolean @default(true)
-
-  employees employees[]
-
-  @@index([code])
-  @@map("banks")
-}
-
-model employees {
-  id              String            @id @default(uuid())
-  companyId       String
-  branchId        String?
-  documentType    String            @default("CC")
-  documentNumber  String
-  firstName       String
-  lastName        String
-  email           String?
-  phone           String?
-  position        String
-  baseSalary      Decimal           @db.Decimal(12, 2)
-  contractType    String            @default("INDEFINITE")
-  hireDate        DateTime
-  city            String?
-  cityCode        String? // DIVIPOLA 5 dígitos: 11001, 05001…
-  departmentCode  String? // DIVIPOLA 2 dígitos: 11, 05…
-  country         String            @default("CO")
-  bankAccount     String?
-  bankName        String?
-  bankCode        String? // Código ACH del banco (FK a Bank.code)
-  bank            Bank?             @relation(fields: [bankCode], references: [code])
-  isActive        Boolean           @default(true)
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  deletedAt       DateTime?
-  companies       Company           @relation(fields: [companyId], references: [id])
-  branch          Branch?           @relation("EmployeeBranch", fields: [branchId], references: [id])
-  payroll_records payroll_records[]
-
-  @@unique([companyId, documentNumber])
-  @@index([companyId])
-  @@index([branchId])
-}
-
-model payroll_records {
-  id String @id @default(uuid())
-
-  companyId  String
-  branchId   String?
-  employeeId String
-
-  period  String
-  payDate DateTime
-
-  status String @default("DRAFT")
-
-  // DIAN
-  cune      String? @unique
-  cuneHash  String?
-  cuneInput String?
-
-  payrollType   PayrollType @default(NOMINA_ELECTRONICA)
-  payrollNumber String?
-
-  xmlSigned String? @db.Text
-  xmlUrl    String?
-  pdfUrl    String?
-
-  dianZipKey       String?
-  dianStatus       String?
-  dianStatusCode   String?
-  dianStatusMsg    String?
-  dianErrors       String?
-  dianAttempts     Int     @default(0)
-  cuneRef          String? // CUNE del documento predecesor (NIE o NIAE)
-  payrollNumberRef String? // Número del documento predecesor
-  fechaGenRef      String? // Fecha de emisión del predecesor (FechaGenPred)
-  tipoAjuste       String? // 'Reemplazar' | 'Eliminar'
-
-  // Cadena de ajustes:
-  // · originalNieId: apunta siempre al NIE raíz (primer documento del período)
-  // · predecessorId: apunta al documento inmediatamente anterior en la cadena
-  //   (NIE → NIAE-R → NIAE-R → NIAE-E)
-  // · isAnulado: true cuando sobre este período ya existe un Eliminar ACCEPTED;
-  //   bloquea la creación de nuevos ajustes
-  originalNieId String? // FK al NIE raíz del período
-  predecessorId String? // FK al doc predecesor directo en la cadena
-  isAnulado     Boolean @default(false) // período anulado por NIAE-Eliminar
-
-  submittedAt DateTime?
-
-  // DEVENGADOS
-  baseSalary         Decimal @db.Decimal(12, 2)
-  daysWorked         Int     @default(30)
-  overtimeHours      Decimal @default(0) @db.Decimal(8, 2)
-  bonuses            Decimal @default(0) @db.Decimal(12, 2)
-  commissions        Decimal @default(0) @db.Decimal(12, 2)
-  transportAllowance Decimal @default(0) @db.Decimal(12, 2)
-  vacationPay        Decimal @default(0) @db.Decimal(12, 2)
-
-  // DEDUCCIONES
-  healthEmployee  Decimal @default(0) @db.Decimal(12, 2)
-  pensionEmployee Decimal @default(0) @db.Decimal(12, 2)
-  sickLeave       Decimal @default(0) @db.Decimal(12, 2)
-  loans           Decimal @default(0) @db.Decimal(12, 2)
-  otherDeductions Decimal @default(0) @db.Decimal(12, 2)
-
-  // APORTES EMPLEADOR
-  healthEmployer   Decimal @default(0) @db.Decimal(12, 2)
-  pensionEmployer  Decimal @default(0) @db.Decimal(12, 2)
-  arl              Decimal @default(0) @db.Decimal(12, 2)
-  compensationFund Decimal @default(0) @db.Decimal(12, 2)
-
-  // TOTALES
-  totalEarnings     Decimal @db.Decimal(12, 2)
-  totalDeductions   Decimal @db.Decimal(12, 2)
-  netPay            Decimal @db.Decimal(12, 2)
-  totalEmployerCost Decimal @db.Decimal(12, 2)
-
-  notes String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  invoiceId String?  @unique
-  invoice   Invoice? @relation("PayrollInvoice", fields: [invoiceId], references: [id])
-
-  companies Company   @relation(fields: [companyId], references: [id])
-  branch    Branch?   @relation("PayrollBranch", fields: [branchId], references: [id])
-  employees employees @relation(fields: [employeeId], references: [id])
-
-  // Auto-referencias para la cadena NIE → NIAE → NIAE
-  originalNie payroll_records?  @relation("NieChain", fields: [originalNieId], references: [id])
-  adjustments payroll_records[] @relation("NieChain")
-  predecessor payroll_records?  @relation("NiaeChain", fields: [predecessorId], references: [id])
-  successors  payroll_records[] @relation("NiaeChain")
-
-  // El NIE (NOMINA_ELECTRONICA) es único por (companyId, employeeId, period) — validado en el servicio.
-  // La NIAE (NOMINA_AJUSTE) permite MÚLTIPLES registros por período (Reemplazar encadenados + 1 Eliminar).
-  // Por eso se usa @@index en lugar de @@unique: el unique rompería el segundo Reemplazar.
-  @@index([companyId, employeeId, period, payrollType])
-  @@index([companyId, employeeId, payrollType])
-  @@index([companyId, employeeId, originalNieId]) // buscar cadena por NIE raíz
-  @@index([branchId])
-}
-
 enum PayrollType {
   NOMINA_ELECTRONICA
   NOMINA_AJUSTE
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DIAN XML TEMPLATES — Plantillas de estructura XML por tipo de documento
-// ─────────────────────────────────────────────────────────────────────────────
-
-model DianXmlTemplate {
-  id String @id @default(uuid())
-
-  documentType DianDocumentType // Tipo de documento
-  version      String           @default("V1.0:2021")
-  name         String // "Factura Electrónica de Venta"
-  description  String?          @db.Text
-
-  // XML base con placeholders {{campo}} para campos dinámicos
-  xmlTemplate String @db.Text
-
-  // Metadatos del esquema
-  xsdSchemaUrl String? // URL XSD oficial DIAN
-  namespace    String? // dian:gov:co:facturaelectronica:NominaIndividual
-  rootElement  String? // NominaIndividual | Invoice | CreditNote
-
-  // Hash — describe los campos y orden para calcular CUFE/CUNE
-  hashAlgorithm String? // SHA384 | SHA256
-  hashFields    String? @db.Text // "Numero+FechaGen+HoraGen+..."
-
-  // Control
-  isActive  Boolean  @default(true)
-  isCurrent Boolean  @default(true) // Solo uno activo por documentType+version
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  createdBy String? // userId
-
-  @@unique([documentType, version])
-  @@index([documentType, isActive])
-  @@map("dian_xml_templates")
-}
-
 enum DianDocumentType {
-  // Facturación Electrónica
-  FACTURA_VENTA // Código 01
-  NOTA_CREDITO // Código 91
-  NOTA_DEBITO // Código 92
-  FACTURA_EXPORTACION // Código 02
-  DOCUMENTO_SOPORTE // Código 05
-  NOTA_AJUSTE_SOPORTE // Código 95
-
-  // Nómina Electrónica
-  NOMINA_INDIVIDUAL // TipoXML 102
-  NOMINA_INDIVIDUAL_AJUSTE // TipoXML 103
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POS — Point of Sale
-// ─────────────────────────────────────────────────────────────────────────────
-
-model PosSession {
-  id                String           @id @default(uuid())
-  companyId         String
-  branchId          String?
-  userId            String
-  status            PosSessionStatus @default(OPEN)
-  openedAt          DateTime         @default(now())
-  closedAt          DateTime?
-  initialCash       Decimal          @default(0) @db.Decimal(12, 2)
-  finalCash         Decimal?         @db.Decimal(12, 2)
-  expectedCash      Decimal?         @db.Decimal(12, 2)
-  cashDifference    Decimal?         @db.Decimal(12, 2)
-  totalSales        Decimal          @default(0) @db.Decimal(12, 2)
-  totalTransactions Int              @default(0)
-  notes             String?
-
-  company       Company           @relation(fields: [companyId], references: [id])
-  branch        Branch?           @relation(fields: [branchId], references: [id])
-  user          User              @relation(fields: [userId], references: [id])
-  sales         PosSale[]
-  cashMovements PosCashMovement[]
-
-  @@index([companyId, status])
-  @@index([companyId, openedAt])
-  @@index([branchId])
-  @@map("pos_sessions")
-}
-
-model PosSale {
-  id              String         @id @default(uuid())
-  companyId       String
-  branchId        String?
-  sessionId       String
-  customerId      String?
-  saleNumber      String
-  subtotal        Decimal        @db.Decimal(12, 2)
-  taxAmount       Decimal        @db.Decimal(12, 2)
-  discountAmount  Decimal        @default(0) @db.Decimal(12, 2)
-  total           Decimal        @db.Decimal(12, 2)
-  paymentMethod   PaymentMethod  @default(CASH)
-  amountPaid      Decimal        @db.Decimal(12, 2)
-  change          Decimal        @default(0) @db.Decimal(12, 2)
-  advanceAmount   Decimal        @default(0) @db.Decimal(12, 2)
-  remainingAmount Decimal        @default(0) @db.Decimal(12, 2)
-  deliveryStatus  DeliveryStatus @default(DELIVERED)
-  status          PosSaleStatus  @default(COMPLETED)
-  invoiceId       String?        @unique
-  notes           String?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-
-  company  Company       @relation(fields: [companyId], references: [id])
-  branch   Branch?       @relation(fields: [branchId], references: [id])
-  session  PosSession    @relation(fields: [sessionId], references: [id])
-  customer Customer?     @relation(fields: [customerId], references: [id])
-  invoice  Invoice?      @relation("PosSaleInvoice", fields: [invoiceId], references: [id])
-  items    PosSaleItem[]
-
-  @@unique([companyId, saleNumber])
-  @@index([companyId, createdAt])
-  @@index([sessionId])
-  @@index([branchId])
-  @@map("pos_sales")
-}
-
-model PosSaleItem {
-  id          String  @id @default(uuid())
-  saleId      String
-  productId   String?
-  description String
-  quantity    Decimal @db.Decimal(12, 4)
-  unitPrice   Decimal @db.Decimal(12, 2)
-  taxRate     Decimal @db.Decimal(5, 2)
-  taxAmount   Decimal @db.Decimal(12, 2)
-  discount    Decimal @default(0) @db.Decimal(5, 2)
-  subtotal    Decimal @db.Decimal(12, 2)
-  total       Decimal @db.Decimal(12, 2)
-
-  sale    PosSale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  product Product? @relation(fields: [productId], references: [id])
-
-  @@index([saleId])
-  @@map("pos_sale_items")
+  FACTURA_VENTA
+  NOTA_CREDITO
+  NOTA_DEBITO
+  FACTURA_EXPORTACION
+  DOCUMENTO_SOPORTE
+  NOTA_AJUSTE_SOPORTE
+  NOMINA_INDIVIDUAL
+  NOMINA_INDIVIDUAL_AJUSTE
 }
 
 enum PosSessionStatus {
@@ -1041,10 +1311,10 @@ enum PosSessionStatus {
 }
 
 enum PosSaleStatus {
-  ADVANCE
   COMPLETED
   CANCELLED
   REFUNDED
+  ADVANCE
 }
 
 enum DeliveryStatus {
@@ -1064,29 +1334,6 @@ enum CashMovementType {
   OUT
 }
 
-model PosCashMovement {
-  id        String           @id @default(uuid())
-  companyId String
-  sessionId String
-  userId    String
-  type      CashMovementType
-  amount    Decimal          @db.Decimal(12, 2)
-  reason    String
-  createdAt DateTime         @default(now())
-
-  company Company    @relation(fields: [companyId], references: [id])
-  session PosSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  user    User       @relation(fields: [userId], references: [id])
-
-  @@index([sessionId])
-  @@index([companyId, createdAt])
-  @@map("pos_cash_movements")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DIAN TEST SETS — Sets de prueba DIAN (habilitación facturación y nómina)
-// ─────────────────────────────────────────────────────────────────────────────
-
 enum DianTestSetType {
   FACTURACION
   NOMINA
@@ -1100,145 +1347,14 @@ enum DianTestSetStatus {
   FAILED
 }
 
-model DianTestSet {
-  id           String                @id @default(uuid())
-  companyId    String
-  company      Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  type         DianTestSetType
-  status       DianTestSetStatus     @default(PENDING)
-  totalDocs    Int
-  sentDocs     Int                   @default(0)
-  acceptedDocs Int                   @default(0)
-  rejectedDocs Int                   @default(0)
-  errorDocs    Int                   @default(0)
-  startedAt    DateTime?
-  completedAt  DateTime?
-  notes        String?
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
-  documents    DianTestSetDocument[]
-
-  @@map("dian_test_sets")
-}
-
-model DianTestSetDocument {
-  id             String      @id @default(uuid())
-  testSetId      String
-  testSet        DianTestSet @relation(fields: [testSetId], references: [id], onDelete: Cascade)
-  sequence       Int
-  docType        String
-  invoiceId      String?
-  payrollId      String?
-  status         String      @default("PENDING")
-  dianZipKey     String?
-  dianStatusCode String?
-  dianStatusMsg  String?
-  errorMsg       String?
-  sentAt         DateTime?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-
-  @@map("dian_test_set_documents")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ACCOUNTING — Contabilidad y plan de cuentas (PUC colombiano)
-// ─────────────────────────────────────────────────────────────────────────────
-
-model AccountingAccount {
-  id        String        @id @default(uuid())
-  companyId String
-  code      String        // Código PUC: 1, 11, 1105, 110505...
-  name      String
-  level     Int           // 1=clase, 2=grupo, 3=cuenta, 4=subcuenta
-  parentId  String?       // FK al id del padre en el árbol
-  nature    AccountNature @default(DEBIT) // DEBIT=débito normal, CREDIT=crédito normal
-  isActive  Boolean       @default(true)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-
-  company  Company              @relation(fields: [companyId], references: [id])
-  parent   AccountingAccount?   @relation("AccountTree", fields: [parentId], references: [id])
-  children AccountingAccount[]  @relation("AccountTree")
-  lines    JournalEntryLine[]
-
-  @@unique([companyId, code])
-  @@index([companyId])
-  @@index([companyId, level])
-  @@map("accounting_accounts")
-}
-
 enum AccountNature {
   DEBIT
   CREDIT
 }
 
-model AccountingPeriod {
-  id        String                 @id @default(uuid())
-  companyId String
-  name      String
-  year      Int
-  month     Int
-  startDate DateTime
-  endDate   DateTime
-  status    AccountingPeriodStatus @default(OPEN)
-  isLocked  Boolean                @default(false)
-  closedAt  DateTime?
-  createdAt DateTime               @default(now())
-  updatedAt DateTime               @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id])
-
-  @@unique([companyId, year, month])
-  @@index([companyId])
-  @@index([companyId, status])
-  @@map("accounting_periods")
-}
-
 enum AccountingPeriodStatus {
   OPEN
   CLOSED
-}
-
-model JournalEntry {
-  id          String             @id @default(uuid())
-  companyId   String
-  number      String             // Número de comprobante
-  date        DateTime
-  description String
-  reference   String?            // Referencia externa
-  sourceType  JournalSourceType  @default(MANUAL)
-  sourceId    String?            // ID de la entidad origen (Invoice, PurchaseOrder, etc.)
-  status      JournalEntryStatus @default(DRAFT)
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  deletedAt   DateTime?
-
-  company Company            @relation(fields: [companyId], references: [id])
-  lines   JournalEntryLine[]
-
-  @@unique([companyId, number])
-  @@index([companyId])
-  @@index([companyId, date])
-  @@index([companyId, status])
-  @@map("journal_entries")
-}
-
-model JournalEntryLine {
-  id          String   @id @default(uuid())
-  entryId     String
-  accountId   String
-  description String?
-  debit       Decimal  @default(0) @db.Decimal(12, 2)
-  credit      Decimal  @default(0) @db.Decimal(12, 2)
-  position    Int
-
-  entry   JournalEntry      @relation(fields: [entryId], references: [id], onDelete: Cascade)
-  account AccountingAccount @relation(fields: [accountId], references: [id])
-
-  @@index([entryId])
-  @@index([accountId])
-  @@map("journal_entry_lines")
 }
 
 enum JournalEntryStatus {
@@ -1255,121 +1371,12 @@ enum JournalSourceType {
   ADJUSTMENT
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PURCHASING — Compras y órdenes de compra asociadas a clientes
-// ─────────────────────────────────────────────────────────────────────────────
-
-model PurchaseOrder {
-  id             String              @id @default(uuid())
-  companyId      String
-  customerId     String
-  number         String
-  status         PurchaseOrderStatus @default(DRAFT)
-  issueDate      DateTime
-  dueDate        DateTime?
-  subtotal       Decimal             @db.Decimal(12, 2)
-  taxAmount      Decimal             @db.Decimal(12, 2)
-  discountAmount Decimal             @default(0) @db.Decimal(12, 2)
-  total          Decimal             @db.Decimal(12, 2)
-  notes          String?             @db.Text
-  currency       String              @default("COP")
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-  deletedAt      DateTime?
-
-  company  Company             @relation(fields: [companyId], references: [id])
-  customer Customer            @relation(fields: [customerId], references: [id])
-  items    PurchaseOrderItem[]
-
-  @@unique([companyId, number])
-  @@index([companyId])
-  @@index([companyId, status])
-  @@index([companyId, issueDate])
-  @@map("purchase_orders")
-}
-
-model PurchaseOrderItem {
-  id          String  @id @default(uuid())
-  orderId     String
-  productId   String?
-  description String
-  quantity    Decimal @db.Decimal(12, 4)
-  unitPrice   Decimal @db.Decimal(12, 2)
-  taxRate     Decimal @db.Decimal(5, 2)
-  taxAmount   Decimal @db.Decimal(12, 2)
-  discount    Decimal @default(0) @db.Decimal(5, 2)
-  total       Decimal @db.Decimal(12, 2)
-  position    Int
-
-  order   PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product?      @relation(fields: [productId], references: [id])
-
-  @@index([orderId])
-  @@map("purchase_order_items")
-}
-
 enum PurchaseOrderStatus {
   DRAFT
   SENT
   RECEIVED
   PARTIAL
   CANCELLED
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SALES — Cotizaciones y pipeline de ventas
-// ─────────────────────────────────────────────────────────────────────────────
-
-model Quote {
-  id             String      @id @default(uuid())
-  companyId      String
-  customerId     String
-  number         String
-  status         QuoteStatus @default(DRAFT)
-  issueDate      DateTime
-  expiresAt      DateTime?
-  subtotal       Decimal     @db.Decimal(12, 2)
-  taxAmount      Decimal     @db.Decimal(12, 2)
-  discountAmount Decimal     @default(0) @db.Decimal(12, 2)
-  total          Decimal     @db.Decimal(12, 2)
-  notes          String?     @db.Text
-  terms          String?     @db.Text // Términos y condiciones
-  invoiceId      String?     @unique // FK a Invoice cuando se convierte
-  currency       String      @default("COP")
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-  deletedAt      DateTime?
-
-  company  Company     @relation(fields: [companyId], references: [id])
-  customer Customer    @relation(fields: [customerId], references: [id])
-  invoice  Invoice?    @relation("QuoteInvoice", fields: [invoiceId], references: [id])
-  items    QuoteItem[]
-
-  @@unique([companyId, number])
-  @@index([companyId])
-  @@index([companyId, status])
-  @@index([companyId, issueDate])
-  @@map("quotes")
-}
-
-model QuoteItem {
-  id          String  @id @default(uuid())
-  quoteId     String
-  productId   String?
-  description String
-  quantity    Decimal @db.Decimal(12, 4)
-  unitPrice   Decimal @db.Decimal(12, 2)
-  taxRate     Decimal @db.Decimal(5, 2)
-  taxAmount   Decimal @db.Decimal(12, 2)
-  discount    Decimal @default(0) @db.Decimal(5, 2)
-  total       Decimal @db.Decimal(12, 2)
-  position    Int
-
-  quote   Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  product Product? @relation(fields: [productId], references: [id])
-
-  @@index([quoteId])
-  @@map("quote_items")
 }
 
 enum QuoteStatus {

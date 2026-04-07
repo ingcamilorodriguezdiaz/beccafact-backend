@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../config/prisma.service';
 import { CompaniesService } from '../companies/companies.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
@@ -123,6 +124,9 @@ export class InvoicesService {
       where: { id: dto.customerId, companyId, deletedAt: null },
     });
     if (!customer) throw new NotFoundException('Cliente no encontrado');
+    if (dto.type === 'VENTA' || !dto.type) {
+      await this.ensureCustomerCommercialEligibility(companyId, customer.id, customer.creditLimit ? Number(customer.creditLimit) : null);
+    }
 
     // ── Validar referencia para Nota Crédito / Nota Débito ──────────────
     if (dto.type === 'NOTA_CREDITO' || dto.type === 'NOTA_DEBITO') {
@@ -247,6 +251,64 @@ export class InvoicesService {
 
     await this.companiesService.incrementUsage(companyId, 'max_documents_per_month');
     return invoice;
+  }
+
+  private async ensureCustomerCommercialEligibility(
+    companyId: string,
+    customerId: string,
+    creditLimit: number | null,
+  ) {
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        companyId,
+        customerId,
+        deletedAt: null,
+        status: { in: ['SENT_DIAN', 'ACCEPTED_DIAN', 'OVERDUE', 'PAID'] },
+      },
+      include: {
+        payments: { select: { amount: true } },
+      },
+    });
+
+    const invoiceIds = invoices.map((invoice) => invoice.id);
+    const adjustments = invoiceIds.length
+      ? await this.prisma.$queryRaw<Array<{ invoiceId: string; net: any }>>`
+          SELECT
+            "invoiceId",
+            COALESCE(SUM(
+              CASE
+                WHEN "type" IN ('CREDIT_NOTE', 'WRITE_OFF') THEN -"amount"
+                WHEN "type" IN ('DEBIT_NOTE', 'RECOVERY') THEN "amount"
+                ELSE 0
+              END
+            ), 0) AS net
+          FROM "cartera_adjustments"
+          WHERE "companyId" = ${companyId}
+            AND "status" = 'APPLIED'
+            AND "invoiceId" IN (${Prisma.join(invoiceIds)})
+          GROUP BY "invoiceId"
+        `
+      : [];
+    const adjustmentMap = new Map(adjustments.map((row) => [row.invoiceId, Number(row.net ?? 0)]));
+
+    const today = new Date();
+    let outstanding = 0;
+    let overdue = 0;
+    for (const invoice of invoices) {
+      const paid = invoice.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
+      const balance = Math.max(0, Number(invoice.total) + (adjustmentMap.get(invoice.id) ?? 0) - paid);
+      if (balance <= 0.01) continue;
+      outstanding += balance;
+      if (invoice.dueDate && new Date(invoice.dueDate) < today) overdue += balance;
+    }
+
+    if (overdue > 0.01) {
+      throw new BadRequestException('El cliente tiene cartera vencida y quedó bloqueado comercialmente');
+    }
+
+    if (creditLimit && creditLimit > 0 && outstanding >= creditLimit - 0.01) {
+      throw new BadRequestException('El cliente superó su cupo de crédito y no puede facturarse');
+    }
   }
 
   async cancel(companyId: string, branchId: string, invoiceId: string, reason: string) {

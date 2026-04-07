@@ -589,6 +589,46 @@ export class AccountingService {
     }).then((entry) => this.mapEntryTotals(entry));
   }
 
+  async createAutoPostedEntry(
+    companyId: string,
+    dto: CreateJournalEntryDto & { sourceType?: JournalSourceType; sourceId?: string | null },
+  ) {
+    await this.ensureDateIsAvailable(companyId, new Date(dto.date));
+    this.validateDoubleEntry(dto.lines);
+    await this.validateAccountsExist(companyId, dto.lines.map((l) => l.accountId));
+    const number = await this.generateEntryNumber(companyId);
+
+    return this.prisma.journalEntry.create({
+      data: {
+        companyId,
+        number,
+        date: new Date(dto.date),
+        description: dto.description,
+        reference: dto.reference ?? null,
+        sourceType: dto.sourceType ?? JournalSourceType.ADJUSTMENT,
+        sourceId: dto.sourceId ?? null,
+        status: JournalEntryStatus.POSTED,
+        lines: {
+          create: dto.lines.map((line) => ({
+            accountId: line.accountId,
+            description: line.description ?? null,
+            debit: line.debit,
+            credit: line.credit,
+            position: line.position,
+          })),
+        },
+      },
+      include: {
+        lines: {
+          orderBy: { position: 'asc' },
+          include: {
+            account: { select: { id: true, code: true, name: true } },
+          },
+        },
+      },
+    }).then((entry) => this.mapEntryTotals(entry));
+  }
+
   async updateEntry(companyId: string, id: string, dto: UpdateJournalEntryDto) {
     const entry = await this.findOneEntry(companyId, id);
 
