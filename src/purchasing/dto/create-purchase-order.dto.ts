@@ -55,6 +55,11 @@ export class CreatePurchaseOrderDto {
   @IsUUID()
   supplierId?: string;
 
+  @ApiPropertyOptional({ description: 'UUID del presupuesto de compras asociado' })
+  @IsOptional()
+  @IsUUID()
+  budgetId?: string;
+
   @ApiProperty({ example: '2026-04-05', description: 'Fecha de emisión de la orden (ISO 8601)' })
   @IsDateString()
   issueDate: string;
@@ -68,6 +73,21 @@ export class CreatePurchaseOrderDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ description: 'Área solicitante o responsable presupuestal' })
+  @IsOptional()
+  @IsString()
+  requestingArea?: string;
+
+  @ApiPropertyOptional({ description: 'Centro de costo asociado a la compra' })
+  @IsOptional()
+  @IsString()
+  costCenter?: string;
+
+  @ApiPropertyOptional({ description: 'Código de proyecto asociado a la compra' })
+  @IsOptional()
+  @IsString()
+  projectCode?: string;
 
   @ApiPropertyOptional({ example: 'COP', default: 'COP', description: 'Código de moneda ISO 4217' })
   @IsOptional()

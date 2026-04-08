@@ -7,22 +7,922 @@ import {
   Logger,
 } from '@nestjs/common';
 import { QuoteStatus } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../config/prisma.service';
 import { MailerService } from '../common/mailer/mailer.service';
+import { InvoicesService } from '../invoices/invoices.service';
 import { CreateQuoteDto } from './dto/create-quote.dto';
 import { UpdateQuoteDto } from './dto/update-quote.dto';
+import { RequestQuoteApprovalDto } from './dto/request-quote-approval.dto';
+import { RejectQuoteApprovalDto } from './dto/reject-quote-approval.dto';
+import { CreateQuoteFollowUpDto } from './dto/create-quote-followup.dto';
+import {
+  CreateCommercialMasterDto,
+  CreateQuotePriceListDto,
+  CreateQuoteTemplateDto,
+  UpdateCommercialMasterDto,
+  UpdateQuotePriceListDto,
+  UpdateQuoteTemplateDto,
+} from './dto/commercial-masters.dto';
+import { CreateQuoteApprovalPolicyDto, UpdateQuoteApprovalPolicyDto } from './dto/quote-approval-policy.dto';
+import { CreateQuoteAttachmentDto, CreateQuoteCommentDto } from './dto/quote-document-governance.dto';
 
 // Estados que permiten modificaciones (editar, eliminar)
 const MUTABLE_STATUSES: QuoteStatus[] = ['DRAFT', 'SENT'];
+const APPROVAL_TOTAL_THRESHOLD = 5_000_000;
+const APPROVAL_DISCOUNT_THRESHOLD = 10;
+
+type QuoteApprovalRow = {
+  id: string;
+  quoteId: string;
+  status: string;
+  reason: string;
+  sequence: number;
+  policyName: string | null;
+  requiredRole: string | null;
+  thresholdType: string | null;
+  thresholdValue: any;
+  requestedById: string;
+  approvedById: string | null;
+  approvedAt: Date | null;
+  rejectedAt: Date | null;
+  rejectedReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type QuoteVersionRow = {
+  id: string;
+  quoteId: string;
+  versionNumber: number;
+  action: string;
+  snapshot: any;
+  createdById: string | null;
+  createdAt: Date;
+};
+
+type QuoteFollowUpRow = {
+  id: string;
+  quoteId: string;
+  activityType: string;
+  notes: string;
+  scheduledAt: Date | null;
+  createdById: string | null;
+  createdAt: Date;
+};
+
+type QuoteAttachmentRow = {
+  id: string;
+  quoteId: string;
+  fileName: string;
+  fileUrl: string;
+  mimeType: string | null;
+  category: string | null;
+  notes: string | null;
+  sizeBytes: number | null;
+  uploadedById: string | null;
+  uploadedByName: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type QuoteCommentRow = {
+  id: string;
+  quoteId: string;
+  commentType: string;
+  message: string;
+  createdById: string | null;
+  createdByName: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type QuoteAuditTrailRow = {
+  id: string;
+  action: string;
+  resource: string;
+  resourceId: string | null;
+  before: any;
+  after: any;
+  userId: string | null;
+  createdAt: Date;
+  userName: string | null;
+};
+
+type QuoteInventoryIntegrationRow = {
+  productId: string;
+  sku: string;
+  name: string;
+  unit: string;
+  status: string;
+  stock: number;
+  minStock: number;
+};
+
+type CommercialMasterKind = 'salesOwner' | 'sourceChannel' | 'lostReason' | 'stage';
+
+type CommercialMasterRow = {
+  id: string;
+  companyId: string;
+  name: string;
+  description: string | null;
+  email?: string | null;
+  phone?: string | null;
+  code?: string | null;
+  color?: string | null;
+  position?: number | null;
+  isDefault?: boolean | null;
+  isClosed?: boolean | null;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type PriceListRow = {
+  id: string;
+  companyId: string;
+  name: string;
+  description: string | null;
+  currency: string;
+  isDefault: boolean;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type PriceListItemRow = {
+  id: string;
+  priceListId: string;
+  productId: string | null;
+  description: string;
+  unitPrice: any;
+  taxRate: any;
+  position: number;
+};
+
+type TemplateRow = {
+  id: string;
+  companyId: string;
+  name: string;
+  description: string | null;
+  notes: string | null;
+  terms: string | null;
+  currency: string;
+  isDefault: boolean;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type TemplateItemRow = {
+  id: string;
+  templateId: string;
+  productId: string | null;
+  description: string;
+  quantity: any;
+  unitPrice: any;
+  taxRate: any;
+  discount: any;
+  position: number;
+};
+
+type QuoteAdvancedCommercialRow = {
+  id: string;
+  paymentTermLabel: string | null;
+  paymentTermDays: number | null;
+  deliveryLeadTimeDays: number | null;
+  deliveryTerms: string | null;
+  incotermCode: string | null;
+  incotermLocation: string | null;
+  exchangeRate: any;
+  commercialConditions: string | null;
+};
+
+type QuoteApprovalPolicyRow = {
+  id: string;
+  companyId: string;
+  name: string;
+  approvalType: 'TOTAL' | 'DISCOUNT';
+  thresholdValue: any;
+  requiredRole: string;
+  sequence: number;
+  description: string | null;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
 
 @Injectable()
 export class QuotesService {
   private readonly logger = new Logger(QuotesService.name);
+  private readonly masterTableMap: Record<CommercialMasterKind, string> = {
+    salesOwner: 'quote_sales_owners',
+    sourceChannel: 'quote_source_channels',
+    lostReason: 'quote_lost_reasons',
+    stage: 'quote_stages',
+  };
 
   constructor(
     private prisma: PrismaService,
     private mailer: MailerService,
+    private invoicesService: InvoicesService,
   ) {}
+
+  async getCommercialMasters(companyId: string) {
+    const [salesOwners, sourceChannels, lostReasons, stages, priceLists, templates] = await Promise.all([
+      this.listCommercialMaster(companyId, 'salesOwner'),
+      this.listCommercialMaster(companyId, 'sourceChannel'),
+      this.listCommercialMaster(companyId, 'lostReason'),
+      this.listCommercialMaster(companyId, 'stage'),
+      this.listPriceLists(companyId),
+      this.listTemplates(companyId),
+    ]);
+
+    return {
+      salesOwners,
+      sourceChannels,
+      lostReasons,
+      stages,
+      priceLists,
+      templates,
+    };
+  }
+
+  async createCommercialMaster(companyId: string, kind: CommercialMasterKind, dto: CreateCommercialMasterDto) {
+    const table = this.masterTableMap[kind];
+    const id = randomUUID();
+    const name = dto.name?.trim();
+    if (!name) throw new BadRequestException('El nombre es obligatorio');
+
+    await this.ensureUniqueCommercialMaster(companyId, table, name);
+
+    if (kind === 'stage' && dto.isDefault) {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "${table}" SET "isDefault" = false WHERE "companyId" = $1`,
+        companyId,
+      );
+    }
+
+    if (kind === 'salesOwner') {
+      await this.prisma.$executeRawUnsafe(
+        `
+          INSERT INTO "${table}" (
+            "id", "companyId", "name", "description", "email", "phone", "isActive", "createdAt", "updatedAt"
+          ) VALUES ($1, $2, $3, $4, $5, $6, true, NOW(), NOW())
+        `,
+        id,
+        companyId,
+        name,
+        this.normalizeOptional(dto.description),
+        this.normalizeOptional(dto.email),
+        this.normalizeOptional(dto.phone),
+      );
+    } else if (kind === 'stage') {
+      await this.prisma.$executeRawUnsafe(
+        `
+          INSERT INTO "${table}" (
+            "id", "companyId", "name", "code", "color", "position", "isDefault", "isClosed", "isActive", "createdAt", "updatedAt"
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, NOW(), NOW())
+        `,
+        id,
+        companyId,
+        name,
+        this.normalizeOptional(dto.code),
+        this.normalizeOptional(dto.color),
+        Number(dto.position ?? 0),
+        Boolean(dto.isDefault),
+        Boolean(dto.isClosed),
+      );
+    } else {
+      await this.prisma.$executeRawUnsafe(
+        `
+          INSERT INTO "${table}" (
+            "id", "companyId", "name", "description", "isActive", "createdAt", "updatedAt"
+          ) VALUES ($1, $2, $3, $4, true, NOW(), NOW())
+        `,
+        id,
+        companyId,
+        name,
+        this.normalizeOptional(dto.description),
+      );
+    }
+
+    return this.listCommercialMaster(companyId, kind);
+  }
+
+  async updateCommercialMaster(companyId: string, kind: CommercialMasterKind, id: string, dto: UpdateCommercialMasterDto) {
+    const table = this.masterTableMap[kind];
+    const current = await this.getCommercialMasterById(companyId, table, id);
+    if (!current) throw new NotFoundException('Registro comercial no encontrado');
+
+    const nextName = dto.name?.trim() ?? current.name;
+    if (!nextName) throw new BadRequestException('El nombre es obligatorio');
+    if (nextName.toLowerCase() !== current.name.toLowerCase()) {
+      await this.ensureUniqueCommercialMaster(companyId, table, nextName, id);
+    }
+
+    if (kind === 'stage' && dto.isDefault) {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "${table}" SET "isDefault" = false WHERE "companyId" = $1 AND "id" <> $2`,
+        companyId,
+        id,
+      );
+    }
+
+    if (kind === 'salesOwner') {
+      await this.prisma.$executeRawUnsafe(
+        `
+          UPDATE "${table}"
+          SET
+            "name" = $3,
+            "description" = $4,
+            "email" = $5,
+            "phone" = $6,
+            "updatedAt" = NOW()
+          WHERE "companyId" = $1 AND "id" = $2
+        `,
+        companyId,
+        id,
+        nextName,
+        dto.description !== undefined ? this.normalizeOptional(dto.description) : current.description,
+        dto.email !== undefined ? this.normalizeOptional(dto.email) : (current.email ?? null),
+        dto.phone !== undefined ? this.normalizeOptional(dto.phone) : (current.phone ?? null),
+      );
+    } else if (kind === 'stage') {
+      await this.prisma.$executeRawUnsafe(
+        `
+          UPDATE "${table}"
+          SET
+            "name" = $3,
+            "code" = $4,
+            "color" = $5,
+            "position" = $6,
+            "isDefault" = $7,
+            "isClosed" = $8,
+            "updatedAt" = NOW()
+          WHERE "companyId" = $1 AND "id" = $2
+        `,
+        companyId,
+        id,
+        nextName,
+        dto.code !== undefined ? this.normalizeOptional(dto.code) : (current.code ?? null),
+        dto.color !== undefined ? this.normalizeOptional(dto.color) : (current.color ?? null),
+        Number(dto.position ?? current.position ?? 0),
+        dto.isDefault !== undefined ? Boolean(dto.isDefault) : Boolean(current.isDefault),
+        dto.isClosed !== undefined ? Boolean(dto.isClosed) : Boolean(current.isClosed),
+      );
+    } else {
+      await this.prisma.$executeRawUnsafe(
+        `
+          UPDATE "${table}"
+          SET
+            "name" = $3,
+            "description" = $4,
+            "updatedAt" = NOW()
+          WHERE "companyId" = $1 AND "id" = $2
+        `,
+        companyId,
+        id,
+        nextName,
+        dto.description !== undefined ? this.normalizeOptional(dto.description) : current.description,
+      );
+    }
+
+    return this.listCommercialMaster(companyId, kind);
+  }
+
+  async removeCommercialMaster(companyId: string, kind: CommercialMasterKind, id: string) {
+    const table = this.masterTableMap[kind];
+    const current = await this.getCommercialMasterById(companyId, table, id);
+    if (!current) throw new NotFoundException('Registro comercial no encontrado');
+
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE "${table}" SET "isActive" = false, "updatedAt" = NOW() WHERE "companyId" = $1 AND "id" = $2`,
+      companyId,
+      id,
+    );
+
+    return this.listCommercialMaster(companyId, kind);
+  }
+
+  async createPriceList(companyId: string, dto: CreateQuotePriceListDto) {
+    const id = randomUUID();
+    const name = dto.name?.trim();
+    if (!name) throw new BadRequestException('El nombre de la lista es obligatorio');
+    await this.ensureUniqueNamedRecord(companyId, 'quote_price_lists', name);
+
+    if (dto.isDefault) {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "quote_price_lists" SET "isDefault" = false WHERE "companyId" = $1`,
+        companyId,
+      );
+    }
+
+    await this.prisma.$executeRawUnsafe(
+      `
+        INSERT INTO "quote_price_lists" (
+          "id", "companyId", "name", "description", "currency", "isDefault", "isActive", "createdAt", "updatedAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, true, NOW(), NOW())
+      `,
+      id,
+      companyId,
+      name,
+      this.normalizeOptional(dto.description),
+      dto.currency?.trim() || 'COP',
+      Boolean(dto.isDefault),
+    );
+
+    await this.replacePriceListItems(id, dto.items);
+    return this.listPriceLists(companyId);
+  }
+
+  async updatePriceList(companyId: string, id: string, dto: UpdateQuotePriceListDto) {
+    const current = await this.getPriceListById(companyId, id);
+    if (!current) throw new NotFoundException('Lista de precios no encontrada');
+    const name = dto.name?.trim() ?? current.name;
+    if (name.toLowerCase() !== current.name.toLowerCase()) {
+      await this.ensureUniqueNamedRecord(companyId, 'quote_price_lists', name, id);
+    }
+    if (dto.isDefault) {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "quote_price_lists" SET "isDefault" = false WHERE "companyId" = $1 AND "id" <> $2`,
+        companyId,
+        id,
+      );
+    }
+    await this.prisma.$executeRawUnsafe(
+      `
+        UPDATE "quote_price_lists"
+        SET
+          "name" = $3,
+          "description" = $4,
+          "currency" = $5,
+          "isDefault" = $6,
+          "updatedAt" = NOW()
+        WHERE "companyId" = $1 AND "id" = $2
+      `,
+      companyId,
+      id,
+      name,
+      dto.description !== undefined ? this.normalizeOptional(dto.description) : current.description,
+      dto.currency?.trim() || current.currency,
+      dto.isDefault !== undefined ? Boolean(dto.isDefault) : current.isDefault,
+    );
+    if (dto.items) {
+      await this.replacePriceListItems(id, dto.items);
+    }
+    return this.listPriceLists(companyId);
+  }
+
+  async removePriceList(companyId: string, id: string) {
+    const current = await this.getPriceListById(companyId, id);
+    if (!current) throw new NotFoundException('Lista de precios no encontrada');
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE "quote_price_lists" SET "isActive" = false, "updatedAt" = NOW() WHERE "companyId" = $1 AND "id" = $2`,
+      companyId,
+      id,
+    );
+    return this.listPriceLists(companyId);
+  }
+
+  async createTemplate(companyId: string, dto: CreateQuoteTemplateDto) {
+    const id = randomUUID();
+    const name = dto.name?.trim();
+    if (!name) throw new BadRequestException('El nombre de la plantilla es obligatorio');
+    await this.ensureUniqueNamedRecord(companyId, 'quote_templates', name);
+
+    if (dto.isDefault) {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "quote_templates" SET "isDefault" = false WHERE "companyId" = $1`,
+        companyId,
+      );
+    }
+
+    await this.prisma.$executeRawUnsafe(
+      `
+        INSERT INTO "quote_templates" (
+          "id", "companyId", "name", "description", "notes", "terms", "currency", "isDefault", "isActive", "createdAt", "updatedAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, NOW(), NOW())
+      `,
+      id,
+      companyId,
+      name,
+      this.normalizeOptional(dto.description),
+      this.normalizeOptional(dto.notes),
+      this.normalizeOptional(dto.terms),
+      dto.currency?.trim() || 'COP',
+      Boolean(dto.isDefault),
+    );
+
+    await this.replaceTemplateItems(id, dto.items);
+    return this.listTemplates(companyId);
+  }
+
+  async updateTemplate(companyId: string, id: string, dto: UpdateQuoteTemplateDto) {
+    const current = await this.getTemplateById(companyId, id);
+    if (!current) throw new NotFoundException('Plantilla no encontrada');
+    const name = dto.name?.trim() ?? current.name;
+    if (name.toLowerCase() !== current.name.toLowerCase()) {
+      await this.ensureUniqueNamedRecord(companyId, 'quote_templates', name, id);
+    }
+    if (dto.isDefault) {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "quote_templates" SET "isDefault" = false WHERE "companyId" = $1 AND "id" <> $2`,
+        companyId,
+        id,
+      );
+    }
+    await this.prisma.$executeRawUnsafe(
+      `
+        UPDATE "quote_templates"
+        SET
+          "name" = $3,
+          "description" = $4,
+          "notes" = $5,
+          "terms" = $6,
+          "currency" = $7,
+          "isDefault" = $8,
+          "updatedAt" = NOW()
+        WHERE "companyId" = $1 AND "id" = $2
+      `,
+      companyId,
+      id,
+      name,
+      dto.description !== undefined ? this.normalizeOptional(dto.description) : current.description,
+      dto.notes !== undefined ? this.normalizeOptional(dto.notes) : current.notes,
+      dto.terms !== undefined ? this.normalizeOptional(dto.terms) : current.terms,
+      dto.currency?.trim() || current.currency,
+      dto.isDefault !== undefined ? Boolean(dto.isDefault) : current.isDefault,
+    );
+    if (dto.items) {
+      await this.replaceTemplateItems(id, dto.items);
+    }
+    return this.listTemplates(companyId);
+  }
+
+  async removeTemplate(companyId: string, id: string) {
+    const current = await this.getTemplateById(companyId, id);
+    if (!current) throw new NotFoundException('Plantilla no encontrada');
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE "quote_templates" SET "isActive" = false, "updatedAt" = NOW() WHERE "companyId" = $1 AND "id" = $2`,
+      companyId,
+      id,
+    );
+    return this.listTemplates(companyId);
+  }
+
+  async getApprovalPolicies(companyId: string) {
+    const rows = await this.prisma.$queryRawUnsafe<QuoteApprovalPolicyRow[]>(
+      `
+        SELECT *
+        FROM "quote_approval_policies"
+        WHERE "companyId" = $1 AND "isActive" = true
+        ORDER BY "sequence" ASC, "approvalType" ASC, "thresholdValue" ASC, "name" ASC
+      `,
+      companyId,
+    );
+    return rows.map((row) => ({
+      ...row,
+      thresholdValue: Number(row.thresholdValue ?? 0),
+      sequence: Number(row.sequence ?? 1),
+      isActive: Boolean(row.isActive),
+    }));
+  }
+
+  async createApprovalPolicy(companyId: string, dto: CreateQuoteApprovalPolicyDto) {
+    const name = dto.name?.trim();
+    if (!name) throw new BadRequestException('El nombre de la política es obligatorio');
+    await this.ensureUniqueNamedRecord(companyId, 'quote_approval_policies', name);
+
+    await this.prisma.$executeRawUnsafe(
+      `
+        INSERT INTO "quote_approval_policies" (
+          "id", "companyId", "name", "approvalType", "thresholdValue", "requiredRole", "sequence", "description", "isActive", "createdAt", "updatedAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, NOW(), NOW())
+      `,
+      randomUUID(),
+      companyId,
+      name,
+      dto.approvalType,
+      Number(dto.thresholdValue ?? 0),
+      dto.requiredRole?.trim() || 'MANAGER',
+      Number(dto.sequence ?? 1),
+      this.normalizeOptional(dto.description),
+    );
+
+    return this.getApprovalPolicies(companyId);
+  }
+
+  async updateApprovalPolicy(companyId: string, id: string, dto: UpdateQuoteApprovalPolicyDto) {
+    const current = await this.getApprovalPolicyById(companyId, id);
+    if (!current) throw new NotFoundException('Política de aprobación no encontrada');
+    const nextName = dto.name?.trim() ?? current.name;
+    if (nextName.toLowerCase() !== current.name.toLowerCase()) {
+      await this.ensureUniqueNamedRecord(companyId, 'quote_approval_policies', nextName, id);
+    }
+
+    await this.prisma.$executeRawUnsafe(
+      `
+        UPDATE "quote_approval_policies"
+        SET
+          "name" = $3,
+          "approvalType" = $4,
+          "thresholdValue" = $5,
+          "requiredRole" = $6,
+          "sequence" = $7,
+          "description" = $8,
+          "updatedAt" = NOW()
+        WHERE "companyId" = $1 AND "id" = $2
+      `,
+      companyId,
+      id,
+      nextName,
+      dto.approvalType ?? current.approvalType,
+      Number(dto.thresholdValue ?? current.thresholdValue ?? 0),
+      dto.requiredRole?.trim() || current.requiredRole,
+      Number(dto.sequence ?? current.sequence ?? 1),
+      dto.description !== undefined ? this.normalizeOptional(dto.description) : current.description,
+    );
+
+    return this.getApprovalPolicies(companyId);
+  }
+
+  async removeApprovalPolicy(companyId: string, id: string) {
+    const current = await this.getApprovalPolicyById(companyId, id);
+    if (!current) throw new NotFoundException('Política de aprobación no encontrada');
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE "quote_approval_policies" SET "isActive" = false, "updatedAt" = NOW() WHERE "companyId" = $1 AND "id" = $2`,
+      companyId,
+      id,
+    );
+    return this.getApprovalPolicies(companyId);
+  }
+
+  private normalizeOptional(value?: string | null) {
+    const normalized = value?.trim();
+    return normalized ? normalized : null;
+  }
+
+  private async getApprovalPolicyById(companyId: string, id: string) {
+    const rows = await this.prisma.$queryRawUnsafe<QuoteApprovalPolicyRow[]>(
+      `SELECT * FROM "quote_approval_policies" WHERE "companyId" = $1 AND "id" = $2 LIMIT 1`,
+      companyId,
+      id,
+    );
+    return rows[0] ?? null;
+  }
+
+  private async listCommercialMaster(companyId: string, kind: CommercialMasterKind) {
+    const table = this.masterTableMap[kind];
+    const rows = await this.prisma.$queryRawUnsafe<CommercialMasterRow[]>(
+      `
+        SELECT *
+        FROM "${table}"
+        WHERE "companyId" = $1 AND "isActive" = true
+        ORDER BY ${kind === 'stage' ? '"position" ASC,' : ''} "name" ASC
+      `,
+      companyId,
+    );
+    return rows.map((row) => ({
+      ...row,
+      position: Number(row.position ?? 0),
+      isDefault: Boolean(row.isDefault ?? false),
+      isClosed: Boolean(row.isClosed ?? false),
+      isActive: Boolean(row.isActive),
+    }));
+  }
+
+  private async getCommercialMasterById(companyId: string, table: string, id: string) {
+    const rows = await this.prisma.$queryRawUnsafe<CommercialMasterRow[]>(
+      `SELECT * FROM "${table}" WHERE "companyId" = $1 AND "id" = $2 LIMIT 1`,
+      companyId,
+      id,
+    );
+    return rows[0] ?? null;
+  }
+
+  private async ensureUniqueCommercialMaster(companyId: string, table: string, name: string, excludeId?: string) {
+    await this.ensureUniqueNamedRecord(companyId, table, name, excludeId);
+  }
+
+  private async ensureUniqueNamedRecord(companyId: string, table: string, name: string, excludeId?: string) {
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ id: string }>>(
+      `
+        SELECT "id"
+        FROM "${table}"
+        WHERE "companyId" = $1
+          AND LOWER("name") = LOWER($2)
+          ${excludeId ? 'AND "id" <> $3' : ''}
+        LIMIT 1
+      `,
+      ...(excludeId ? [companyId, name, excludeId] : [companyId, name]),
+    );
+    if (rows.length) {
+      throw new ConflictException('Ya existe un registro con ese nombre');
+    }
+  }
+
+  private async listPriceLists(companyId: string) {
+    const [lists, items] = await Promise.all([
+      this.prisma.$queryRawUnsafe<PriceListRow[]>(
+        `
+          SELECT *
+          FROM "quote_price_lists"
+          WHERE "companyId" = $1 AND "isActive" = true
+          ORDER BY "isDefault" DESC, "name" ASC
+        `,
+        companyId,
+      ),
+      this.prisma.$queryRawUnsafe<PriceListItemRow[]>(
+        `
+          SELECT pli.*
+          FROM "quote_price_list_items" pli
+          INNER JOIN "quote_price_lists" pl ON pl."id" = pli."priceListId"
+          WHERE pl."companyId" = $1 AND pl."isActive" = true
+          ORDER BY pli."position" ASC, pli."createdAt" ASC
+        `,
+        companyId,
+      ),
+    ]);
+    const itemsByList = new Map<string, PriceListItemRow[]>();
+    items.forEach((item) => {
+      const bucket = itemsByList.get(item.priceListId) ?? [];
+      bucket.push(item);
+      itemsByList.set(item.priceListId, bucket);
+    });
+    return lists.map((list) => ({
+      ...list,
+      items: (itemsByList.get(list.id) ?? []).map((item) => ({
+        ...item,
+        unitPrice: Number(item.unitPrice ?? 0),
+        taxRate: Number(item.taxRate ?? 19),
+      })),
+    }));
+  }
+
+  private async getPriceListById(companyId: string, id: string) {
+    const rows = await this.prisma.$queryRawUnsafe<PriceListRow[]>(
+      `SELECT * FROM "quote_price_lists" WHERE "companyId" = $1 AND "id" = $2 LIMIT 1`,
+      companyId,
+      id,
+    );
+    return rows[0] ?? null;
+  }
+
+  private async replacePriceListItems(priceListId: string, items: CreateQuotePriceListDto['items']) {
+    await this.prisma.$executeRawUnsafe(
+      `DELETE FROM "quote_price_list_items" WHERE "priceListId" = $1`,
+      priceListId,
+    );
+    for (const [index, item] of items.entries()) {
+      await this.prisma.$executeRawUnsafe(
+        `
+          INSERT INTO "quote_price_list_items" (
+            "id", "priceListId", "productId", "description", "unitPrice", "taxRate", "position", "createdAt", "updatedAt"
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+        `,
+        randomUUID(),
+        priceListId,
+        item.productId ?? null,
+        item.description?.trim() || 'Item comercial',
+        Number(item.unitPrice ?? 0),
+        Number(item.taxRate ?? 19),
+        Number(item.position ?? index + 1),
+      );
+    }
+  }
+
+  private async listTemplates(companyId: string) {
+    const [templates, items] = await Promise.all([
+      this.prisma.$queryRawUnsafe<TemplateRow[]>(
+        `
+          SELECT *
+          FROM "quote_templates"
+          WHERE "companyId" = $1 AND "isActive" = true
+          ORDER BY "isDefault" DESC, "name" ASC
+        `,
+        companyId,
+      ),
+      this.prisma.$queryRawUnsafe<TemplateItemRow[]>(
+        `
+          SELECT ti.*
+          FROM "quote_template_items" ti
+          INNER JOIN "quote_templates" qt ON qt."id" = ti."templateId"
+          WHERE qt."companyId" = $1 AND qt."isActive" = true
+          ORDER BY ti."position" ASC, ti."createdAt" ASC
+        `,
+        companyId,
+      ),
+    ]);
+    const itemsByTemplate = new Map<string, TemplateItemRow[]>();
+    items.forEach((item) => {
+      const bucket = itemsByTemplate.get(item.templateId) ?? [];
+      bucket.push(item);
+      itemsByTemplate.set(item.templateId, bucket);
+    });
+    return templates.map((template) => ({
+      ...template,
+      items: (itemsByTemplate.get(template.id) ?? []).map((item) => ({
+        ...item,
+        quantity: Number(item.quantity ?? 1),
+        unitPrice: Number(item.unitPrice ?? 0),
+        taxRate: Number(item.taxRate ?? 19),
+        discount: Number(item.discount ?? 0),
+      })),
+    }));
+  }
+
+  private async getTemplateById(companyId: string, id: string) {
+    const rows = await this.prisma.$queryRawUnsafe<TemplateRow[]>(
+      `SELECT * FROM "quote_templates" WHERE "companyId" = $1 AND "id" = $2 LIMIT 1`,
+      companyId,
+      id,
+    );
+    return rows[0] ?? null;
+  }
+
+  private async getAdvancedCommercialFields(companyId: string, quoteIds: string[]) {
+    if (!quoteIds.length) return new Map<string, QuoteAdvancedCommercialRow>();
+    const rows = await this.prisma.$queryRawUnsafe<QuoteAdvancedCommercialRow[]>(
+      `
+        SELECT
+          "id",
+          "paymentTermLabel",
+          "paymentTermDays",
+          "deliveryLeadTimeDays",
+          "deliveryTerms",
+          "incotermCode",
+          "incotermLocation",
+          "exchangeRate",
+          "commercialConditions"
+        FROM "quotes"
+        WHERE "companyId" = $1
+          AND "id" = ANY($2)
+      `,
+      companyId,
+      quoteIds,
+    );
+    return new Map(rows.map((row) => [row.id, {
+      ...row,
+      paymentTermDays: row.paymentTermDays !== null && row.paymentTermDays !== undefined ? Number(row.paymentTermDays) : null,
+      deliveryLeadTimeDays: row.deliveryLeadTimeDays !== null && row.deliveryLeadTimeDays !== undefined ? Number(row.deliveryLeadTimeDays) : null,
+      exchangeRate: Number(row.exchangeRate ?? 1),
+    }]));
+  }
+
+  private async persistAdvancedCommercialFields(companyId: string, quoteId: string, dto: Partial<CreateQuoteDto>) {
+    await this.prisma.$executeRawUnsafe(
+      `
+        UPDATE "quotes"
+        SET
+          "paymentTermLabel" = $3,
+          "paymentTermDays" = $4,
+          "deliveryLeadTimeDays" = $5,
+          "deliveryTerms" = $6,
+          "incotermCode" = $7,
+          "incotermLocation" = $8,
+          "exchangeRate" = $9,
+          "commercialConditions" = $10,
+          "updatedAt" = NOW()
+        WHERE "companyId" = $1 AND "id" = $2
+      `,
+      companyId,
+      quoteId,
+      this.normalizeOptional(dto.paymentTermLabel),
+      dto.paymentTermDays !== undefined ? Number(dto.paymentTermDays) : null,
+      dto.deliveryLeadTimeDays !== undefined ? Number(dto.deliveryLeadTimeDays) : null,
+      this.normalizeOptional(dto.deliveryTerms),
+      this.normalizeOptional(dto.incotermCode),
+      this.normalizeOptional(dto.incotermLocation),
+      Number(dto.exchangeRate ?? 1),
+      this.normalizeOptional(dto.commercialConditions),
+    );
+  }
+
+  private async replaceTemplateItems(templateId: string, items: CreateQuoteTemplateDto['items']) {
+    await this.prisma.$executeRawUnsafe(
+      `DELETE FROM "quote_template_items" WHERE "templateId" = $1`,
+      templateId,
+    );
+    for (const [index, item] of items.entries()) {
+      await this.prisma.$executeRawUnsafe(
+        `
+          INSERT INTO "quote_template_items" (
+            "id", "templateId", "productId", "description", "quantity", "unitPrice", "taxRate", "discount", "position", "createdAt", "updatedAt"
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+        `,
+        randomUUID(),
+        templateId,
+        item.productId ?? null,
+        item.description?.trim() || 'Item de plantilla',
+        Number(item.quantity ?? 1),
+        Number(item.unitPrice ?? 0),
+        Number(item.taxRate ?? 19),
+        Number(item.discount ?? 0),
+        Number(item.position ?? index + 1),
+      );
+    }
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Genera el siguiente número de cotización para la empresa
@@ -129,6 +1029,7 @@ export class QuotesService {
       limit?: number;
     },
   ) {
+    await this.expireDueQuotes(companyId);
     const { search, status, customerId, dateFrom, dateTo, page = 1, limit = 20 } = filters;
     const skip = (page - 1) * limit;
 
@@ -157,6 +1058,7 @@ export class QuotesService {
         where,
         include: {
           customer: { select: { id: true, name: true, documentNumber: true } },
+          items: { select: { discount: true } },
           _count: { select: { items: true } },
         },
         orderBy: { issueDate: 'desc' },
@@ -166,13 +1068,157 @@ export class QuotesService {
       this.prisma.quote.count({ where }),
     ]);
 
-    return { data, total, page: +page, limit: +limit, totalPages: Math.ceil(total / +limit) };
+    const enriched = await this.attachCommercialMetadata(companyId, data);
+    return { data: enriched, total, page: +page, limit: +limit, totalPages: Math.ceil(total / +limit) };
+  }
+
+  async getAnalyticsSummary(
+    companyId: string,
+    filters: {
+      dateFrom?: string;
+      dateTo?: string;
+      salesOwnerName?: string;
+      sourceChannel?: string;
+    },
+  ) {
+    const { dateFrom, dateTo, salesOwnerName, sourceChannel } = filters;
+    const where: any = { companyId, deletedAt: null };
+
+    if (dateFrom || dateTo) {
+      where.issueDate = {};
+      if (dateFrom) where.issueDate.gte = new Date(dateFrom);
+      if (dateTo) where.issueDate.lte = new Date(dateTo);
+    }
+    if (salesOwnerName) {
+      where.salesOwnerName = { contains: salesOwnerName, mode: 'insensitive' };
+    }
+    if (sourceChannel) {
+      where.sourceChannel = { contains: sourceChannel, mode: 'insensitive' };
+    }
+
+    const [quotes, pendingApprovals, followUps] = await Promise.all([
+      this.prisma.quote.findMany({
+        where,
+        select: {
+          id: true,
+          status: true,
+          total: true,
+          salesOwnerName: true,
+          sourceChannel: true,
+          customerId: true,
+        },
+      }),
+      this.prisma.$queryRawUnsafe<Array<{ total: bigint | number }>>(
+        `
+          SELECT COUNT(DISTINCT qar."quoteId") AS "total"
+          FROM "quote_approval_requests" qar
+          INNER JOIN "quotes" q ON q."id" = qar."quoteId"
+          WHERE qar."companyId" = $1
+            AND q."deletedAt" IS NULL
+            AND qar."status" = 'PENDING'
+            ${dateFrom ? 'AND q."issueDate" >= $2' : ''}
+            ${dateTo ? `AND q."issueDate" <= $${dateFrom ? 3 : 2}` : ''}
+        `,
+        ...(dateFrom && dateTo
+          ? [companyId, new Date(dateFrom), new Date(dateTo)]
+          : dateFrom
+            ? [companyId, new Date(dateFrom)]
+            : dateTo
+              ? [companyId, new Date(dateTo)]
+              : [companyId]),
+      ),
+      this.prisma.$queryRawUnsafe<Array<{ total: bigint | number }>>(
+        `
+          SELECT COUNT(*) AS "total"
+          FROM "quote_followups" qf
+          INNER JOIN "quotes" q ON q."id" = qf."quoteId"
+          WHERE qf."companyId" = $1
+            AND q."deletedAt" IS NULL
+            ${dateFrom ? 'AND q."issueDate" >= $2' : ''}
+            ${dateTo ? `AND q."issueDate" <= $${dateFrom ? 3 : 2}` : ''}
+        `,
+        ...(dateFrom && dateTo
+          ? [companyId, new Date(dateFrom), new Date(dateTo)]
+          : dateFrom
+            ? [companyId, new Date(dateFrom)]
+            : dateTo
+              ? [companyId, new Date(dateTo)]
+              : [companyId]),
+      ),
+    ]);
+
+    const totalsByStatus = quotes.reduce((acc, quote) => {
+      acc[quote.status] = (acc[quote.status] ?? 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const totalAmount = quotes.reduce((sum, quote) => sum + Number(quote.total ?? 0), 0);
+    const convertedAmount = quotes
+      .filter((quote) => quote.status === 'CONVERTED')
+      .reduce((sum, quote) => sum + Number(quote.total ?? 0), 0);
+    const acceptedAmount = quotes
+      .filter((quote) => quote.status === 'ACCEPTED')
+      .reduce((sum, quote) => sum + Number(quote.total ?? 0), 0);
+
+    const totalQuotes = quotes.length;
+    const wonQuotes = (totalsByStatus['CONVERTED'] ?? 0) + (totalsByStatus['ACCEPTED'] ?? 0);
+    const lostQuotes = (totalsByStatus['REJECTED'] ?? 0) + (totalsByStatus['EXPIRED'] ?? 0);
+
+    const bySalesOwner = Object.entries(
+      quotes.reduce((acc, quote) => {
+        const key = quote.salesOwnerName?.trim() || 'Sin asignar';
+        const bucket = acc[key] ?? { name: key, totalQuotes: 0, totalAmount: 0, wonQuotes: 0 };
+        bucket.totalQuotes += 1;
+        bucket.totalAmount += Number(quote.total ?? 0);
+        if (quote.status === 'ACCEPTED' || quote.status === 'CONVERTED') bucket.wonQuotes += 1;
+        acc[key] = bucket;
+        return acc;
+      }, {} as Record<string, { name: string; totalQuotes: number; totalAmount: number; wonQuotes: number }>),
+    )
+      .map(([, bucket]) => ({
+        ...bucket,
+        winRate: bucket.totalQuotes ? Math.round((bucket.wonQuotes / bucket.totalQuotes) * 100) : 0,
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount)
+      .slice(0, 5);
+
+    const byChannel = Object.entries(
+      quotes.reduce((acc, quote) => {
+        const key = quote.sourceChannel?.trim() || 'Sin canal';
+        const bucket = acc[key] ?? { channel: key, totalQuotes: 0, totalAmount: 0 };
+        bucket.totalQuotes += 1;
+        bucket.totalAmount += Number(quote.total ?? 0);
+        acc[key] = bucket;
+        return acc;
+      }, {} as Record<string, { channel: string; totalQuotes: number; totalAmount: number }>),
+    )
+      .map(([, bucket]) => bucket)
+      .sort((a, b) => b.totalAmount - a.totalAmount)
+      .slice(0, 5);
+
+    return {
+      totalQuotes,
+      totalAmount,
+      convertedAmount,
+      acceptedAmount,
+      wonQuotes,
+      lostQuotes,
+      conversionRate: totalQuotes ? Math.round(((totalsByStatus['CONVERTED'] ?? 0) / totalQuotes) * 100) : 0,
+      winRate: totalQuotes ? Math.round((wonQuotes / totalQuotes) * 100) : 0,
+      lossRate: totalQuotes ? Math.round((lostQuotes / totalQuotes) * 100) : 0,
+      pendingApprovals: Number(pendingApprovals[0]?.total ?? 0),
+      followUpCount: Number(followUps[0]?.total ?? 0),
+      totalsByStatus,
+      bySalesOwner,
+      byChannel,
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // DETALLE de cotización con ítems, cliente e invoice asociada (si fue convertida)
   // ─────────────────────────────────────────────────────────────────────────────
   async findOne(companyId: string, id: string) {
+    await this.expireDueQuotes(companyId);
     const quote = await this.prisma.quote.findFirst({
       where: { id, companyId, deletedAt: null },
       include: {
@@ -197,13 +1243,27 @@ export class QuotesService {
     });
 
     if (!quote) throw new NotFoundException('Cotización no encontrada');
-    return quote;
+    const [approval, approvalFlow, versionCount, advancedFieldsMap] = await Promise.all([
+      this.getLatestApproval(companyId, id),
+      this.getApprovalFlow(companyId, id),
+      this.getCurrentVersionNumber(companyId, id),
+      this.getAdvancedCommercialFields(companyId, [id]),
+    ]);
+    const advancedFields = advancedFieldsMap.get(id);
+    return {
+      ...quote,
+      ...(advancedFields ?? {}),
+      approval,
+      approvalFlow,
+      approvalRequired: await this.requiresApproval(companyId, Number(quote.total), quote.items as any[]),
+      currentVersion: versionCount,
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // CREAR cotización — genera número automático y calcula totales
   // ─────────────────────────────────────────────────────────────────────────────
-  async create(companyId: string, dto: CreateQuoteDto) {
+  async create(companyId: string, dto: CreateQuoteDto, userId?: string) {
     // Validar que el cliente existe y pertenece a la empresa
     const customer = await this.prisma.customer.findFirst({
       where: { id: dto.customerId, companyId, deletedAt: null },
@@ -216,7 +1276,7 @@ export class QuotesService {
       dto.discountAmount ?? 0,
     );
 
-    return this.prisma.quote.create({
+    const created = await this.prisma.quote.create({
       data: {
         companyId,
         customerId: dto.customerId,
@@ -230,6 +1290,9 @@ export class QuotesService {
         total,
         notes: dto.notes,
         terms: dto.terms,
+        salesOwnerName: dto.salesOwnerName,
+        opportunityName: dto.opportunityName,
+        sourceChannel: dto.sourceChannel,
         currency: dto.currency ?? 'COP',
         items: { create: itemsWithTotals },
       },
@@ -238,12 +1301,29 @@ export class QuotesService {
         items: { orderBy: { position: 'asc' } },
       },
     });
+    await this.persistAdvancedCommercialFields(companyId, created.id, dto);
+    const advancedFields = (await this.getAdvancedCommercialFields(companyId, [created.id])).get(created.id);
+    await this.createVersionSnapshot(companyId, created.id, 'CREATE', { ...created, ...(advancedFields ?? {}) }, userId ?? null);
+    await this.logQuoteAudit(companyId, created.id, 'QUOTE_CREATED', userId ?? null, null, {
+      number: created.number,
+      status: created.status,
+      total: Number(created.total ?? 0),
+      customerId: created.customerId,
+    });
+    return {
+      ...created,
+      ...(advancedFields ?? {}),
+      approvalRequired: await this.requiresApproval(companyId, total, dto.items),
+      currentVersion: 1,
+      approvalFlow: [],
+      approval: null,
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // ACTUALIZAR cotización — solo permite modificar estados DRAFT o SENT
   // ─────────────────────────────────────────────────────────────────────────────
-  async update(companyId: string, id: string, dto: UpdateQuoteDto) {
+  async update(companyId: string, id: string, dto: UpdateQuoteDto, userId?: string) {
     const quote = await this.findOne(companyId, id);
 
     if (!MUTABLE_STATUSES.includes(quote.status as QuoteStatus)) {
@@ -288,7 +1368,10 @@ export class QuotesService {
     // Excluir 'items' del spread del dto para no pasarlo directamente a Prisma
     const { items, ...dtoWithoutItems } = dto;
 
-    return this.prisma.quote.update({
+    await this.ensureQuoteCanProceed(companyId, id, quote);
+    await this.createVersionSnapshot(companyId, id, 'UPDATE_BEFORE', quote, userId ?? null);
+
+    const updated = await this.prisma.quote.update({
       where: { id },
       data: {
         ...dtoWithoutItems,
@@ -302,13 +1385,42 @@ export class QuotesService {
         items: { orderBy: { position: 'asc' } },
       },
     });
+    await this.persistAdvancedCommercialFields(companyId, id, {
+      paymentTermLabel: dto.paymentTermLabel !== undefined ? dto.paymentTermLabel : (quote as any).paymentTermLabel,
+      paymentTermDays: dto.paymentTermDays !== undefined ? dto.paymentTermDays : (quote as any).paymentTermDays,
+      deliveryLeadTimeDays: dto.deliveryLeadTimeDays !== undefined ? dto.deliveryLeadTimeDays : (quote as any).deliveryLeadTimeDays,
+      deliveryTerms: dto.deliveryTerms !== undefined ? dto.deliveryTerms : (quote as any).deliveryTerms,
+      incotermCode: dto.incotermCode !== undefined ? dto.incotermCode : (quote as any).incotermCode,
+      incotermLocation: dto.incotermLocation !== undefined ? dto.incotermLocation : (quote as any).incotermLocation,
+      exchangeRate: dto.exchangeRate !== undefined ? dto.exchangeRate : (quote as any).exchangeRate,
+      commercialConditions: dto.commercialConditions !== undefined ? dto.commercialConditions : (quote as any).commercialConditions,
+    });
+    await this.supersedeApprovalFlow(companyId, id);
+    const advancedFields = (await this.getAdvancedCommercialFields(companyId, [id])).get(id);
+    await this.logQuoteAudit(companyId, id, 'QUOTE_UPDATED', userId ?? null, {
+      status: quote.status,
+      total: Number(quote.total ?? 0),
+      currentVersion: quote.currentVersion,
+    }, {
+      status: updated.status,
+      total: Number(updated.total ?? 0),
+      currentVersion: await this.getCurrentVersionNumber(companyId, id),
+    });
+    return {
+      ...updated,
+      ...(advancedFields ?? {}),
+      approvalRequired: await this.requiresApproval(companyId, Number(updated.total), updated.items as any[]),
+      currentVersion: await this.getCurrentVersionNumber(companyId, id),
+      approval: await this.getLatestApproval(companyId, id),
+      approvalFlow: await this.getApprovalFlow(companyId, id),
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // CAMBIAR ESTADO — no permite asignar CONVERTED manualmente.
   // Cuando pasa a SENT, genera PDF y envía email al cliente si tiene email.
   // ─────────────────────────────────────────────────────────────────────────────
-  async updateStatus(companyId: string, id: string, status: QuoteStatus) {
+  async updateStatus(companyId: string, id: string, status: QuoteStatus, userId?: string, lostReason?: string) {
     const quote = await this.findOne(companyId, id);
 
     // CONVERTED solo se puede asignar mediante el endpoint de conversión
@@ -318,9 +1430,22 @@ export class QuotesService {
       );
     }
 
+    if (['SENT', 'ACCEPTED'].includes(status)) {
+      await this.ensureQuoteCanProceed(companyId, id, quote);
+    }
+
+    if (status === 'REJECTED' && !lostReason?.trim() && !quote.lostReason) {
+      throw new BadRequestException('Debes registrar el motivo de pérdida al rechazar la cotización');
+    }
+
+    await this.createVersionSnapshot(companyId, id, 'STATUS_CHANGE', quote, userId ?? null);
+
     const updated = await this.prisma.quote.update({
       where: { id },
-      data: { status },
+      data: {
+        status,
+        ...(status === 'REJECTED' ? { lostReason: lostReason?.trim() || quote.lostReason || null } : {}),
+      },
     });
 
     // Enviar email con PDF cuando el estado pasa a SENT
@@ -345,7 +1470,21 @@ export class QuotesService {
       }
     }
 
-    return updated;
+    await this.logQuoteAudit(companyId, id, 'QUOTE_STATUS_UPDATED', userId ?? null, {
+      status: quote.status,
+      lostReason: quote.lostReason ?? null,
+    }, {
+      status,
+      lostReason: status === 'REJECTED' ? (lostReason?.trim() || quote.lostReason || null) : quote.lostReason ?? null,
+    });
+
+    return {
+      ...updated,
+      approvalRequired: await this.requiresApproval(companyId, Number(updated.total), quote.items as any[]),
+      currentVersion: await this.getCurrentVersionNumber(companyId, id),
+      approval: await this.getLatestApproval(companyId, id),
+      approvalFlow: await this.getApprovalFlow(companyId, id),
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -354,8 +1493,9 @@ export class QuotesService {
   // - Asigna Quote.invoiceId = invoice.id y Quote.status = CONVERTED
   // - Lanza ConflictException si la cotización ya fue convertida
   // ─────────────────────────────────────────────────────────────────────────────
-  async convertToInvoice(companyId: string, id: string) {
+  async convertToInvoice(companyId: string, id: string, userId?: string) {
     const quote = await this.findOne(companyId, id);
+    await this.ensureQuoteCanProceed(companyId, id, quote);
 
     // Verificar que no haya sido convertida previamente
     if (quote.invoiceId) {
@@ -414,6 +1554,7 @@ export class QuotesService {
     ]);
 
     // 3. Asignar el invoiceId y estado CONVERTED a la cotización
+    await this.createVersionSnapshot(companyId, id, 'CONVERT', quote, userId ?? null);
     await this.prisma.quote.update({
       where: { id },
       data: {
@@ -422,13 +1563,439 @@ export class QuotesService {
       },
     });
 
+    await this.logQuoteAudit(companyId, id, 'QUOTE_CONVERTED', userId ?? null, {
+      invoiceId: null,
+      status: quote.status,
+    }, {
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      status: 'CONVERTED',
+    });
+
     return invoice;
+  }
+
+  async getVersions(companyId: string, id: string) {
+    await this.findOne(companyId, id);
+    const rows = await this.prisma.$queryRawUnsafe<QuoteVersionRow[]>(
+      `
+        SELECT "id", "quoteId", "versionNumber", "action", "snapshot", "createdById", "createdAt"
+        FROM "quote_versions"
+        WHERE "companyId" = $1 AND "quoteId" = $2
+        ORDER BY "versionNumber" DESC
+      `,
+      companyId,
+      id,
+    );
+    return rows;
+  }
+
+  async requestApproval(companyId: string, id: string, dto: RequestQuoteApprovalDto, userId: string) {
+    const quote = await this.findOne(companyId, id);
+    const requiresApproval = await this.requiresApproval(companyId, Number(quote.total), quote.items as any[]);
+    if (!requiresApproval) {
+      throw new BadRequestException('Esta cotización no requiere aprobación según las reglas actuales');
+    }
+
+    const currentFlow = await this.getApprovalFlow(companyId, id);
+    if (currentFlow.some((step) => step.status === 'PENDING')) {
+      throw new ConflictException('La cotización ya tiene una solicitud de aprobación pendiente');
+    }
+
+    if (currentFlow.length) {
+      await this.supersedeApprovalFlow(companyId, id);
+    }
+
+    await this.createApprovalFlow(
+      companyId,
+      id,
+      dto.reason?.trim() || 'Solicitud de aprobación por política comercial',
+      userId,
+      Number(quote.total),
+      quote.items as any[],
+    );
+
+    await this.logQuoteAudit(companyId, id, 'QUOTE_APPROVAL_REQUESTED', userId, null, {
+      reason: dto.reason?.trim() || 'Solicitud de aprobación por política comercial',
+    });
+
+    return this.findOne(companyId, id);
+  }
+
+  async approve(companyId: string, id: string, userId: string) {
+    const approvalFlow = await this.getApprovalFlow(companyId, id);
+    const approval = approvalFlow.find((step) => step.status === 'PENDING');
+    if (!approval) {
+      throw new BadRequestException('La cotización no tiene aprobaciones pendientes');
+    }
+
+    await this.prisma.$executeRawUnsafe(
+      `
+        UPDATE "quote_approval_requests"
+        SET "status" = 'APPROVED',
+            "approvedById" = $3,
+            "approvedAt" = NOW(),
+            "updatedAt" = NOW()
+        WHERE "companyId" = $1 AND "id" = $2
+      `,
+      companyId,
+      approval.id,
+      userId,
+    );
+
+    await this.logQuoteAudit(companyId, id, 'QUOTE_APPROVED', userId, {
+      approvalId: approval.id,
+      status: 'PENDING',
+      sequence: approval.sequence,
+    }, {
+      approvalId: approval.id,
+      status: 'APPROVED',
+      sequence: approval.sequence,
+    });
+
+    return this.findOne(companyId, id);
+  }
+
+  async rejectApproval(companyId: string, id: string, dto: RejectQuoteApprovalDto, userId: string) {
+    const approvalFlow = await this.getApprovalFlow(companyId, id);
+    const approval = approvalFlow.find((step) => step.status === 'PENDING');
+    if (!approval) {
+      throw new BadRequestException('La cotización no tiene aprobaciones pendientes');
+    }
+
+    await this.prisma.$executeRawUnsafe(
+      `
+        UPDATE "quote_approval_requests"
+        SET "status" = 'REJECTED',
+            "approvedById" = $3,
+            "rejectedAt" = NOW(),
+            "rejectedReason" = $4,
+            "updatedAt" = NOW()
+        WHERE "companyId" = $1 AND "id" = $2
+      `,
+      companyId,
+      approval.id,
+      userId,
+      dto.reason?.trim() || 'Rechazada en comité comercial',
+    );
+
+    await this.logQuoteAudit(companyId, id, 'QUOTE_APPROVAL_REJECTED', userId, {
+      approvalId: approval.id,
+      status: 'PENDING',
+      sequence: approval.sequence,
+    }, {
+      approvalId: approval.id,
+      status: 'REJECTED',
+      sequence: approval.sequence,
+      rejectedReason: dto.reason?.trim() || 'Rechazada en comité comercial',
+    });
+
+    return this.findOne(companyId, id);
+  }
+
+  async expireDueQuotes(companyId: string) {
+    const result = await this.prisma.quote.updateMany({
+      where: {
+        companyId,
+        deletedAt: null,
+        expiresAt: { lt: new Date() },
+        status: { in: ['DRAFT', 'SENT'] },
+      },
+      data: { status: 'EXPIRED' },
+    });
+    return { expired: result.count };
+  }
+
+  async duplicate(companyId: string, id: string, userId: string) {
+    const quote = await this.findOne(companyId, id);
+    const duplicated = await this.create(companyId, {
+      customerId: quote.customerId,
+      issueDate: new Date().toISOString().substring(0, 10),
+      expiresAt: quote.expiresAt ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10) : undefined,
+      notes: quote.notes ?? undefined,
+      terms: quote.terms ?? undefined,
+      salesOwnerName: quote.salesOwnerName ?? undefined,
+      opportunityName: quote.opportunityName ?? undefined,
+      sourceChannel: quote.sourceChannel ?? undefined,
+      currency: quote.currency ?? undefined,
+      paymentTermLabel: (quote as any).paymentTermLabel ?? undefined,
+      paymentTermDays: (quote as any).paymentTermDays ?? undefined,
+      deliveryLeadTimeDays: (quote as any).deliveryLeadTimeDays ?? undefined,
+      deliveryTerms: (quote as any).deliveryTerms ?? undefined,
+      incotermCode: (quote as any).incotermCode ?? undefined,
+      incotermLocation: (quote as any).incotermLocation ?? undefined,
+      exchangeRate: (quote as any).exchangeRate ?? undefined,
+      commercialConditions: (quote as any).commercialConditions ?? undefined,
+      discountAmount: Number(quote.discountAmount ?? 0),
+      items: (quote.items as any[]).map((item, index) => ({
+        productId: item.productId ?? undefined,
+        description: item.description,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        taxRate: Number(item.taxRate),
+        discount: Number(item.discount),
+        position: index + 1,
+      })),
+    }, userId);
+    await this.logQuoteAudit(companyId, id, 'QUOTE_DUPLICATED', userId, {
+      sourceQuoteId: id,
+      sourceNumber: quote.number,
+    }, {
+      duplicatedQuoteId: duplicated.id,
+      duplicatedNumber: duplicated.number,
+    });
+    return duplicated;
+  }
+
+  async renew(companyId: string, id: string, userId: string) {
+    const quote = await this.findOne(companyId, id);
+    const renewed = await this.duplicate(companyId, id, userId);
+    await this.prisma.quote.update({
+      where: { id },
+      data: {
+        status: quote.status === 'EXPIRED' ? 'EXPIRED' : quote.status,
+      },
+    });
+    return renewed;
+  }
+
+  async getFollowUps(companyId: string, id: string) {
+    await this.findOne(companyId, id);
+    return this.prisma.$queryRawUnsafe<QuoteFollowUpRow[]>(
+      `
+        SELECT "id", "quoteId", "activityType", "notes", "scheduledAt", "createdById", "createdAt"
+        FROM "quote_followups"
+        WHERE "companyId" = $1 AND "quoteId" = $2
+        ORDER BY COALESCE("scheduledAt", "createdAt") DESC, "createdAt" DESC
+      `,
+      companyId,
+      id,
+    );
+  }
+
+  async createFollowUp(companyId: string, id: string, dto: CreateQuoteFollowUpDto, userId: string) {
+    await this.findOne(companyId, id);
+    await this.prisma.$executeRawUnsafe(
+      `
+        INSERT INTO "quote_followups" (
+          "id", "companyId", "quoteId", "activityType", "notes", "scheduledAt", "createdById", "createdAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      `,
+      randomUUID(),
+      companyId,
+      id,
+      dto.activityType,
+      dto.notes,
+      dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+      userId,
+    );
+
+    await this.logQuoteAudit(companyId, id, 'QUOTE_FOLLOWUP_CREATED', userId, null, {
+      activityType: dto.activityType,
+      notes: dto.notes,
+      scheduledAt: dto.scheduledAt ?? null,
+    });
+
+    return this.getFollowUps(companyId, id);
+  }
+
+  async getAttachments(companyId: string, id: string) {
+    await this.findOne(companyId, id);
+    return this.prisma.$queryRawUnsafe<QuoteAttachmentRow[]>(
+      `
+        SELECT
+          qa."id",
+          qa."quoteId",
+          qa."fileName",
+          qa."fileUrl",
+          qa."mimeType",
+          qa."category",
+          qa."notes",
+          qa."sizeBytes",
+          qa."uploadedById",
+          TRIM(CONCAT(COALESCE(u."firstName", ''), ' ', COALESCE(u."lastName", ''))) AS "uploadedByName",
+          qa."createdAt",
+          qa."updatedAt"
+        FROM "quote_attachments" qa
+        LEFT JOIN "users" u ON u."id" = qa."uploadedById"
+        WHERE qa."companyId" = $1 AND qa."quoteId" = $2
+        ORDER BY qa."createdAt" DESC
+      `,
+      companyId,
+      id,
+    );
+  }
+
+  async createAttachment(companyId: string, id: string, dto: CreateQuoteAttachmentDto, userId: string) {
+    await this.findOne(companyId, id);
+    const fileName = dto.fileName?.trim();
+    const fileUrl = dto.fileUrl?.trim();
+    if (!fileName) throw new BadRequestException('El nombre del adjunto es obligatorio');
+    if (!fileUrl) throw new BadRequestException('La URL del adjunto es obligatoria');
+
+    await this.prisma.$executeRawUnsafe(
+      `
+        INSERT INTO "quote_attachments" (
+          "id", "companyId", "quoteId", "fileName", "fileUrl", "mimeType", "category", "notes", "sizeBytes", "uploadedById", "createdAt", "updatedAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+      `,
+      randomUUID(),
+      companyId,
+      id,
+      fileName,
+      fileUrl,
+      this.normalizeOptional(dto.mimeType),
+      this.normalizeOptional(dto.category),
+      this.normalizeOptional(dto.notes),
+      dto.sizeBytes ?? null,
+      userId,
+    );
+
+    await this.logQuoteAudit(companyId, id, 'QUOTE_ATTACHMENT_CREATED', userId, null, {
+      fileName,
+      fileUrl,
+      category: dto.category ?? null,
+    });
+
+    return this.getAttachments(companyId, id);
+  }
+
+  async getComments(companyId: string, id: string) {
+    await this.findOne(companyId, id);
+    return this.prisma.$queryRawUnsafe<QuoteCommentRow[]>(
+      `
+        SELECT
+          qc."id",
+          qc."quoteId",
+          qc."commentType",
+          qc."message",
+          qc."createdById",
+          TRIM(CONCAT(COALESCE(u."firstName", ''), ' ', COALESCE(u."lastName", ''))) AS "createdByName",
+          qc."createdAt",
+          qc."updatedAt"
+        FROM "quote_comments" qc
+        LEFT JOIN "users" u ON u."id" = qc."createdById"
+        WHERE qc."companyId" = $1 AND qc."quoteId" = $2
+        ORDER BY qc."createdAt" DESC
+      `,
+      companyId,
+      id,
+    );
+  }
+
+  async createComment(companyId: string, id: string, dto: CreateQuoteCommentDto, userId: string) {
+    await this.findOne(companyId, id);
+    const message = dto.message?.trim();
+    if (!message) throw new BadRequestException('El comentario es obligatorio');
+
+    await this.prisma.$executeRawUnsafe(
+      `
+        INSERT INTO "quote_comments" (
+          "id", "companyId", "quoteId", "commentType", "message", "createdById", "createdAt", "updatedAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+      `,
+      randomUUID(),
+      companyId,
+      id,
+      dto.commentType?.trim() || 'INTERNAL',
+      message,
+      userId,
+    );
+
+    await this.logQuoteAudit(companyId, id, 'QUOTE_COMMENT_CREATED', userId, null, {
+      commentType: dto.commentType?.trim() || 'INTERNAL',
+      message,
+    });
+
+    return this.getComments(companyId, id);
+  }
+
+  async getAuditTrail(companyId: string, id: string) {
+    await this.findOne(companyId, id);
+    return this.prisma.$queryRawUnsafe<QuoteAuditTrailRow[]>(
+      `
+        SELECT
+          al."id",
+          al."action",
+          al."resource",
+          al."resourceId",
+          al."before",
+          al."after",
+          al."userId",
+          al."createdAt",
+          TRIM(CONCAT(COALESCE(u."firstName", ''), ' ', COALESCE(u."lastName", ''))) AS "userName"
+        FROM "audit_logs" al
+        LEFT JOIN "users" u ON u."id" = al."userId"
+        WHERE al."companyId" = $1
+          AND al."resource" = 'QUOTE'
+          AND al."resourceId" = $2
+        ORDER BY al."createdAt" DESC
+      `,
+      companyId,
+      id,
+    );
+  }
+
+  async getIntegrationSummary(companyId: string, id: string) {
+    const quote = await this.findOne(companyId, id);
+    const inventory = await this.getInventoryIntegration(companyId, quote.items as any[]);
+
+    return {
+      quoteId: quote.id,
+      quoteNumber: quote.number,
+      sales: {
+        status: quote.status,
+        canConvertToInvoice: quote.status === 'ACCEPTED' && !quote.invoiceId,
+        hasInvoice: Boolean(quote.invoiceId),
+        invoiceId: quote.invoiceId ?? null,
+        invoiceNumber: quote.invoice?.invoiceNumber ?? null,
+      },
+      fiscal: {
+        canSendToDian: quote.status === 'ACCEPTED' || quote.status === 'CONVERTED',
+        requiresInvoiceCreation: !quote.invoiceId,
+        dianFlowLabel: quote.invoiceId ? 'Factura lista para DIAN' : 'Se convertirá a factura antes de DIAN',
+      },
+      inventory,
+    };
+  }
+
+  async sendToDian(companyId: string, id: string, userId: string) {
+    const quote = await this.findOne(companyId, id);
+    if (!['ACCEPTED', 'CONVERTED'].includes(quote.status)) {
+      throw new BadRequestException('Solo las cotizaciones aceptadas o convertidas pueden enviarse a DIAN');
+    }
+
+    let invoiceId = quote.invoiceId ?? null;
+    let invoiceNumber = quote.invoice?.invoiceNumber ?? null;
+
+    if (!invoiceId) {
+      const invoice = await this.convertToInvoice(companyId, id, userId);
+      invoiceId = invoice.id;
+      invoiceNumber = invoice.invoiceNumber ?? null;
+    }
+
+    const result = await this.invoicesService.sendToDian(companyId, 'quotes', invoiceId);
+    await this.logQuoteAudit(companyId, id, 'QUOTE_SENT_TO_DIAN', userId, {
+      invoiceId,
+      invoiceNumber,
+    }, {
+      invoiceId,
+      invoiceNumber,
+      dianZipKey: (result as any)?.dianZipKey ?? null,
+      status: 'SENT_TO_DIAN',
+    });
+
+    return {
+      invoiceId,
+      invoiceNumber,
+      ...(result as any),
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // ELIMINAR cotización — soft-delete, solo permite DRAFT
   // ─────────────────────────────────────────────────────────────────────────────
-  async remove(companyId: string, id: string) {
+  async remove(companyId: string, id: string, userId?: string) {
     const quote = await this.findOne(companyId, id);
 
     if (quote.status !== 'DRAFT') {
@@ -437,10 +2004,333 @@ export class QuotesService {
       );
     }
 
-    return this.prisma.quote.update({
+    const removed = await this.prisma.quote.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
+    await this.logQuoteAudit(companyId, id, 'QUOTE_DELETED', userId ?? null, {
+      status: quote.status,
+      number: quote.number,
+    }, {
+      deletedAt: removed.deletedAt,
+    });
+    return removed;
+  }
+
+  private async logQuoteAudit(
+    companyId: string,
+    quoteId: string,
+    action: string,
+    userId?: string | null,
+    before?: any,
+    after?: any,
+  ) {
+    await this.prisma.auditLog.create({
+      data: {
+        companyId,
+        userId: userId ?? null,
+        action,
+        resource: 'QUOTE',
+        resourceId: quoteId,
+        before: before === undefined ? undefined : this.toJsonValue(before),
+        after: after === undefined ? undefined : this.toJsonValue(after),
+      },
+    });
+  }
+
+  private toJsonValue(value: any) {
+    if (value === null || value === undefined) return value;
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  private async getInventoryIntegration(companyId: string, items: Array<{ productId?: string; quantity?: any; description?: string }> = []) {
+    const productIds = Array.from(new Set(items.map((item) => item.productId).filter(Boolean))) as string[];
+    if (!productIds.length) {
+      return {
+        checkedLines: 0,
+        availableLines: 0,
+        unavailableLines: 0,
+        lowStockLines: 0,
+        lines: [],
+      };
+    }
+
+    const products = await this.prisma.$queryRawUnsafe<QuoteInventoryIntegrationRow[]>(
+      `
+        SELECT
+          "id" AS "productId",
+          "sku",
+          "name",
+          "unit",
+          "status",
+          "stock",
+          "minStock"
+        FROM "products"
+        WHERE "companyId" = $1
+          AND "deletedAt" IS NULL
+          AND "id" = ANY($2)
+      `,
+      companyId,
+      productIds,
+    );
+
+    const productMap = new Map(products.map((product) => [product.productId, product]));
+    const lines = items
+      .filter((item) => item.productId)
+      .map((item, index) => {
+        const product = productMap.get(item.productId as string);
+        const requestedQuantity = Number(item.quantity ?? 0);
+        const currentStock = Number(product?.stock ?? 0);
+        const minStock = Number(product?.minStock ?? 0);
+        const shortage = Math.max(0, requestedQuantity - currentStock);
+        return {
+          lineIndex: index + 1,
+          productId: item.productId as string,
+          description: item.description ?? product?.name ?? 'Producto',
+          sku: product?.sku ?? '',
+          unit: product?.unit ?? 'UND',
+          status: product?.status ?? 'UNKNOWN',
+          requestedQuantity,
+          currentStock,
+          minStock,
+          enoughStock: shortage <= 0,
+          shortage,
+          lowStock: currentStock <= minStock,
+        };
+      });
+
+    return {
+      checkedLines: lines.length,
+      availableLines: lines.filter((line) => line.enoughStock).length,
+      unavailableLines: lines.filter((line) => !line.enoughStock).length,
+      lowStockLines: lines.filter((line) => line.lowStock).length,
+      lines,
+    };
+  }
+
+  private async getApplicableApprovalPolicies(companyId: string, total: number, items: Array<{ discount?: any }> = []) {
+    const policies = await this.getApprovalPolicies(companyId);
+    const maxDiscount = items.reduce((acc, item) => Math.max(acc, Number(item?.discount ?? 0)), 0);
+    return policies.filter((policy) => {
+      if (policy.approvalType === 'TOTAL') return total >= Number(policy.thresholdValue ?? 0);
+      if (policy.approvalType === 'DISCOUNT') return maxDiscount >= Number(policy.thresholdValue ?? 0);
+      return false;
+    });
+  }
+
+  private async requiresApproval(companyId: string, total: number, items: Array<{ discount?: any }> = []) {
+    const applicablePolicies = await this.getApplicableApprovalPolicies(companyId, total, items);
+    if (applicablePolicies.length) return true;
+    const hasHighDiscount = items.some((item) => Number(item?.discount ?? 0) >= APPROVAL_DISCOUNT_THRESHOLD);
+    return total >= APPROVAL_TOTAL_THRESHOLD || hasHighDiscount;
+  }
+
+  private async getApprovalFlow(companyId: string, quoteId: string) {
+    const rows = await this.prisma.$queryRawUnsafe<QuoteApprovalRow[]>(
+      `
+        SELECT *
+        FROM "quote_approval_requests"
+        WHERE "companyId" = $1 AND "quoteId" = $2
+        ORDER BY "sequence" ASC, "createdAt" ASC
+      `,
+      companyId,
+      quoteId,
+    );
+    return rows.map((row) => ({
+      ...row,
+      sequence: Number(row.sequence ?? 1),
+      thresholdValue: row.thresholdValue !== null && row.thresholdValue !== undefined ? Number(row.thresholdValue) : null,
+    }));
+  }
+
+  private async getApprovalSummary(companyId: string, quoteId: string) {
+    const flow = await this.getApprovalFlow(companyId, quoteId);
+    const pending = flow.find((row) => row.status === 'PENDING');
+    if (pending) return pending;
+    return flow[flow.length - 1] ?? null;
+  }
+
+  private async supersedeApprovalFlow(companyId: string, quoteId: string) {
+    await this.prisma.$executeRawUnsafe(
+      `
+        UPDATE "quote_approval_requests"
+        SET "status" = 'SUPERSEDED',
+            "updatedAt" = NOW()
+        WHERE "companyId" = $1
+          AND "quoteId" = $2
+          AND "status" IN ('PENDING', 'APPROVED')
+      `,
+      companyId,
+      quoteId,
+    );
+  }
+
+  private async createApprovalFlow(companyId: string, quoteId: string, reason: string, userId: string, total: number, items: Array<{ discount?: any }> = []) {
+    const applicablePolicies = await this.getApplicableApprovalPolicies(companyId, total, items);
+    const flow = applicablePolicies.length
+      ? applicablePolicies.map((policy) => ({
+          sequence: Number(policy.sequence ?? 1),
+          policyName: policy.name,
+          requiredRole: policy.requiredRole,
+          thresholdType: policy.approvalType,
+          thresholdValue: Number(policy.thresholdValue ?? 0),
+          reason: `${reason} · ${policy.name}`,
+        }))
+      : [{
+          sequence: 1,
+          policyName: 'Política comercial general',
+          requiredRole: 'MANAGER',
+          thresholdType: total >= APPROVAL_TOTAL_THRESHOLD ? 'TOTAL' : 'DISCOUNT',
+          thresholdValue: total >= APPROVAL_TOTAL_THRESHOLD ? APPROVAL_TOTAL_THRESHOLD : APPROVAL_DISCOUNT_THRESHOLD,
+          reason,
+        }];
+
+    for (const step of flow) {
+      await this.prisma.$executeRawUnsafe(
+        `
+          INSERT INTO "quote_approval_requests" (
+            "id", "companyId", "quoteId", "status", "reason", "sequence", "policyName", "requiredRole",
+            "thresholdType", "thresholdValue", "requestedById", "createdAt", "updatedAt"
+          ) VALUES ($1, $2, $3, 'PENDING', $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+        `,
+        randomUUID(),
+        companyId,
+        quoteId,
+        step.reason,
+        step.sequence,
+        step.policyName,
+        step.requiredRole,
+        step.thresholdType,
+        step.thresholdValue,
+        userId,
+      );
+    }
+  }
+
+  private async ensureQuoteCanProceed(companyId: string, id: string, quote: any) {
+    if (quote.status === 'EXPIRED') {
+      throw new BadRequestException('La cotización está vencida y debe renovarse antes de continuar');
+    }
+
+    if (!(await this.requiresApproval(companyId, Number(quote.total), quote.items as any[]))) {
+      return;
+    }
+
+    const flow = await this.getApprovalFlow(companyId, id);
+    if (!flow.length) {
+      throw new BadRequestException('La cotización requiere aprobación comercial antes de enviarse, aceptarse o convertirse');
+    }
+    const rejectedStep = flow.find((step) => step.status === 'REJECTED');
+    if (rejectedStep) {
+      throw new BadRequestException('La cotización tiene un paso de aprobación rechazado y debe solicitarse nuevamente');
+    }
+    const pendingStep = flow.find((step) => step.status === 'PENDING');
+    if (pendingStep) {
+      throw new BadRequestException(
+        `La cotización tiene aprobaciones pendientes en el nivel ${pendingStep.sequence} (${pendingStep.requiredRole ?? 'sin rol definido'})`,
+      );
+    }
+    const hasNonApproved = flow.some((step) => step.status !== 'APPROVED');
+    if (hasNonApproved) {
+      throw new BadRequestException('La cotización debe completar nuevamente su flujo de aprobación antes de continuar');
+    }
+  }
+
+  private async getLatestApproval(companyId: string, quoteId: string) {
+    return this.getApprovalSummary(companyId, quoteId);
+  }
+
+  private async getCurrentVersionNumber(companyId: string, quoteId: string) {
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ versionNumber: number }>>(
+      `
+        SELECT COALESCE(MAX("versionNumber"), 0) AS "versionNumber"
+        FROM "quote_versions"
+        WHERE "companyId" = $1 AND "quoteId" = $2
+      `,
+      companyId,
+      quoteId,
+    );
+    return Number(rows[0]?.versionNumber ?? 0);
+  }
+
+  private async createVersionSnapshot(
+    companyId: string,
+    quoteId: string,
+    action: string,
+    snapshot: any,
+    userId: string | null,
+  ) {
+    const nextVersion = (await this.getCurrentVersionNumber(companyId, quoteId)) + 1;
+    await this.prisma.$executeRawUnsafe(
+      `
+        INSERT INTO "quote_versions" (
+          "id", "companyId", "quoteId", "versionNumber", "action", "snapshot", "createdById", "createdAt"
+        ) VALUES ($1, $2, $3, $4, $5, CAST($6 AS jsonb), $7, NOW())
+      `,
+      randomUUID(),
+      companyId,
+      quoteId,
+      nextVersion,
+      action,
+      JSON.stringify(snapshot),
+      userId,
+    );
+  }
+
+  private async attachCommercialMetadata(companyId: string, quotes: any[]) {
+    if (!quotes.length) return [];
+    const quoteIds = quotes.map((quote) => quote.id);
+
+    const [approvals, versions, advancedFieldsMap] = await Promise.all([
+      this.prisma.$queryRawUnsafe<QuoteApprovalRow[]>(
+        `
+          SELECT *
+          FROM "quote_approval_requests"
+          WHERE "companyId" = $1 AND "quoteId" = ANY($2)
+          ORDER BY "quoteId" ASC, "sequence" ASC, "createdAt" ASC
+        `,
+        companyId,
+        quoteIds,
+      ),
+      this.prisma.$queryRawUnsafe<Array<{ quoteId: string; versionNumber: number }>>(
+        `
+          SELECT "quoteId", COALESCE(MAX("versionNumber"), 0) AS "versionNumber"
+          FROM "quote_versions"
+          WHERE "companyId" = $1 AND "quoteId" = ANY($2)
+          GROUP BY "quoteId"
+        `,
+        companyId,
+        quoteIds,
+      ),
+      this.getAdvancedCommercialFields(companyId, quoteIds),
+    ]);
+
+    const approvalsMap = new Map<string, QuoteApprovalRow | null>();
+    for (const quoteId of quoteIds) {
+      const flow = approvals
+        .filter((row) => row.quoteId === quoteId)
+        .map((row) => ({
+          ...row,
+          sequence: Number(row.sequence ?? 1),
+          thresholdValue: row.thresholdValue !== null && row.thresholdValue !== undefined ? Number(row.thresholdValue) : null,
+        }));
+      approvalsMap.set(
+        quoteId,
+        flow.find((row) => row.status === 'PENDING') ?? flow[flow.length - 1] ?? null,
+      );
+    }
+    const versionsMap = new Map(versions.map((row) => [row.quoteId, Number(row.versionNumber)]));
+    const enriched = [];
+    for (const quote of quotes) {
+      enriched.push({
+        ...quote,
+        ...(advancedFieldsMap.get(quote.id) ?? {}),
+        approval: approvalsMap.get(quote.id) ?? null,
+        approvalRequired: await this.requiresApproval(companyId, Number(quote.total), quote.items as any[]),
+        currentVersion: versionsMap.get(quote.id) ?? 0,
+      });
+    }
+    return enriched;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -456,6 +2346,8 @@ export class QuotesService {
       },
     });
     if (!quote) throw new NotFoundException('Cotización no encontrada');
+    const advancedFields = (await this.getAdvancedCommercialFields(companyId, [quoteId])).get(quoteId);
+    Object.assign(quote as any, advancedFields ?? {});
 
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
@@ -663,6 +2555,9 @@ export class QuotesService {
     ];
     const summaryRows = [
       { label: 'Moneda',    value: [normalizeText(quote.currency ?? 'COP')] },
+      ...(Number((quote as any).exchangeRate ?? 1) !== 1 ? [{ label: 'Tasa cambio', value: [normalizeText(String(Number((quote as any).exchangeRate ?? 1)))] }] : []),
+      ...((quote as any).paymentTermLabel ? [{ label: 'Pago', value: [normalizeText((quote as any).paymentTermLabel)] }] : []),
+      ...((quote as any).paymentTermDays != null ? [{ label: 'Plazo', value: [normalizeText(`${Number((quote as any).paymentTermDays)} dias`)] }] : []),
       { label: 'Subtotal',  value: [normalizeText(fmtCOP(quote.subtotal))] },
       { label: 'IVA',       value: [normalizeText(fmtCOP(quote.taxAmount))] },
       { label: 'Descuento', value: [normalizeText(fmtCOP(quote.discountAmount ?? 0))] },
@@ -794,6 +2689,24 @@ export class QuotesService {
       addRect(marginX, y, contentWidth, termsHeight, 'B');
       drawTextBlock(termLines, marginX + 14, y + 20, 12, { size: 10, color: colors.text });
       y += termsHeight + 18;
+    }
+
+    const advancedConditionLines = [
+      (quote as any).deliveryLeadTimeDays != null ? `Tiempo de entrega: ${Number((quote as any).deliveryLeadTimeDays)} dias` : '',
+      (quote as any).deliveryTerms ? `Condiciones de entrega: ${normalizeText((quote as any).deliveryTerms)}` : '',
+      (quote as any).incotermCode ? `Incoterm: ${normalizeText((quote as any).incotermCode)}${(quote as any).incotermLocation ? ` ${normalizeText((quote as any).incotermLocation)}` : ''}` : '',
+      (quote as any).commercialConditions ? normalizeText((quote as any).commercialConditions) : '',
+    ].filter(Boolean);
+    if (advancedConditionLines.length) {
+      const wrapped = advancedConditionLines.flatMap((line) => wrapText(line, contentWidth - 28, 10));
+      const blockHeight = 30 + wrapped.length * 12 + 14;
+      ensureSpace(blockHeight + 12);
+      sectionTitle('Condiciones comerciales', colors.blue);
+      setFill([239, 246, 255]);
+      setStroke([147, 197, 253]);
+      addRect(marginX, y, contentWidth, blockHeight, 'B');
+      drawTextBlock(wrapped, marginX + 14, y + 20, 12, { size: 10, color: colors.text });
+      y += blockHeight + 18;
     }
 
     // ── Footer ─────────────────────────────────────────────────────────────────

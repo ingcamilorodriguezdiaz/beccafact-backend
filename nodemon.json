@@ -2,8 +2,5 @@
   "watch": ["src"],
   "ext": "ts",
   "ignore": ["src/**/*.spec.ts"],
-  "events": {
-    "start": "fuser -n tcp -k 3000 || true"
-  },
   "exec": "ts-node -r tsconfig-paths/register src/main.ts"
 }

@@ -80,10 +80,68 @@ export class CreateQuoteDto {
   @IsString()
   terms?: string;
 
+  @ApiPropertyOptional({ description: 'Responsable comercial de la cotización' })
+  @IsOptional()
+  @IsString()
+  salesOwnerName?: string;
+
+  @ApiPropertyOptional({ description: 'Oportunidad comercial asociada' })
+  @IsOptional()
+  @IsString()
+  opportunityName?: string;
+
+  @ApiPropertyOptional({ description: 'Canal u origen de la oportunidad' })
+  @IsOptional()
+  @IsString()
+  sourceChannel?: string;
+
   @ApiPropertyOptional({ description: 'Moneda de la cotización', default: 'COP', example: 'COP' })
   @IsOptional()
   @IsString()
   currency?: string;
+
+  @ApiPropertyOptional({ description: 'Etiqueta o nombre del término de pago' })
+  @IsOptional()
+  @IsString()
+  paymentTermLabel?: string;
+
+  @ApiPropertyOptional({ description: 'Días de crédito o plazo de pago' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  paymentTermDays?: number;
+
+  @ApiPropertyOptional({ description: 'Tiempo de entrega prometido en días' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  deliveryLeadTimeDays?: number;
+
+  @ApiPropertyOptional({ description: 'Condiciones logísticas o de entrega' })
+  @IsOptional()
+  @IsString()
+  deliveryTerms?: string;
+
+  @ApiPropertyOptional({ description: 'Código incoterm, por ejemplo EXW, FOB o CIF' })
+  @IsOptional()
+  @IsString()
+  incotermCode?: string;
+
+  @ApiPropertyOptional({ description: 'Ubicación o punto asociado al incoterm' })
+  @IsOptional()
+  @IsString()
+  incotermLocation?: string;
+
+  @ApiPropertyOptional({ description: 'Tasa de cambio aplicada a la cotización', default: 1 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0.0001)
+  exchangeRate?: number;
+
+  @ApiPropertyOptional({ description: 'Cláusulas o condiciones comerciales avanzadas' })
+  @IsOptional()
+  @IsString()
+  commercialConditions?: string;
 
   @ApiPropertyOptional({ description: 'Descuento global sobre el total', default: 0, minimum: 0 })
   @IsOptional()

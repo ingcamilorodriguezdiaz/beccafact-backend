@@ -1,5 +1,5 @@
 import { PartialType, OmitType } from '@nestjs/swagger';
-import { IsEnum, IsOptional } from 'class-validator';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { QuoteStatus } from '@prisma/client';
 import { CreateQuoteDto } from './create-quote.dto';
@@ -16,4 +16,11 @@ export class UpdateQuoteStatusDto {
   })
   @IsEnum(QuoteStatus)
   status: QuoteStatus;
+
+  @ApiPropertyOptional({
+    description: 'Motivo comercial de rechazo o pérdida',
+  })
+  @IsOptional()
+  @IsString()
+  lostReason?: string;
 }

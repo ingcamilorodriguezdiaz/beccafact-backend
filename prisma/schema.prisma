@@ -37,74 +37,100 @@ model PlanFeature {
 }
 
 model Company {
-  id                         String                      @id @default(uuid())
-  name                       String
-  nit                        String                      @unique
-  razonSocial                String
-  email                      String
-  phone                      String?
-  address                    String?
-  city                       String?
-  department                 String?
-  cityCode                   String?
-  departmentCode             String?
-  country                    String                      @default("CO")
-  status                     CompanyStatus               @default(ACTIVE)
-  dianTestMode               Boolean                     @default(true)
-  dianSoftwareId             String?
-  dianSoftwarePin            String?
-  dianTestSetId              String?
-  dianClaveTecnica           String?
-  dianResolucion             String?
-  dianPrefijo                String?
-  dianRangoDesde             Int?
-  dianRangoHasta             Int?
-  dianFechaDesde             String?
-  dianFechaHasta             String?
-  dianCertificate            String?
-  dianCertificateKey         String?
-  logoUrl                    String?
-  createdAt                  DateTime                    @default(now())
-  updatedAt                  DateTime                    @updatedAt
-  deletedAt                  DateTime?
-  nominaSoftwareId           String?
-  nominaSoftwarePin          String?
-  nominaTestSetId            String?
-  dianPosResolucion          String?
-  dianPosPrefijo             String?
-  dianPosRangoDesde          Int?
-  dianPosRangoHasta          Int?
-  dianPosFechaDesde          String?
-  dianPosFechaHasta          String?
-  accountingAccounts         AccountingAccount[]
-  accountingPeriods          AccountingPeriod[]
-  auditLogs                  AuditLog[]
-  branches                   Branch[]
-  carteraAdjustments         CarteraAdjustment[]
-  carteraCollectionFollowUps CarteraCollectionFollowUp[]
-  carteraPaymentPromises     CarteraPaymentPromise[]
-  carteraPayments            CarteraPayment[]
-  carteraReceiptApplications CarteraReceiptApplication[]
-  carteraReceipts            CarteraReceipt[]
-  carteraBankMovements       CarteraBankMovement[]
-  categories                 Category[]
-  customers                  Customer[]
-  dianTestSets               DianTestSet[]
-  employees                  employees[]
-  importJobs                 ImportJob[]
-  integrations               Integration[]
-  invoices                   Invoice[]
-  journalEntries             JournalEntry[]
-  payroll_records            payroll_records[]
-  posCashMovements           PosCashMovement[]
-  pos_sales                  PosSale[]
-  pos_sessions               PosSession[]
-  products                   Product[]
-  purchaseOrders             PurchaseOrder[]
-  quotes                     Quote[]
-  subscriptions              Subscription[]
-  usageTracking              UsageTracking[]
-  users                      User[]
+  id                          String                       @id @default(uuid())
+  name                        String
+  nit                         String                       @unique
+  razonSocial                 String
+  email                       String
+  phone                       String?
+  address                     String?
+  city                        String?
+  department                  String?
+  cityCode                    String?
+  departmentCode              String?
+  country                     String                       @default("CO")
+  status                      CompanyStatus                @default(ACTIVE)
+  dianTestMode                Boolean                      @default(true)
+  dianSoftwareId              String?
+  dianSoftwarePin             String?
+  dianTestSetId               String?
+  dianClaveTecnica            String?
+  dianResolucion              String?
+  dianPrefijo                 String?
+  dianRangoDesde              Int?
+  dianRangoHasta              Int?
+  dianFechaDesde              String?
+  dianFechaHasta              String?
+  dianCertificate             String?
+  dianCertificateKey          String?
+  logoUrl                     String?
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  deletedAt                   DateTime?
+  nominaSoftwareId            String?
+  nominaSoftwarePin           String?
+  nominaTestSetId             String?
+  dianPosResolucion           String?
+  dianPosPrefijo              String?
+  dianPosRangoDesde           Int?
+  dianPosRangoHasta           Int?
+  dianPosFechaDesde           String?
+  dianPosFechaHasta           String?
+  accountPayablePayments      AccountPayablePayment[]
+  accountPayableSchedules     AccountPayableSchedule[]
+  accountingAccounts          AccountingAccount[]
+  accountingPeriods           AccountingPeriod[]
+  accountsPayable             AccountPayable[]
+  auditLogs                   AuditLog[]
+  branches                    Branch[]
+  carteraAdjustments          CarteraAdjustment[]
+  carteraBankMovements        CarteraBankMovement[]
+  carteraCollectionFollowUps  CarteraCollectionFollowUp[]
+  carteraPaymentPromises      CarteraPaymentPromise[]
+  carteraPayments             CarteraPayment[]
+  carteraReceiptApplications  CarteraReceiptApplication[]
+  carteraReceipts             CarteraReceipt[]
+  categories                  Category[]
+  customers                   Customer[]
+  dianTestSets                DianTestSet[]
+  employees                   employees[]
+  importJobs                  ImportJob[]
+  integrations                Integration[]
+  invoices                    Invoice[]
+  journalEntries              JournalEntry[]
+  payroll_records             payroll_records[]
+  posCashMovements            PosCashMovement[]
+  pos_sales                   PosSale[]
+  pos_sessions                PosSession[]
+  products                    Product[]
+  purchaseAdjustments         PurchaseAdjustment[]
+  purchaseAdvanceApplications PurchaseAdvanceApplication[]
+  purchaseAdvances            PurchaseAdvance[]
+  purchaseBudgets             PurchaseBudget[]
+  purchaseFrameworkAgreements PurchaseFrameworkAgreement[]
+  purchaseInventoryMovements  PurchaseInventoryMovement[]
+  purchaseInvoices            PurchaseInvoice[]
+  purchaseOrderReceipts       PurchaseOrderReceipt[]
+  purchaseOrders              PurchaseOrder[]
+  purchaseRequestApprovals    PurchaseRequestApproval[]
+  purchaseRequests            PurchaseRequest[]
+  purchaseSupplierQuotes      PurchaseSupplierQuote[]
+  quote_approval_policies     QuoteApprovalPolicy[]
+  quoteApprovalRequests       QuoteApprovalRequest[]
+  quote_attachments           QuoteAttachment[]
+  quote_comments              QuoteComment[]
+  quoteFollowUps              QuoteFollowUp[]
+  quote_lost_reasons          QuoteLostReason[]
+  quote_price_lists           QuotePriceList[]
+  quote_sales_owners          QuoteSalesOwner[]
+  quote_source_channels       QuoteSourceChannel[]
+  quote_stages                QuoteStage[]
+  quote_templates             QuoteTemplate[]
+  quoteVersions               QuoteVersion[]
+  quotes                      Quote[]
+  subscriptions               Subscription[]
+  usageTracking               UsageTracking[]
+  users                       User[]
 
   @@index([status])
   @@index([nit])
@@ -177,38 +203,55 @@ model Subscription {
 }
 
 model User {
-  id                                String                      @id @default(uuid())
-  email                             String                      @unique
-  password                          String
-  firstName                         String
-  lastName                          String
-  phone                             String?
-  avatar                            String?
-  isActive                          Boolean                     @default(true)
-  isSuperAdmin                      Boolean                     @default(false)
-  companyId                         String?
-  createdAt                         DateTime                    @default(now())
-  updatedAt                         DateTime                    @updatedAt
-  deletedAt                         DateTime?
-  lastLoginAt                       DateTime?
-  refreshToken                      String?
-  hasSeenTour                       Boolean                     @default(false)
-  auditLogs                         AuditLog[]
-  approvedCarteraAdjustments        CarteraAdjustment[]         @relation("CarteraAdjustmentApprovedBy")
-  importedCarteraBankMovements      CarteraBankMovement[]       @relation("CarteraBankMovementImportedBy")
-  reconciledCarteraBankMovements    CarteraBankMovement[]       @relation("CarteraBankMovementReconciledBy")
-  requestedCarteraAdjustments       CarteraAdjustment[]         @relation("CarteraAdjustmentRequestedBy")
-  createdCarteraCollectionFollowUps CarteraCollectionFollowUp[] @relation("CarteraCollectionFollowUpCreatedBy")
-  createdCarteraPaymentPromises     CarteraPaymentPromise[]     @relation("CarteraPaymentPromiseCreatedBy")
-  carteraPayments                   CarteraPayment[]
-  carteraReceiptApplications        CarteraReceiptApplication[]
-  carteraReceipts                   CarteraReceipt[]
-  importJobs                        ImportJob[]
-  posCashMovements                  PosCashMovement[]
-  pos_sessions                      PosSession[]
-  userBranches                      UserBranch[]
-  roles                             UserRole[]
-  company                           Company?                    @relation(fields: [companyId], references: [id])
+  id                                 String                       @id @default(uuid())
+  email                              String                       @unique
+  password                           String
+  firstName                          String
+  lastName                           String
+  phone                              String?
+  avatar                             String?
+  isActive                           Boolean                      @default(true)
+  isSuperAdmin                       Boolean                      @default(false)
+  companyId                          String?
+  createdAt                          DateTime                     @default(now())
+  updatedAt                          DateTime                     @updatedAt
+  deletedAt                          DateTime?
+  lastLoginAt                        DateTime?
+  refreshToken                       String?
+  hasSeenTour                        Boolean                      @default(false)
+  createdAccountPayablePayments      AccountPayablePayment[]      @relation("AccountPayablePaymentCreatedBy")
+  auditLogs                          AuditLog[]
+  approvedCarteraAdjustments         CarteraAdjustment[]          @relation("CarteraAdjustmentApprovedBy")
+  requestedCarteraAdjustments        CarteraAdjustment[]          @relation("CarteraAdjustmentRequestedBy")
+  importedCarteraBankMovements       CarteraBankMovement[]        @relation("CarteraBankMovementImportedBy")
+  reconciledCarteraBankMovements     CarteraBankMovement[]        @relation("CarteraBankMovementReconciledBy")
+  createdCarteraCollectionFollowUps  CarteraCollectionFollowUp[]  @relation("CarteraCollectionFollowUpCreatedBy")
+  createdCarteraPaymentPromises      CarteraPaymentPromise[]      @relation("CarteraPaymentPromiseCreatedBy")
+  carteraPayments                    CarteraPayment[]
+  carteraReceiptApplications         CarteraReceiptApplication[]
+  carteraReceipts                    CarteraReceipt[]
+  importJobs                         ImportJob[]
+  posCashMovements                   PosCashMovement[]
+  pos_sessions                       PosSession[]
+  approvedPurchaseAdjustments        PurchaseAdjustment[]         @relation("PurchaseAdjustmentApprovedBy")
+  createdPurchaseAdjustments         PurchaseAdjustment[]         @relation("PurchaseAdjustmentCreatedBy")
+  createdPurchaseAdvances            PurchaseAdvance[]            @relation("PurchaseAdvanceCreatedBy")
+  createdPurchaseBudgets             PurchaseBudget[]             @relation("PurchaseBudgetCreatedBy")
+  createdPurchaseFrameworkAgreements PurchaseFrameworkAgreement[] @relation("PurchaseFrameworkAgreementCreatedBy")
+  createdPurchaseInvoices            PurchaseInvoice[]            @relation("PurchaseInvoiceCreatedBy")
+  createdPurchaseOrderReceipts       PurchaseOrderReceipt[]       @relation("PurchaseOrderReceiptCreatedBy")
+  approvedPurchaseRequestApprovals   PurchaseRequestApproval[]    @relation("PurchaseRequestApprovalApprovedBy")
+  createdPurchaseRequests            PurchaseRequest[]            @relation("PurchaseRequestCreatedBy")
+  createdPurchaseSupplierQuotes      PurchaseSupplierQuote[]      @relation("PurchaseSupplierQuoteCreatedBy")
+  approvedQuoteApprovalRequests      QuoteApprovalRequest[]       @relation("QuoteApprovalApprovedBy")
+  requestedQuoteApprovalRequests     QuoteApprovalRequest[]       @relation("QuoteApprovalRequestedBy")
+  quote_attachments                  QuoteAttachment[]
+  quote_comments                     QuoteComment[]
+  quoteFollowUps                     QuoteFollowUp[]
+  quoteVersions                      QuoteVersion[]
+  userBranches                       UserBranch[]
+  roles                              UserRole[]
+  company                            Company?                     @relation(fields: [companyId], references: [id])
 
   @@index([companyId])
   @@index([email])
@@ -272,34 +315,39 @@ model Category {
 }
 
 model Product {
-  id                 String              @id @default(uuid())
-  companyId          String
-  categoryId         String?
-  sku                String
-  name               String
-  description        String?
-  price              Decimal             @db.Decimal(12, 2)
-  cost               Decimal             @default(0) @db.Decimal(12, 2)
-  stock              Int                 @default(0)
-  minStock           Int                 @default(0)
-  unit               String              @default("UND")
-  taxRate            Decimal             @default(19) @db.Decimal(5, 2)
-  taxType            TaxType             @default(IVA)
-  unspscCode         String?
-  status             ProductStatus       @default(ACTIVE)
-  imageUrl           String?
-  barcode            String?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  deletedAt          DateTime?
-  branchId           String?
-  invoiceItems       InvoiceItem[]
-  posSaleItems       PosSaleItem[]
-  branch             Branch?             @relation(fields: [branchId], references: [id])
-  category           Category?           @relation(fields: [categoryId], references: [id])
-  company            Company             @relation(fields: [companyId], references: [id])
-  purchaseOrderItems PurchaseOrderItem[]
-  quoteItems         QuoteItem[]
+  id                              String                           @id @default(uuid())
+  companyId                       String
+  categoryId                      String?
+  sku                             String
+  name                            String
+  description                     String?
+  price                           Decimal                          @db.Decimal(12, 2)
+  cost                            Decimal                          @default(0) @db.Decimal(12, 2)
+  stock                           Int                              @default(0)
+  minStock                        Int                              @default(0)
+  unit                            String                           @default("UND")
+  taxRate                         Decimal                          @default(19) @db.Decimal(5, 2)
+  taxType                         TaxType                          @default(IVA)
+  unspscCode                      String?
+  status                          ProductStatus                    @default(ACTIVE)
+  imageUrl                        String?
+  barcode                         String?
+  createdAt                       DateTime                         @default(now())
+  updatedAt                       DateTime                         @updatedAt
+  deletedAt                       DateTime?
+  branchId                        String?
+  invoiceItems                    InvoiceItem[]
+  posSaleItems                    PosSaleItem[]
+  branch                          Branch?                          @relation(fields: [branchId], references: [id])
+  category                        Category?                        @relation(fields: [categoryId], references: [id])
+  company                         Company                          @relation(fields: [companyId], references: [id])
+  purchaseFrameworkAgreementItems PurchaseFrameworkAgreementItem[]
+  purchaseInventoryMovements      PurchaseInventoryMovement[]
+  purchaseOrderItems              PurchaseOrderItem[]
+  purchaseRequestItems            PurchaseRequestItem[]
+  quoteItems                      QuoteItem[]
+  quote_price_list_items          QuotePriceListItem[]
+  quote_template_items            QuoteTemplateItem[]
 
   @@index([companyId, branchId, sku])
   @@index([branchId])
@@ -309,36 +357,43 @@ model Product {
 }
 
 model Customer {
-  id                         String                      @id @default(uuid())
-  companyId                  String
-  documentType               DocumentType                @default(NIT)
-  documentNumber             String
-  name                       String
-  email                      String?
-  phone                      String?
-  address                    String?
-  city                       String?
-  department                 String?
-  cityCode                   String?
-  departmentCode             String?
-  country                    String                      @default("CO")
-  isActive                   Boolean                     @default(true)
-  creditLimit                Decimal?                    @db.Decimal(12, 2)
-  creditDays                 Int?
-  notes                      String?
-  taxLevelCode               String?
-  createdAt                  DateTime                    @default(now())
-  updatedAt                  DateTime                    @updatedAt
-  deletedAt                  DateTime?
-  carteraAdjustments         CarteraAdjustment[]
-  carteraCollectionFollowUps CarteraCollectionFollowUp[]
-  carteraPaymentPromises     CarteraPaymentPromise[]
-  carteraReceipts            CarteraReceipt[]
-  company                    Company                     @relation(fields: [companyId], references: [id])
-  invoices                   Invoice[]
-  pos_sales                  PosSale[]
-  purchaseOrders             PurchaseOrder[]
-  quotes                     Quote[]
+  id                          String                       @id @default(uuid())
+  companyId                   String
+  documentType                DocumentType                 @default(NIT)
+  documentNumber              String
+  name                        String
+  email                       String?
+  phone                       String?
+  address                     String?
+  city                        String?
+  department                  String?
+  cityCode                    String?
+  departmentCode              String?
+  country                     String                       @default("CO")
+  isActive                    Boolean                      @default(true)
+  creditLimit                 Decimal?                     @db.Decimal(12, 2)
+  creditDays                  Int?
+  notes                       String?
+  taxLevelCode                String?
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  deletedAt                   DateTime?
+  accountsPayable             AccountPayable[]
+  carteraAdjustments          CarteraAdjustment[]
+  carteraCollectionFollowUps  CarteraCollectionFollowUp[]
+  carteraPaymentPromises      CarteraPaymentPromise[]
+  carteraReceipts             CarteraReceipt[]
+  company                     Company                      @relation(fields: [companyId], references: [id])
+  invoices                    Invoice[]
+  pos_sales                   PosSale[]
+  purchaseAdjustments         PurchaseAdjustment[]
+  purchaseAdvances            PurchaseAdvance[]
+  purchaseFrameworkAgreements PurchaseFrameworkAgreement[]
+  purchaseInvoices            PurchaseInvoice[]
+  purchaseOrders              PurchaseOrder[]
+  purchaseRequests            PurchaseRequest[]
+  purchaseSupplierQuotes      PurchaseSupplierQuote[]
+  quotes                      Quote[]
 
   @@unique([companyId, documentType, documentNumber])
   @@index([companyId])
@@ -466,8 +521,8 @@ model CarteraReceipt {
   createdAt       DateTime                    @default(now())
   updatedAt       DateTime                    @updatedAt
   adjustments     CarteraAdjustment[]
-  applications    CarteraReceiptApplication[]
   bankMovements   CarteraBankMovement[]
+  applications    CarteraReceiptApplication[]
   company         Company                     @relation(fields: [companyId], references: [id])
   createdBy       User                        @relation(fields: [createdById], references: [id])
   customer        Customer                    @relation(fields: [customerId], references: [id])
@@ -584,25 +639,25 @@ model CarteraAdjustment {
 }
 
 model CarteraBankMovement {
-  id              String          @id
-  companyId       String
-  bankCode        String?
-  accountNumber   String?
-  movementDate    DateTime
-  reference       String?
-  description     String?
-  amount          Decimal         @db.Decimal(12, 2)
-  status          String          @default("UNRECONCILED")
+  id               String          @id
+  companyId        String
+  bankCode         String?
+  accountNumber    String?
+  movementDate     DateTime
+  reference        String?
+  description      String?
+  amount           Decimal         @db.Decimal(12, 2)
+  status           String          @default("UNRECONCILED")
   matchedReceiptId String?
-  reconciledById  String?
-  reconciledAt    DateTime?
-  importedById    String
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @default(now()) @updatedAt
-  company         Company         @relation(fields: [companyId], references: [id])
-  importedBy      User            @relation("CarteraBankMovementImportedBy", fields: [importedById], references: [id])
-  matchedReceipt  CarteraReceipt? @relation(fields: [matchedReceiptId], references: [id])
-  reconciledBy    User?           @relation("CarteraBankMovementReconciledBy", fields: [reconciledById], references: [id])
+  reconciledById   String?
+  reconciledAt     DateTime?
+  importedById     String
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @default(now()) @updatedAt
+  company          Company         @relation(fields: [companyId], references: [id])
+  importedBy       User            @relation("CarteraBankMovementImportedBy", fields: [importedById], references: [id])
+  matchedReceipt   CarteraReceipt? @relation(fields: [matchedReceiptId], references: [id])
+  reconciledBy     User?           @relation("CarteraBankMovementReconciledBy", fields: [reconciledById], references: [id])
 
   @@index([companyId, movementDate])
   @@index([status])
@@ -1115,82 +1170,734 @@ model JournalEntryLine {
   @@map("journal_entry_lines")
 }
 
+model PurchaseBudget {
+  id               String               @id @default(uuid())
+  companyId        String
+  number           String
+  title            String
+  status           PurchaseBudgetStatus @default(DRAFT)
+  amount           Decimal              @db.Decimal(14, 2)
+  startDate        DateTime
+  endDate          DateTime?
+  area             String?
+  costCenter       String?
+  projectCode      String?
+  notes            String?
+  createdById      String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @default(now()) @updatedAt
+  deletedAt        DateTime?
+  company          Company              @relation(fields: [companyId], references: [id])
+  createdBy        User?                @relation("PurchaseBudgetCreatedBy", fields: [createdById], references: [id])
+  purchaseOrders   PurchaseOrder[]
+  purchaseRequests PurchaseRequest[]
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([startDate, endDate])
+  @@map("purchase_budgets")
+}
+
 model PurchaseOrder {
-  id             String              @id @default(uuid())
-  companyId      String
-  number         String
-  status         PurchaseOrderStatus @default(DRAFT)
-  issueDate      DateTime
-  dueDate        DateTime?
-  subtotal       Decimal             @db.Decimal(12, 2)
-  taxAmount      Decimal             @db.Decimal(12, 2)
-  discountAmount Decimal             @default(0) @db.Decimal(12, 2)
-  total          Decimal             @db.Decimal(12, 2)
-  notes          String?
-  currency       String              @default("COP")
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-  deletedAt      DateTime?
-  customerId     String
-  items          PurchaseOrderItem[]
-  company        Company             @relation(fields: [companyId], references: [id])
-  customer       Customer            @relation(fields: [customerId], references: [id])
+  id                   String                 @id @default(uuid())
+  companyId            String
+  number               String
+  status               PurchaseOrderStatus    @default(DRAFT)
+  issueDate            DateTime
+  dueDate              DateTime?
+  subtotal             Decimal                @db.Decimal(12, 2)
+  taxAmount            Decimal                @db.Decimal(12, 2)
+  discountAmount       Decimal                @default(0) @db.Decimal(12, 2)
+  total                Decimal                @db.Decimal(12, 2)
+  notes                String?
+  currency             String                 @default("COP")
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  deletedAt            DateTime?
+  customerId           String
+  sourceRequestId      String?
+  awardedQuoteId       String?                @unique
+  budgetId             String?
+  requestingArea       String?
+  costCenter           String?
+  projectCode          String?
+  purchaseInvoices     PurchaseInvoice[]
+  items                PurchaseOrderItem[]
+  receipts             PurchaseOrderReceipt[]
+  awardedSupplierQuote PurchaseSupplierQuote? @relation("AwardedQuoteToOrder", fields: [awardedQuoteId], references: [id])
+  budget               PurchaseBudget?        @relation(fields: [budgetId], references: [id])
+  company              Company                @relation(fields: [companyId], references: [id])
+  customer             Customer               @relation(fields: [customerId], references: [id])
+  sourceRequest        PurchaseRequest?       @relation(fields: [sourceRequestId], references: [id])
 
   @@unique([companyId, number])
   @@index([companyId])
   @@index([companyId, status])
   @@index([companyId, issueDate])
+  @@index([budgetId])
+  @@index([awardedQuoteId])
+  @@index([sourceRequestId])
   @@map("purchase_orders")
 }
 
 model PurchaseOrderItem {
-  id          String        @id @default(uuid())
-  orderId     String
-  productId   String?
-  description String
-  quantity    Decimal       @db.Decimal(12, 4)
-  unitPrice   Decimal       @db.Decimal(12, 2)
-  taxRate     Decimal       @db.Decimal(5, 2)
-  taxAmount   Decimal       @db.Decimal(12, 2)
-  discount    Decimal       @default(0) @db.Decimal(5, 2)
-  total       Decimal       @db.Decimal(12, 2)
-  position    Int
-  order       PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product     Product?      @relation(fields: [productId], references: [id])
+  id                   String                     @id @default(uuid())
+  orderId              String
+  productId            String?
+  description          String
+  quantity             Decimal                    @db.Decimal(12, 4)
+  unitPrice            Decimal                    @db.Decimal(12, 2)
+  taxRate              Decimal                    @db.Decimal(5, 2)
+  taxAmount            Decimal                    @db.Decimal(12, 2)
+  discount             Decimal                    @default(0) @db.Decimal(5, 2)
+  total                Decimal                    @db.Decimal(12, 2)
+  position             Int
+  purchaseInvoiceItems PurchaseInvoiceItem[]
+  order                PurchaseOrder              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product              Product?                   @relation(fields: [productId], references: [id])
+  receiptItems         PurchaseOrderReceiptItem[]
 
   @@index([orderId])
   @@map("purchase_order_items")
 }
 
-model Quote {
-  id             String      @id @default(uuid())
+model PurchaseRequest {
+  id             String                    @id @default(uuid())
   companyId      String
-  customerId     String
   number         String
-  status         QuoteStatus @default(DRAFT)
-  issueDate      DateTime
-  expiresAt      DateTime?
-  subtotal       Decimal     @db.Decimal(12, 2)
-  taxAmount      Decimal     @db.Decimal(12, 2)
-  discountAmount Decimal     @default(0) @db.Decimal(12, 2)
-  total          Decimal     @db.Decimal(12, 2)
+  status         PurchaseRequestStatus     @default(DRAFT)
+  requestDate    DateTime
+  neededByDate   DateTime?
   notes          String?
-  terms          String?
-  invoiceId      String?     @unique
-  currency       String      @default("COP")
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  customerId     String?
+  createdById    String?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @default(now()) @updatedAt
   deletedAt      DateTime?
-  items          QuoteItem[]
-  company        Company     @relation(fields: [companyId], references: [id])
-  customer       Customer    @relation(fields: [customerId], references: [id])
-  invoice        Invoice?    @relation("QuoteInvoice", fields: [invoiceId], references: [id])
+  budgetId       String?
+  requestingArea String?
+  costCenter     String?
+  projectCode    String?
+  purchaseOrders PurchaseOrder[]
+  approvals      PurchaseRequestApproval[]
+  items          PurchaseRequestItem[]
+  budget         PurchaseBudget?           @relation(fields: [budgetId], references: [id])
+  company        Company                   @relation(fields: [companyId], references: [id])
+  createdBy      User?                     @relation("PurchaseRequestCreatedBy", fields: [createdById], references: [id])
+  customer       Customer?                 @relation(fields: [customerId], references: [id])
+  supplierQuotes PurchaseSupplierQuote[]
+
+  @@unique([companyId, number])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([budgetId])
+  @@index([customerId])
+  @@map("purchase_requests")
+}
+
+model PurchaseRequestItem {
+  id                 String                      @id @default(uuid())
+  requestId          String
+  productId          String?
+  description        String
+  quantity           Decimal                     @db.Decimal(12, 4)
+  estimatedUnitPrice Decimal?                    @db.Decimal(12, 2)
+  position           Int
+  product            Product?                    @relation(fields: [productId], references: [id])
+  request            PurchaseRequest             @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  supplierQuoteItems PurchaseSupplierQuoteItem[]
+
+  @@index([requestId])
+  @@map("purchase_request_items")
+}
+
+model PurchaseRequestApproval {
+  id             String                        @id @default(uuid())
+  companyId      String
+  requestId      String
+  status         PurchaseRequestApprovalStatus @default(PENDING)
+  reason         String?
+  decidedAt      DateTime?
+  approvedById   String?
+  rejectedReason String?
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @default(now()) @updatedAt
+  approvedBy     User?                         @relation("PurchaseRequestApprovalApprovedBy", fields: [approvedById], references: [id])
+  company        Company                       @relation(fields: [companyId], references: [id])
+  request        PurchaseRequest               @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([requestId])
+  @@map("purchase_request_approvals")
+}
+
+model PurchaseOrderReceipt {
+  id                 String                      @id @default(uuid())
+  companyId          String
+  orderId            String
+  number             String
+  status             PurchaseReceiptStatus       @default(DRAFT)
+  receiptDate        DateTime
+  notes              String?
+  createdById        String?
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @default(now()) @updatedAt
+  deletedAt          DateTime?
+  adjustments        PurchaseAdjustment[]
+  inventoryMovements PurchaseInventoryMovement[]
+  purchaseInvoices   PurchaseInvoice[]
+  items              PurchaseOrderReceiptItem[]
+  company            Company                     @relation(fields: [companyId], references: [id])
+  createdBy          User?                       @relation("PurchaseOrderReceiptCreatedBy", fields: [createdById], references: [id])
+  order              PurchaseOrder               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, number])
+  @@index([companyId])
+  @@index([orderId])
+  @@index([companyId, status])
+  @@map("purchase_order_receipts")
+}
+
+model PurchaseOrderReceiptItem {
+  id               String               @id @default(uuid())
+  receiptId        String
+  orderItemId      String?
+  description      String
+  orderedQuantity  Decimal?             @db.Decimal(12, 4)
+  receivedQuantity Decimal              @db.Decimal(12, 4)
+  position         Int
+  orderItem        PurchaseOrderItem?   @relation(fields: [orderItemId], references: [id])
+  receipt          PurchaseOrderReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@index([receiptId])
+  @@index([orderItemId])
+  @@map("purchase_order_receipt_items")
+}
+
+model PurchaseInvoice {
+  id                    String                @id @default(uuid())
+  companyId             String
+  customerId            String
+  purchaseOrderId       String?
+  receiptId             String?
+  number                String
+  supplierInvoiceNumber String
+  status                PurchaseInvoiceStatus @default(DRAFT)
+  issueDate             DateTime
+  dueDate               DateTime?
+  notes                 String?
+  subtotal              Decimal               @db.Decimal(12, 2)
+  taxAmount             Decimal               @db.Decimal(12, 2)
+  total                 Decimal               @db.Decimal(12, 2)
+  createdById           String?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @default(now()) @updatedAt
+  deletedAt             DateTime?
+  accountPayable        AccountPayable?
+  adjustments           PurchaseAdjustment[]
+  items                 PurchaseInvoiceItem[]
+  company               Company               @relation(fields: [companyId], references: [id])
+  createdBy             User?                 @relation("PurchaseInvoiceCreatedBy", fields: [createdById], references: [id])
+  customer              Customer              @relation(fields: [customerId], references: [id])
+  purchaseOrder         PurchaseOrder?        @relation(fields: [purchaseOrderId], references: [id])
+  receipt               PurchaseOrderReceipt? @relation(fields: [receiptId], references: [id])
+
+  @@unique([companyId, number])
+  @@unique([companyId, supplierInvoiceNumber])
+  @@index([companyId, status])
+  @@index([customerId])
+  @@index([purchaseOrderId])
+  @@index([receiptId])
+  @@map("purchase_invoices")
+}
+
+model PurchaseInvoiceItem {
+  id          String             @id @default(uuid())
+  invoiceId   String
+  orderItemId String?
+  description String
+  quantity    Decimal            @db.Decimal(12, 4)
+  unitPrice   Decimal            @db.Decimal(12, 2)
+  taxRate     Decimal            @db.Decimal(5, 2)
+  taxAmount   Decimal            @db.Decimal(12, 2)
+  discount    Decimal            @default(0) @db.Decimal(5, 2)
+  total       Decimal            @db.Decimal(12, 2)
+  position    Int
+  invoice     PurchaseInvoice    @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  orderItem   PurchaseOrderItem? @relation(fields: [orderItemId], references: [id])
+
+  @@index([invoiceId])
+  @@map("purchase_invoice_items")
+}
+
+model AccountPayable {
+  id                  String                       @id @default(uuid())
+  companyId           String
+  customerId          String
+  purchaseInvoiceId   String?                      @unique
+  number              String
+  concept             String
+  status              AccountPayableStatus         @default(OPEN)
+  issueDate           DateTime
+  dueDate             DateTime?
+  originalAmount      Decimal                      @db.Decimal(12, 2)
+  paidAmount          Decimal                      @default(0) @db.Decimal(12, 2)
+  balance             Decimal                      @db.Decimal(12, 2)
+  notes               String?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @default(now()) @updatedAt
+  deletedAt           DateTime?
+  payments            AccountPayablePayment[]
+  schedules           AccountPayableSchedule[]
+  company             Company                      @relation(fields: [companyId], references: [id])
+  customer            Customer                     @relation(fields: [customerId], references: [id])
+  purchaseInvoice     PurchaseInvoice?             @relation(fields: [purchaseInvoiceId], references: [id])
+  adjustments         PurchaseAdjustment[]
+  advanceApplications PurchaseAdvanceApplication[]
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([customerId])
+  @@index([purchaseInvoiceId])
+  @@map("accounts_payable")
+}
+
+model AccountPayablePayment {
+  id               String               @id @default(uuid())
+  companyId        String
+  accountPayableId String
+  number           String
+  paymentDate      DateTime
+  amount           Decimal              @db.Decimal(12, 2)
+  paymentMethod    PaymentMethod
+  reference        String?
+  notes            String?
+  createdById      String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @default(now()) @updatedAt
+  reversedAt       DateTime?
+  accountPayable   AccountPayable       @relation(fields: [accountPayableId], references: [id], onDelete: Cascade)
+  company          Company              @relation(fields: [companyId], references: [id])
+  createdBy        User?                @relation("AccountPayablePaymentCreatedBy", fields: [createdById], references: [id])
+  adjustments      PurchaseAdjustment[]
+
+  @@unique([companyId, number])
+  @@index([companyId])
+  @@index([accountPayableId])
+  @@map("account_payable_payments")
+}
+
+model PurchaseAdjustment {
+  id                 String                      @id @default(uuid())
+  companyId          String
+  customerId         String
+  type               PurchaseAdjustmentType
+  status             PurchaseAdjustmentStatus    @default(PENDING_APPROVAL)
+  receiptId          String?
+  purchaseInvoiceId  String?
+  accountPayableId   String?
+  paymentId          String?
+  amount             Decimal                     @db.Decimal(12, 2)
+  reason             String
+  notes              String?
+  requestedById      String?
+  approvedById       String?
+  approvedAt         DateTime?
+  rejectedReason     String?
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @default(now()) @updatedAt
+  accountPayable     AccountPayable?             @relation(fields: [accountPayableId], references: [id])
+  approvedBy         User?                       @relation("PurchaseAdjustmentApprovedBy", fields: [approvedById], references: [id])
+  company            Company                     @relation(fields: [companyId], references: [id])
+  customer           Customer                    @relation(fields: [customerId], references: [id])
+  payment            AccountPayablePayment?      @relation(fields: [paymentId], references: [id])
+  purchaseInvoice    PurchaseInvoice?            @relation(fields: [purchaseInvoiceId], references: [id])
+  receipt            PurchaseOrderReceipt?       @relation(fields: [receiptId], references: [id])
+  requestedBy        User?                       @relation("PurchaseAdjustmentCreatedBy", fields: [requestedById], references: [id])
+  inventoryMovements PurchaseInventoryMovement[]
+
+  @@index([companyId, status])
+  @@index([customerId])
+  @@index([receiptId])
+  @@index([purchaseInvoiceId])
+  @@index([accountPayableId])
+  @@index([paymentId])
+  @@map("purchase_adjustments")
+}
+
+model PurchaseSupplierQuote {
+  id                String                      @id @default(uuid())
+  companyId         String
+  customerId        String
+  purchaseRequestId String?
+  number            String
+  status            PurchaseSupplierQuoteStatus @default(RECEIVED)
+  validUntil        DateTime?
+  leadTimeDays      Int?
+  paymentTermDays   Int?
+  notes             String?
+  subtotal          Decimal                     @db.Decimal(12, 2)
+  taxAmount         Decimal                     @db.Decimal(12, 2)
+  total             Decimal                     @db.Decimal(12, 2)
+  score             Decimal?                    @db.Decimal(8, 2)
+  createdById       String?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @default(now()) @updatedAt
+  deletedAt         DateTime?
+  awardedOrder      PurchaseOrder?              @relation("AwardedQuoteToOrder")
+  items             PurchaseSupplierQuoteItem[]
+  company           Company                     @relation(fields: [companyId], references: [id])
+  createdBy         User?                       @relation("PurchaseSupplierQuoteCreatedBy", fields: [createdById], references: [id])
+  customer          Customer                    @relation(fields: [customerId], references: [id])
+  purchaseRequest   PurchaseRequest?            @relation(fields: [purchaseRequestId], references: [id])
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([customerId])
+  @@index([purchaseRequestId])
+  @@map("purchase_supplier_quotes")
+}
+
+model PurchaseSupplierQuoteItem {
+  id            String                @id @default(uuid())
+  quoteId       String
+  requestItemId String?
+  description   String
+  quantity      Decimal               @db.Decimal(12, 4)
+  unitPrice     Decimal               @db.Decimal(12, 2)
+  taxRate       Decimal               @db.Decimal(5, 2)
+  taxAmount     Decimal               @db.Decimal(12, 2)
+  total         Decimal               @db.Decimal(12, 2)
+  position      Int
+  quote         PurchaseSupplierQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  requestItem   PurchaseRequestItem?  @relation(fields: [requestItemId], references: [id])
+
+  @@index([quoteId])
+  @@map("purchase_supplier_quote_items")
+}
+
+model PurchaseFrameworkAgreement {
+  id              String                           @id @default(uuid())
+  companyId       String
+  customerId      String
+  number          String
+  status          PurchaseFrameworkAgreementStatus @default(ACTIVE)
+  title           String
+  startDate       DateTime
+  endDate         DateTime?
+  paymentTermDays Int?
+  leadTimeDays    Int?
+  notes           String?
+  createdById     String?
+  createdAt       DateTime                         @default(now())
+  updatedAt       DateTime                         @default(now()) @updatedAt
+  deletedAt       DateTime?
+  items           PurchaseFrameworkAgreementItem[]
+  company         Company                          @relation(fields: [companyId], references: [id])
+  createdBy       User?                            @relation("PurchaseFrameworkAgreementCreatedBy", fields: [createdById], references: [id])
+  customer        Customer                         @relation(fields: [customerId], references: [id])
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([customerId])
+  @@map("purchase_framework_agreements")
+}
+
+model PurchaseFrameworkAgreementItem {
+  id          String                     @id @default(uuid())
+  agreementId String
+  productId   String?
+  description String
+  unitPrice   Decimal                    @db.Decimal(12, 2)
+  taxRate     Decimal                    @db.Decimal(5, 2)
+  minQuantity Decimal?                   @db.Decimal(12, 4)
+  notes       String?
+  position    Int
+  agreement   PurchaseFrameworkAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  product     Product?                   @relation(fields: [productId], references: [id])
+
+  @@index([agreementId])
+  @@map("purchase_framework_agreement_items")
+}
+
+model PurchaseAdvance {
+  id            String                       @id @default(uuid())
+  companyId     String
+  customerId    String
+  number        String
+  status        PurchaseAdvanceStatus        @default(OPEN)
+  issueDate     DateTime
+  amount        Decimal                      @db.Decimal(12, 2)
+  appliedAmount Decimal                      @default(0) @db.Decimal(12, 2)
+  balance       Decimal                      @db.Decimal(12, 2)
+  paymentMethod PaymentMethod
+  reference     String?
+  notes         String?
+  createdById   String?
+  createdAt     DateTime                     @default(now())
+  updatedAt     DateTime                     @default(now()) @updatedAt
+  deletedAt     DateTime?
+  applications  PurchaseAdvanceApplication[]
+  company       Company                      @relation(fields: [companyId], references: [id])
+  createdBy     User?                        @relation("PurchaseAdvanceCreatedBy", fields: [createdById], references: [id])
+  customer      Customer                     @relation(fields: [customerId], references: [id])
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([customerId])
+  @@map("purchase_advances")
+}
+
+model PurchaseAdvanceApplication {
+  id                String          @id @default(uuid())
+  companyId         String
+  purchaseAdvanceId String
+  accountPayableId  String
+  amount            Decimal         @db.Decimal(12, 2)
+  applicationDate   DateTime
+  notes             String?
+  createdAt         DateTime        @default(now())
+  accountPayable    AccountPayable  @relation(fields: [accountPayableId], references: [id], onDelete: Cascade)
+  company           Company         @relation(fields: [companyId], references: [id])
+  purchaseAdvance   PurchaseAdvance @relation(fields: [purchaseAdvanceId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, applicationDate])
+  @@index([purchaseAdvanceId])
+  @@index([accountPayableId])
+  @@map("purchase_advance_applications")
+}
+
+model AccountPayableSchedule {
+  id               String                       @id @default(uuid())
+  companyId        String
+  accountPayableId String
+  number           String
+  dueDate          DateTime
+  amount           Decimal                      @db.Decimal(12, 2)
+  paidAmount       Decimal                      @default(0) @db.Decimal(12, 2)
+  balance          Decimal                      @db.Decimal(12, 2)
+  status           AccountPayableScheduleStatus @default(PENDING)
+  notes            String?
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @default(now()) @updatedAt
+  accountPayable   AccountPayable               @relation(fields: [accountPayableId], references: [id], onDelete: Cascade)
+  company          Company                      @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([accountPayableId])
+  @@map("account_payable_schedules")
+}
+
+model PurchaseInventoryMovement {
+  id           String                        @id @default(uuid())
+  companyId    String
+  productId    String
+  receiptId    String?
+  adjustmentId String?
+  type         PurchaseInventoryMovementType
+  quantity     Decimal                       @db.Decimal(12, 4)
+  unitCost     Decimal                       @db.Decimal(12, 2)
+  notes        String?
+  createdAt    DateTime                      @default(now())
+  adjustment   PurchaseAdjustment?           @relation(fields: [adjustmentId], references: [id])
+  company      Company                       @relation(fields: [companyId], references: [id])
+  product      Product                       @relation(fields: [productId], references: [id])
+  receipt      PurchaseOrderReceipt?         @relation(fields: [receiptId], references: [id])
+
+  @@index([companyId, type])
+  @@index([productId])
+  @@index([receiptId])
+  @@index([adjustmentId])
+  @@map("purchase_inventory_movements")
+}
+
+model Quote {
+  id                   String                 @id @default(uuid())
+  companyId            String
+  customerId           String
+  number               String
+  status               QuoteStatus            @default(DRAFT)
+  issueDate            DateTime
+  expiresAt            DateTime?
+  subtotal             Decimal                @db.Decimal(12, 2)
+  taxAmount            Decimal                @db.Decimal(12, 2)
+  discountAmount       Decimal                @default(0) @db.Decimal(12, 2)
+  total                Decimal                @db.Decimal(12, 2)
+  notes                String?
+  terms                String?
+  invoiceId            String?                @unique
+  currency             String                 @default("COP")
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  deletedAt            DateTime?
+  salesOwnerName       String?
+  opportunityName      String?
+  sourceChannel        String?
+  lostReason           String?
+  paymentTermLabel     String?
+  paymentTermDays      Int?
+  deliveryLeadTimeDays Int?
+  deliveryTerms        String?
+  incotermCode         String?
+  incotermLocation     String?
+  exchangeRate         Decimal                @default(1) @db.Decimal(12, 4)
+  commercialConditions String?
+  approvalRequests     QuoteApprovalRequest[]
+  quote_attachments    QuoteAttachment[]
+  quote_comments       QuoteComment[]
+  followUps            QuoteFollowUp[]
+  items                QuoteItem[]
+  versions             QuoteVersion[]
+  company              Company                @relation(fields: [companyId], references: [id])
+  customer             Customer               @relation(fields: [customerId], references: [id])
+  invoice              Invoice?               @relation("QuoteInvoice", fields: [invoiceId], references: [id])
 
   @@unique([companyId, number])
   @@index([companyId])
   @@index([companyId, status])
   @@index([companyId, issueDate])
   @@map("quotes")
+}
+
+model QuoteSalesOwner {
+  id          String   @id
+  companyId   String
+  name        String
+  email       String?
+  phone       String?
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  companies   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
+  @@map("quote_sales_owners")
+}
+
+model QuoteSourceChannel {
+  id          String   @id
+  companyId   String
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  companies   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
+  @@map("quote_source_channels")
+}
+
+model QuoteLostReason {
+  id          String   @id
+  companyId   String
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  companies   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
+  @@map("quote_lost_reasons")
+}
+
+model QuoteStage {
+  id        String   @id
+  companyId String
+  name      String
+  code      String?
+  color     String?
+  position  Int      @default(0)
+  isDefault Boolean  @default(false)
+  isClosed  Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  companies Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive, position])
+  @@map("quote_stages")
+}
+
+model QuotePriceList {
+  id                     String               @id
+  companyId              String
+  name                   String
+  description            String?
+  currency               String               @default("COP")
+  isDefault              Boolean              @default(false)
+  isActive               Boolean              @default(true)
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @default(now()) @updatedAt
+  quote_price_list_items QuotePriceListItem[]
+  companies              Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
+  @@map("quote_price_lists")
+}
+
+model QuotePriceListItem {
+  id                String         @id
+  priceListId       String
+  productId         String?
+  description       String
+  unitPrice         Decimal        @db.Decimal(12, 2)
+  taxRate           Decimal        @default(19) @db.Decimal(5, 2)
+  position          Int            @default(0)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @default(now()) @updatedAt
+  quote_price_lists QuotePriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  products          Product?       @relation(fields: [productId], references: [id])
+
+  @@index([priceListId, position])
+  @@map("quote_price_list_items")
+}
+
+model QuoteTemplate {
+  id                   String              @id
+  companyId            String
+  name                 String
+  description          String?
+  notes                String?
+  terms                String?
+  currency             String              @default("COP")
+  isDefault            Boolean             @default(false)
+  isActive             Boolean             @default(true)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @default(now()) @updatedAt
+  quote_template_items QuoteTemplateItem[]
+  companies            Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
+  @@map("quote_templates")
+}
+
+model QuoteTemplateItem {
+  id              String        @id
+  templateId      String
+  productId       String?
+  description     String
+  quantity        Decimal       @default(1) @db.Decimal(12, 4)
+  unitPrice       Decimal       @db.Decimal(12, 2)
+  taxRate         Decimal       @default(19) @db.Decimal(5, 2)
+  discount        Decimal       @default(0) @db.Decimal(5, 2)
+  position        Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @default(now()) @updatedAt
+  products        Product?      @relation(fields: [productId], references: [id])
+  quote_templates QuoteTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, position])
+  @@map("quote_template_items")
 }
 
 model QuoteItem {
@@ -1210,6 +1917,127 @@ model QuoteItem {
 
   @@index([quoteId])
   @@map("quote_items")
+}
+
+model QuoteVersion {
+  id            String   @id
+  companyId     String
+  quoteId       String
+  versionNumber Int
+  action        String
+  snapshot      Json
+  createdById   String?
+  createdAt     DateTime @default(now())
+  company       Company  @relation(fields: [companyId], references: [id])
+  createdBy     User?    @relation(fields: [createdById], references: [id])
+  quote         Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@unique([quoteId, versionNumber])
+  @@index([companyId, quoteId])
+  @@map("quote_versions")
+}
+
+model QuoteApprovalRequest {
+  id             String    @id
+  companyId      String
+  quoteId        String
+  status         String    @default("PENDING")
+  reason         String
+  requestedById  String
+  approvedById   String?
+  approvedAt     DateTime?
+  rejectedAt     DateTime?
+  rejectedReason String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now()) @updatedAt
+  sequence       Int       @default(1)
+  policyName     String?
+  requiredRole   String?
+  thresholdType  String?
+  thresholdValue Decimal?  @db.Decimal(14, 2)
+  approvedBy     User?     @relation("QuoteApprovalApprovedBy", fields: [approvedById], references: [id])
+  company        Company   @relation(fields: [companyId], references: [id])
+  quote          Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  requestedBy    User      @relation("QuoteApprovalRequestedBy", fields: [requestedById], references: [id])
+
+  @@index([companyId, quoteId])
+  @@index([status])
+  @@index([quoteId, sequence])
+  @@map("quote_approval_requests")
+}
+
+model QuoteApprovalPolicy {
+  id             String   @id
+  companyId      String
+  name           String
+  approvalType   String
+  thresholdValue Decimal  @db.Decimal(14, 2)
+  requiredRole   String
+  sequence       Int      @default(1)
+  description    String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
+  companies      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive, sequence])
+  @@map("quote_approval_policies")
+}
+
+model QuoteAttachment {
+  id           String   @id
+  companyId    String
+  quoteId      String
+  fileName     String
+  fileUrl      String
+  mimeType     String?
+  category     String?
+  notes        String?
+  sizeBytes    Int?
+  uploadedById String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+  companies    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  quotes       Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  users        User?    @relation(fields: [uploadedById], references: [id])
+
+  @@index([companyId, quoteId, createdAt])
+  @@map("quote_attachments")
+}
+
+model QuoteComment {
+  id          String   @id
+  companyId   String
+  quoteId     String
+  commentType String   @default("INTERNAL")
+  message     String
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  companies   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  users       User?    @relation(fields: [createdById], references: [id])
+  quotes      Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, quoteId, createdAt])
+  @@map("quote_comments")
+}
+
+model QuoteFollowUp {
+  id           String    @id
+  companyId    String
+  quoteId      String
+  activityType String
+  notes        String
+  scheduledAt  DateTime?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  company      Company   @relation(fields: [companyId], references: [id])
+  createdBy    User?     @relation(fields: [createdById], references: [id])
+  quote        Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, quoteId])
+  @@map("quote_followups")
 }
 
 enum CompanyStatus {
@@ -1377,6 +2205,93 @@ enum PurchaseOrderStatus {
   RECEIVED
   PARTIAL
   CANCELLED
+}
+
+enum PurchaseRequestStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  ORDERED
+  CANCELLED
+}
+
+enum PurchaseRequestApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PurchaseBudgetStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+}
+
+enum PurchaseReceiptStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum PurchaseInvoiceStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum AccountPayableStatus {
+  OPEN
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
+enum AccountPayableScheduleStatus {
+  PENDING
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
+enum PurchaseAdvanceStatus {
+  OPEN
+  PARTIAL
+  APPLIED
+  CANCELLED
+}
+
+enum PurchaseInventoryMovementType {
+  RECEIPT_IN
+  RECEIPT_REVERSAL_OUT
+}
+
+enum PurchaseAdjustmentType {
+  RETURN
+  CREDIT_NOTE
+  DEBIT_NOTE
+  RECEIPT_REVERSAL
+  INVOICE_REVERSAL
+  PAYMENT_REVERSAL
+}
+
+enum PurchaseAdjustmentStatus {
+  PENDING_APPROVAL
+  APPLIED
+  REJECTED
+}
+
+enum PurchaseSupplierQuoteStatus {
+  RECEIVED
+  AWARDED
+  REJECTED
+  EXPIRED
+}
+
+enum PurchaseFrameworkAgreementStatus {
+  ACTIVE
+  EXPIRED
+  SUSPENDED
 }
 
 enum QuoteStatus {
