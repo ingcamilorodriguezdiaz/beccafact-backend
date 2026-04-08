@@ -21,6 +21,24 @@ import { UpdateAccountDto } from './dto/update-account.dto';
 import { CreateJournalEntryDto } from './dto/create-journal-entry.dto';
 import { UpdateJournalEntryDto } from './dto/update-journal-entry.dto';
 import { CreateAccountingPeriodDto } from './dto/create-accounting-period.dto';
+import { CreateAccountingBankAccountDto } from './dto/create-accounting-bank-account.dto';
+import { ImportAccountingBankStatementDto } from './dto/import-accounting-bank-statement.dto';
+import { ReconcileAccountingBankMovementDto } from './dto/reconcile-accounting-bank-movement.dto';
+import { UpsertAccountingTaxConfigDto } from './dto/accounting-tax-config.dto';
+import {
+  AmortizeAccountingDeferredChargeDto,
+  CreateAccountingDeferredChargeDto,
+  CreateAccountingFixedAssetDto,
+  CreateAccountingProvisionTemplateDto,
+  DepreciateAccountingFixedAssetDto,
+  RunAccountingProvisionDto,
+} from './dto/accounting-assets.dto';
+import {
+  AddJournalAttachmentDto,
+  RejectJournalApprovalDto,
+  RequestJournalApprovalDto,
+  ReverseJournalEntryDto,
+} from './dto/accounting-governance.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CompanyStatusGuard } from '../common/guards/company-status.guard';
@@ -240,9 +258,10 @@ export class AccountingController {
   @ApiOperation({ summary: 'Crear comprobante contable (valida partida doble)' })
   createEntry(
     @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
     @Body() dto: CreateJournalEntryDto,
   ) {
-    return this.accountingService.createEntry(companyId, dto);
+    return this.accountingService.createEntry(companyId, dto, userId);
   }
 
   @Put('journal-entries/:id')
@@ -250,10 +269,11 @@ export class AccountingController {
   @ApiOperation({ summary: 'Actualizar comprobante (solo si está en DRAFT)' })
   updateEntry(
     @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateJournalEntryDto,
   ) {
-    return this.accountingService.updateEntry(companyId, id, dto);
+    return this.accountingService.updateEntry(companyId, id, dto, userId);
   }
 
   @Patch('journal-entries/:id/post')
@@ -261,9 +281,10 @@ export class AccountingController {
   @ApiOperation({ summary: 'Contabilizar comprobante: DRAFT → POSTED' })
   postEntry(
     @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.accountingService.postEntry(companyId, id);
+    return this.accountingService.postEntry(companyId, id, userId);
   }
 
   @Patch('journal-entries/:id/cancel')
@@ -271,9 +292,10 @@ export class AccountingController {
   @ApiOperation({ summary: 'Anular comprobante: POSTED → CANCELLED (solo ADMIN)' })
   cancelEntry(
     @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.accountingService.cancelEntry(companyId, id);
+    return this.accountingService.cancelEntry(companyId, id, userId);
   }
 
   @Delete('journal-entries/:id')
@@ -282,9 +304,366 @@ export class AccountingController {
   @ApiOperation({ summary: 'Eliminar comprobante (soft-delete, solo si está en DRAFT)' })
   removeEntry(
     @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.accountingService.removeEntry(companyId, id);
+    return this.accountingService.removeEntry(companyId, id, userId);
+  }
+
+  @Get('journal-entries/:id/approval-flow')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Flujo de aprobación del comprobante contable' })
+  getEntryApprovalFlow(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.accountingService.getEntryApprovalFlow(companyId, id);
+  }
+
+  @Post('journal-entries/:id/request-approval')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Solicitar aprobación del comprobante contable' })
+  requestEntryApproval(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RequestJournalApprovalDto,
+  ) {
+    return this.accountingService.requestEntryApproval(companyId, id, dto, userId);
+  }
+
+  @Patch('journal-entries/:id/approve')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Aprobar comprobante contable pendiente' })
+  approveEntry(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.accountingService.approveEntry(companyId, id, userId);
+  }
+
+  @Patch('journal-entries/:id/reject')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Rechazar comprobante contable pendiente' })
+  rejectEntryApproval(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RejectJournalApprovalDto,
+  ) {
+    return this.accountingService.rejectEntryApproval(companyId, id, dto, userId);
+  }
+
+  @Get('journal-entries/:id/attachments')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Listar adjuntos y soportes del comprobante contable' })
+  getEntryAttachments(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.accountingService.getEntryAttachments(companyId, id);
+  }
+
+  @Post('journal-entries/:id/attachments')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Registrar soporte documental del comprobante contable' })
+  addEntryAttachment(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddJournalAttachmentDto,
+  ) {
+    return this.accountingService.addEntryAttachment(companyId, id, dto, userId);
+  }
+
+  @Get('journal-entries/:id/audit-trail')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Consultar bitácora y trazabilidad del comprobante contable' })
+  getEntryAuditTrail(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.accountingService.getEntryAuditTrail(companyId, id);
+  }
+
+  @Post('journal-entries/:id/reverse')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Generar reverso controlado del comprobante mediante asiento espejo' })
+  reverseEntry(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReverseJournalEntryDto,
+  ) {
+    return this.accountingService.reverseEntry(companyId, id, dto, userId);
+  }
+
+  @Get('integrations/summary')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Resumen de integración automática con otros módulos del ERP' })
+  getIntegrationsSummary(@CurrentUser('companyId') companyId: string) {
+    return this.accountingService.getIntegrationsSummary(companyId);
+  }
+
+  @Get('integrations/activity')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Historial de sincronizaciones automáticas de contabilidad' })
+  getIntegrationsActivity(
+    @CurrentUser('companyId') companyId: string,
+    @Query('module') module?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.accountingService.getIntegrationsActivity(companyId, {
+      module,
+      status,
+      page: Number(page) || DEFAULT_PAGE,
+      limit: Number(limit) || DEFAULT_LIMIT,
+    });
+  }
+
+  @Post('integrations/sync-pending')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Sincronizar pendientes automáticos de facturación y nómina' })
+  syncPendingIntegrations(@CurrentUser('companyId') companyId: string) {
+    return this.accountingService.syncPendingIntegrations(companyId);
+  }
+
+  @Post('integrations/sync')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Resincronizar manualmente un documento puntual con contabilidad' })
+  syncIntegrationResource(
+    @CurrentUser('companyId') companyId: string,
+    @Body('module') module: string,
+    @Body('resourceId') resourceId: string,
+  ) {
+    return this.accountingService.syncIntegrationResource(companyId, module, resourceId);
+  }
+
+  @Get('bank-accounts')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Listar cuentas bancarias contables configuradas' })
+  findAllBankAccounts(@CurrentUser('companyId') companyId: string) {
+    return this.accountingService.findAllBankAccounts(companyId);
+  }
+
+  @Post('bank-accounts')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Crear cuenta bancaria para conciliación contable' })
+  createBankAccount(
+    @CurrentUser('companyId') companyId: string,
+    @Body() dto: CreateAccountingBankAccountDto,
+  ) {
+    return this.accountingService.createBankAccount(companyId, dto);
+  }
+
+  @Get('bank-movements')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Listar movimientos de extractos bancarios contables' })
+  findAllBankMovements(
+    @CurrentUser('companyId') companyId: string,
+    @Query('bankAccountId') bankAccountId?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.accountingService.findAllBankMovements(companyId, {
+      bankAccountId,
+      status,
+      page: Number(page) || DEFAULT_PAGE,
+      limit: Number(limit) || DEFAULT_LIMIT,
+    });
+  }
+
+  @Post('bank-movements/import')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Importar extracto bancario contable y sugerir conciliación automática' })
+  importBankStatement(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @Body() dto: ImportAccountingBankStatementDto,
+  ) {
+    return this.accountingService.importBankStatement(companyId, dto, userId);
+  }
+
+  @Patch('bank-movements/:id/reconcile')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Conciliar movimiento bancario contra comprobante contable' })
+  reconcileBankMovement(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReconcileAccountingBankMovementDto,
+  ) {
+    return this.accountingService.reconcileBankMovement(companyId, id, dto, userId);
+  }
+
+  @Get('bank-reconciliation/pending')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Partidas pendientes entre extracto bancario y contabilidad' })
+  getPendingBankReconciliation(
+    @CurrentUser('companyId') companyId: string,
+    @Query('bankAccountId') bankAccountId: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.accountingService.getPendingBankReconciliation(companyId, {
+      bankAccountId,
+      dateTo,
+    });
+  }
+
+  @Get('taxes/config')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Listar configuración contable de impuestos y retenciones' })
+  getTaxConfigs(@CurrentUser('companyId') companyId: string) {
+    return this.accountingService.getTaxConfigs(companyId);
+  }
+
+  @Post('taxes/config')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Crear o actualizar configuración de impuestos y retenciones' })
+  upsertTaxConfig(
+    @CurrentUser('companyId') companyId: string,
+    @Body() dto: UpsertAccountingTaxConfigDto,
+  ) {
+    return this.accountingService.upsertTaxConfig(companyId, dto);
+  }
+
+  @Get('reports/fiscal-summary')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Resumen fiscal de IVA, retefuente e ICA por rango de fechas' })
+  getFiscalSummary(
+    @CurrentUser('companyId') companyId: string,
+    @Query('dateFrom') dateFrom: string,
+    @Query('dateTo') dateTo: string,
+  ) {
+    return this.accountingService.getFiscalSummary(companyId, { dateFrom, dateTo });
+  }
+
+  @Get('reports/vat-sales-book')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Libro fiscal de IVA ventas' })
+  getVatSalesBook(
+    @CurrentUser('companyId') companyId: string,
+    @Query('dateFrom') dateFrom: string,
+    @Query('dateTo') dateTo: string,
+  ) {
+    return this.accountingService.getVatSalesBook(companyId, { dateFrom, dateTo });
+  }
+
+  @Get('reports/vat-purchases-book')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Libro fiscal de IVA compras' })
+  getVatPurchasesBook(
+    @CurrentUser('companyId') companyId: string,
+    @Query('dateFrom') dateFrom: string,
+    @Query('dateTo') dateTo: string,
+  ) {
+    return this.accountingService.getVatPurchasesBook(companyId, { dateFrom, dateTo });
+  }
+
+  @Get('reports/withholdings-book')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Libro de retenciones y partidas fiscales contabilizadas' })
+  getWithholdingsBook(
+    @CurrentUser('companyId') companyId: string,
+    @Query('dateFrom') dateFrom: string,
+    @Query('dateTo') dateTo: string,
+  ) {
+    return this.accountingService.getWithholdingsBook(companyId, { dateFrom, dateTo });
+  }
+
+  @Get('assets/summary')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Resumen enterprise de activos fijos, diferidos y provisiones' })
+  getEnterpriseAssetsSummary(@CurrentUser('companyId') companyId: string) {
+    return this.accountingService.getEnterpriseAssetsSummary(companyId);
+  }
+
+  @Get('fixed-assets')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Listar activos fijos contables' })
+  findAllFixedAssets(@CurrentUser('companyId') companyId: string) {
+    return this.accountingService.findAllFixedAssets(companyId);
+  }
+
+  @Post('fixed-assets')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Crear activo fijo contable' })
+  createFixedAsset(
+    @CurrentUser('companyId') companyId: string,
+    @Body() dto: CreateAccountingFixedAssetDto,
+  ) {
+    return this.accountingService.createFixedAsset(companyId, dto);
+  }
+
+  @Post('fixed-assets/:id/depreciate')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Ejecutar depreciación periódica de un activo fijo' })
+  depreciateFixedAsset(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DepreciateAccountingFixedAssetDto,
+  ) {
+    return this.accountingService.depreciateFixedAsset(companyId, id, dto);
+  }
+
+  @Get('deferred-charges')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Listar cargos diferidos y amortizaciones' })
+  findAllDeferredCharges(@CurrentUser('companyId') companyId: string) {
+    return this.accountingService.findAllDeferredCharges(companyId);
+  }
+
+  @Post('deferred-charges')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Crear cargo diferido contable' })
+  createDeferredCharge(
+    @CurrentUser('companyId') companyId: string,
+    @Body() dto: CreateAccountingDeferredChargeDto,
+  ) {
+    return this.accountingService.createDeferredCharge(companyId, dto);
+  }
+
+  @Post('deferred-charges/:id/amortize')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Ejecutar amortización periódica de un diferido' })
+  amortizeDeferredCharge(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AmortizeAccountingDeferredChargeDto,
+  ) {
+    return this.accountingService.amortizeDeferredCharge(companyId, id, dto);
+  }
+
+  @Get('provision-templates')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Listar plantillas de provisiones periódicas' })
+  findAllProvisionTemplates(@CurrentUser('companyId') companyId: string) {
+    return this.accountingService.findAllProvisionTemplates(companyId);
+  }
+
+  @Post('provision-templates')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Crear plantilla de provisión periódica' })
+  createProvisionTemplate(
+    @CurrentUser('companyId') companyId: string,
+    @Body() dto: CreateAccountingProvisionTemplateDto,
+  ) {
+    return this.accountingService.createProvisionTemplate(companyId, dto);
+  }
+
+  @Post('provision-templates/:id/run')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Ejecutar provisión periódica y generar asiento automático' })
+  runProvisionTemplate(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RunAccountingProvisionDto,
+  ) {
+    return this.accountingService.runProvisionTemplate(companyId, id, dto);
   }
 
   @Get('reports/trial-balance')

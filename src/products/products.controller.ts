@@ -111,11 +111,12 @@ export class ProductsController {
   @ApiOperation({ summary: 'Ajuste de stock (+/-)' })
   adjustStock(
     @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body('delta') delta: number,
     @Body('reason') reason?: string,
   ) {
-    return this.productsService.adjustStock(companyId, id, delta);
+    return this.productsService.adjustStock(companyId, id, delta, reason, userId);
   }
 
   @Delete(':id')

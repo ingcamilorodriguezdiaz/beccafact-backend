@@ -7,10 +7,15 @@ import {
 import { PrismaService } from '../config/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { AccountingService } from '../accounting/accounting.service';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class ProductsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private accountingService: AccountingService,
+  ) {}
 
   async findAll(companyId: string, filters: {
     search?: string; categoryId?: string; status?: string; page?: number; limit?: number;
@@ -111,7 +116,7 @@ export class ProductsService {
     });
   }
 
-  async adjustStock(companyId: string, id: string, delta: number) {
+  async adjustStock(companyId: string, id: string, delta: number, reason?: string, userId?: string) {
     const product = await this.findOne(companyId, id);
     const newStock = product.stock + delta;
     if (newStock < 0) {
@@ -119,13 +124,26 @@ export class ProductsService {
         `Stock insuficiente. Stock actual: ${product.stock}, ajuste solicitado: ${delta}`,
       );
     }
-    return this.prisma.product.update({
+    const updated = await this.prisma.product.update({
       where: { id },
       data: {
         stock: newStock,
         status: newStock === 0 ? 'OUT_OF_STOCK' : product.status === 'OUT_OF_STOCK' ? 'ACTIVE' : product.status,
       },
     });
+
+    const accountingSync = await this.accountingService.syncInventoryAdjustmentEntry(companyId, {
+      productId: id,
+      delta,
+      reason: reason ?? null,
+      userId: userId ?? null,
+      eventId: `inventory-adjustment:${id}:${randomUUID()}`,
+    });
+
+    return {
+      ...updated,
+      accountingSync,
+    };
   }
 
   async remove(companyId: string, id: string) {

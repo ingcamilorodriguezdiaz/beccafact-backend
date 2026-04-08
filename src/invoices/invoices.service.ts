@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../config/prisma.service';
 import { CompaniesService } from '../companies/companies.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { AccountingService } from '../accounting/accounting.service';
 import { createHash, createSign, randomBytes } from 'crypto';
 import * as archiver from 'archiver';
 import * as https from 'https';
@@ -48,6 +49,7 @@ export class InvoicesService {
   constructor(
     private prisma: PrismaService,
     private companiesService: CompaniesService,
+    private accountingService: AccountingService,
   ) {
   }
 
@@ -685,9 +687,12 @@ export class InvoicesService {
       } as any,
     });
 
+    const accountingSync = await this.accountingService.syncInvoiceEntry(companyId, invoiceId);
+
     return {
       ...updated,
       dianResult: soapResult,
+      accountingSync,
     };
   }
 
@@ -725,7 +730,7 @@ export class InvoicesService {
     }
 
     const statusErrors: string[] = result.errorMessages ?? [];
-    return this.prisma.invoice.update({
+    const updated = await this.prisma.invoice.update({
       where: { id: invoiceId },
       data: {
         status: newInvoiceStatus,
@@ -737,6 +742,15 @@ export class InvoicesService {
         dianResponseAt: new Date(),
       } as any,
     });
+
+    const accountingSync = ['ACCEPTED_DIAN', 'PAID', 'OVERDUE', 'SENT_DIAN'].includes(newInvoiceStatus)
+      ? await this.accountingService.syncInvoiceEntry(companyId, invoiceId)
+      : null;
+
+    return {
+      ...updated,
+      accountingSync,
+    };
   }
 
   // ── Download signed XML ───────────────────────────────────────────────────

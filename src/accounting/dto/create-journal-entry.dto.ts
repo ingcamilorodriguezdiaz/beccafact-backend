@@ -26,6 +26,26 @@ export class CreateJournalEntryLineDto {
   @IsString()
   description?: string;
 
+  @ApiPropertyOptional({ example: 'uuid-branch', description: 'Sucursal asociada a la línea contable' })
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
+
+  @ApiPropertyOptional({ example: 'uuid-customer', description: 'Cliente/tercero asociado a la línea' })
+  @IsOptional()
+  @IsUUID()
+  customerId?: string;
+
+  @ApiPropertyOptional({ example: 'ADM-001', description: 'Centro de costo libre de la línea' })
+  @IsOptional()
+  @IsString()
+  costCenter?: string;
+
+  @ApiPropertyOptional({ example: 'PRJ-VENTAS-2026', description: 'Código de proyecto o frente de trabajo' })
+  @IsOptional()
+  @IsString()
+  projectCode?: string;
+
   @ApiProperty({ example: 1500000, description: 'Valor débito de la línea (0 si es crédito)' })
   @IsNumber()
   @Min(0)

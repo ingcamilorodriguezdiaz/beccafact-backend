@@ -79,7 +79,18 @@ model Company {
   accountPayablePayments      AccountPayablePayment[]
   accountPayableSchedules     AccountPayableSchedule[]
   accountingAccounts          AccountingAccount[]
+  accountingBankAccounts      AccountingBankAccount[]
+  accountingBankMovements     AccountingBankMovement[]
+  accountingDeferredChargeRuns AccountingDeferredChargeRun[]
+  accountingDeferredCharges   AccountingDeferredCharge[]
+  accountingFixedAssetRuns    AccountingFixedAssetRun[]
+  accountingFixedAssets       AccountingFixedAsset[]
   accountingPeriods           AccountingPeriod[]
+  accountingProvisionRuns     AccountingProvisionRun[]
+  accountingProvisionTemplates AccountingProvisionTemplate[]
+  accountingTaxConfigs        AccountingTaxConfig[]
+  journalEntryApprovalRequests JournalEntryApprovalRequest[]
+  journalEntryAttachments     JournalEntryAttachment[]
   accountsPayable             AccountPayable[]
   auditLogs                   AuditLog[]
   branches                    Branch[]
@@ -96,6 +107,7 @@ model Company {
   employees                   employees[]
   importJobs                  ImportJob[]
   integrations                Integration[]
+  accountingIntegrations      AccountingIntegration[]
   invoices                    Invoice[]
   journalEntries              JournalEntry[]
   payroll_records             payroll_records[]
@@ -157,6 +169,7 @@ model Branch {
   company         Company           @relation(fields: [companyId], references: [id])
   employees       employees[]       @relation("EmployeeBranch")
   invoices        Invoice[]
+  journalEntryLines JournalEntryLine[]
   payroll_records payroll_records[] @relation("PayrollBranch")
   posSales        PosSale[]
   posSessions     PosSession[]
@@ -244,6 +257,9 @@ model User {
   createdPurchaseRequests            PurchaseRequest[]            @relation("PurchaseRequestCreatedBy")
   createdPurchaseSupplierQuotes      PurchaseSupplierQuote[]      @relation("PurchaseSupplierQuoteCreatedBy")
   approvedQuoteApprovalRequests      QuoteApprovalRequest[]       @relation("QuoteApprovalApprovedBy")
+  approvedJournalEntryApprovalRequests JournalEntryApprovalRequest[] @relation("JournalEntryApprovalApprovedBy")
+  requestedJournalEntryApprovalRequests JournalEntryApprovalRequest[] @relation("JournalEntryApprovalRequestedBy")
+  journalEntryAttachments             JournalEntryAttachment[]
   requestedQuoteApprovalRequests     QuoteApprovalRequest[]       @relation("QuoteApprovalRequestedBy")
   quote_attachments                  QuoteAttachment[]
   quote_comments                     QuoteComment[]
@@ -385,6 +401,7 @@ model Customer {
   carteraReceipts             CarteraReceipt[]
   company                     Company                      @relation(fields: [companyId], references: [id])
   invoices                    Invoice[]
+  journalEntryLines           JournalEntryLine[]
   pos_sales                   PosSale[]
   purchaseAdjustments         PurchaseAdjustment[]
   purchaseAdvances            PurchaseAdvance[]
@@ -814,6 +831,7 @@ model Bank {
   code      String      @unique
   name      String
   isActive  Boolean     @default(true)
+  accountingBankAccounts AccountingBankAccount[]
   employees employees[]
 
   @@index([code])
@@ -1102,12 +1120,70 @@ model AccountingAccount {
   company   Company             @relation(fields: [companyId], references: [id])
   parent    AccountingAccount?  @relation("AccountTree", fields: [parentId], references: [id])
   children  AccountingAccount[] @relation("AccountTree")
+  bankAccounts AccountingBankAccount[]
+  deferredChargeAssets AccountingDeferredCharge[] @relation("DeferredChargeAssetAccount")
+  deferredChargeExpenses AccountingDeferredCharge[] @relation("DeferredChargeExpenseAccount")
+  fixedAssetAccumulatedDepreciation AccountingFixedAsset[] @relation("FixedAssetAccumulatedDepreciationAccount")
+  fixedAssetAssets AccountingFixedAsset[] @relation("FixedAssetAssetAccount")
+  fixedAssetDepreciationExpenses AccountingFixedAsset[] @relation("FixedAssetExpenseAccount")
+  provisionExpenseTemplates AccountingProvisionTemplate[] @relation("ProvisionExpenseAccount")
+  provisionLiabilityTemplates AccountingProvisionTemplate[] @relation("ProvisionLiabilityAccount")
+  taxConfigs AccountingTaxConfig[]
   lines     JournalEntryLine[]
 
   @@unique([companyId, code])
   @@index([companyId])
   @@index([companyId, level])
   @@map("accounting_accounts")
+}
+
+model AccountingBankAccount {
+  id                 String                 @id @default(uuid())
+  companyId          String
+  bankCode           String?
+  accountingAccountId String
+  name               String
+  accountNumber      String
+  currency           String                 @default("COP")
+  openingBalance     Decimal                @default(0) @db.Decimal(14, 2)
+  currentBalance     Decimal                @default(0) @db.Decimal(14, 2)
+  isActive           Boolean                @default(true)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  bank               Bank?                  @relation(fields: [bankCode], references: [code])
+  company            Company                @relation(fields: [companyId], references: [id])
+  accountingAccount  AccountingAccount      @relation(fields: [accountingAccountId], references: [id])
+  movements          AccountingBankMovement[]
+
+  @@unique([companyId, accountNumber])
+  @@index([companyId, isActive])
+  @@index([companyId, bankCode])
+  @@index([companyId, accountingAccountId])
+  @@map("accounting_bank_accounts")
+}
+
+model AccountingBankMovement {
+  id               String               @id @default(uuid())
+  companyId        String
+  bankAccountId    String
+  movementDate     DateTime
+  reference        String?
+  description      String?
+  amount           Decimal              @db.Decimal(14, 2)
+  status           String               @default("UNRECONCILED")
+  reconciledEntryId String?
+  importedById     String?
+  reconciledById   String?
+  reconciledAt     DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  company          Company              @relation(fields: [companyId], references: [id])
+  bankAccount      AccountingBankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, bankAccountId, status])
+  @@index([companyId, movementDate])
+  @@index([companyId, reconciledEntryId])
+  @@map("accounting_bank_movements")
 }
 
 model AccountingPeriod {
@@ -1131,6 +1207,139 @@ model AccountingPeriod {
   @@map("accounting_periods")
 }
 
+model AccountingFixedAsset {
+  id                            String                   @id @default(uuid())
+  companyId                     String
+  assetCode                     String
+  name                          String
+  acquisitionDate               DateTime
+  startDepreciationDate         DateTime
+  cost                          Decimal                  @db.Decimal(14, 2)
+  salvageValue                  Decimal                  @default(0) @db.Decimal(14, 2)
+  usefulLifeMonths              Int
+  assetAccountId                String
+  accumulatedDepAccountId       String
+  depreciationExpenseAccountId  String
+  status                        String                   @default("ACTIVE")
+  notes                         String?
+  createdAt                     DateTime                 @default(now())
+  updatedAt                     DateTime                 @updatedAt
+  company                       Company                  @relation(fields: [companyId], references: [id])
+  assetAccount                  AccountingAccount        @relation("FixedAssetAssetAccount", fields: [assetAccountId], references: [id])
+  accumulatedDepAccount         AccountingAccount        @relation("FixedAssetAccumulatedDepreciationAccount", fields: [accumulatedDepAccountId], references: [id])
+  depreciationExpenseAccount    AccountingAccount        @relation("FixedAssetExpenseAccount", fields: [depreciationExpenseAccountId], references: [id])
+  runs                          AccountingFixedAssetRun[]
+
+  @@unique([companyId, assetCode])
+  @@index([companyId, status])
+  @@index([companyId, assetAccountId])
+  @@map("accounting_fixed_assets")
+}
+
+model AccountingFixedAssetRun {
+  id            String               @id @default(uuid())
+  companyId     String
+  assetId       String
+  periodYear    Int
+  periodMonth   Int
+  runDate       DateTime
+  amount        Decimal              @db.Decimal(14, 2)
+  entryId       String?
+  createdAt     DateTime             @default(now())
+  company       Company              @relation(fields: [companyId], references: [id])
+  asset         AccountingFixedAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, periodYear, periodMonth])
+  @@index([companyId, periodYear, periodMonth])
+  @@map("accounting_fixed_asset_runs")
+}
+
+model AccountingDeferredCharge {
+  id                          String                       @id @default(uuid())
+  companyId                   String
+  chargeCode                  String
+  name                        String
+  startDate                   DateTime
+  amount                      Decimal                      @db.Decimal(14, 2)
+  termMonths                  Int
+  assetAccountId              String
+  amortizationExpenseAccountId String
+  status                      String                       @default("ACTIVE")
+  notes                       String?
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  company                     Company                      @relation(fields: [companyId], references: [id])
+  assetAccount                AccountingAccount            @relation("DeferredChargeAssetAccount", fields: [assetAccountId], references: [id])
+  amortizationExpenseAccount  AccountingAccount            @relation("DeferredChargeExpenseAccount", fields: [amortizationExpenseAccountId], references: [id])
+  runs                        AccountingDeferredChargeRun[]
+
+  @@unique([companyId, chargeCode])
+  @@index([companyId, status])
+  @@map("accounting_deferred_charges")
+}
+
+model AccountingDeferredChargeRun {
+  id               String                   @id @default(uuid())
+  companyId        String
+  deferredChargeId String
+  periodYear       Int
+  periodMonth      Int
+  runDate          DateTime
+  amount           Decimal                  @db.Decimal(14, 2)
+  entryId          String?
+  createdAt        DateTime                 @default(now())
+  company          Company                  @relation(fields: [companyId], references: [id])
+  deferredCharge   AccountingDeferredCharge @relation(fields: [deferredChargeId], references: [id], onDelete: Cascade)
+
+  @@unique([deferredChargeId, periodYear, periodMonth])
+  @@index([companyId, periodYear, periodMonth])
+  @@map("accounting_deferred_charge_runs")
+}
+
+model AccountingProvisionTemplate {
+  id                 String                  @id @default(uuid())
+  companyId          String
+  provisionCode      String
+  name               String
+  amount             Decimal                 @db.Decimal(14, 2)
+  frequencyMonths    Int                     @default(1)
+  startDate          DateTime
+  nextRunDate        DateTime
+  endDate            DateTime?
+  expenseAccountId   String
+  liabilityAccountId String
+  isActive           Boolean                 @default(true)
+  notes              String?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  company            Company                 @relation(fields: [companyId], references: [id])
+  expenseAccount     AccountingAccount       @relation("ProvisionExpenseAccount", fields: [expenseAccountId], references: [id])
+  liabilityAccount   AccountingAccount       @relation("ProvisionLiabilityAccount", fields: [liabilityAccountId], references: [id])
+  runs               AccountingProvisionRun[]
+
+  @@unique([companyId, provisionCode])
+  @@index([companyId, isActive, nextRunDate])
+  @@map("accounting_provision_templates")
+}
+
+model AccountingProvisionRun {
+  id           String                      @id @default(uuid())
+  companyId    String
+  templateId   String
+  periodYear   Int
+  periodMonth  Int
+  runDate      DateTime
+  amount       Decimal                     @db.Decimal(14, 2)
+  entryId      String?
+  createdAt    DateTime                    @default(now())
+  company      Company                     @relation(fields: [companyId], references: [id])
+  template     AccountingProvisionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, periodYear, periodMonth])
+  @@index([companyId, periodYear, periodMonth])
+  @@map("accounting_provision_runs")
+}
+
 model JournalEntry {
   id          String             @id @default(uuid())
   companyId   String
@@ -1144,29 +1353,124 @@ model JournalEntry {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   deletedAt   DateTime?
+  reversedById String?
   company     Company            @relation(fields: [companyId], references: [id])
+  reversalOf  JournalEntry?      @relation("JournalEntryReversal", fields: [reversedById], references: [id])
+  reversals   JournalEntry[]     @relation("JournalEntryReversal")
+  approvalRequests JournalEntryApprovalRequest[]
+  attachments JournalEntryAttachment[]
   lines       JournalEntryLine[]
 
   @@unique([companyId, number])
   @@index([companyId])
   @@index([companyId, date])
   @@index([companyId, status])
+  @@index([reversedById])
   @@map("journal_entries")
+}
+
+model JournalEntryApprovalRequest {
+  id           String   @id @default(uuid())
+  companyId    String
+  entryId      String
+  status       String   @default("PENDING")
+  reason       String?
+  requestedById String?
+  approvedById String?
+  requestedAt  DateTime @default(now())
+  approvedAt   DateTime?
+  rejectedAt   DateTime?
+  rejectedReason String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  company      Company  @relation(fields: [companyId], references: [id])
+  entry        JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  requestedBy  User?    @relation("JournalEntryApprovalRequestedBy", fields: [requestedById], references: [id])
+  approvedBy   User?    @relation("JournalEntryApprovalApprovedBy", fields: [approvedById], references: [id])
+
+  @@index([companyId, entryId, status])
+  @@map("journal_entry_approval_requests")
+}
+
+model JournalEntryAttachment {
+  id          String   @id @default(uuid())
+  companyId   String
+  entryId     String
+  fileName    String
+  fileUrl     String
+  uploadedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  company     Company  @relation(fields: [companyId], references: [id])
+  entry       JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  uploadedBy  User?    @relation(fields: [uploadedById], references: [id])
+
+  @@index([companyId, entryId])
+  @@map("journal_entry_attachments")
+}
+
+model AccountingIntegration {
+  id           String   @id @default(uuid())
+  companyId    String
+  module       String
+  resourceType String
+  resourceId   String
+  sourceId     String?
+  entryId      String?
+  status       String
+  message      String?
+  payload      Json?
+  createdAt    DateTime @default(now())
+  company      Company  @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, module, status])
+  @@index([companyId, resourceType, resourceId])
+  @@index([companyId, createdAt])
+  @@map("accounting_integrations")
+}
+
+model AccountingTaxConfig {
+  id          String   @id @default(uuid())
+  companyId   String
+  taxCode     String
+  label       String
+  rate        Decimal? @db.Decimal(8, 4)
+  accountId   String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  company     Company  @relation(fields: [companyId], references: [id])
+  account     AccountingAccount @relation(fields: [accountId], references: [id])
+
+  @@unique([companyId, taxCode])
+  @@index([companyId, isActive])
+  @@index([companyId, accountId])
+  @@map("accounting_tax_configs")
 }
 
 model JournalEntryLine {
   id          String            @id @default(uuid())
   entryId     String
   accountId   String
+  branchId    String?
+  customerId  String?
+  costCenter  String?
+  projectCode String?
   description String?
   debit       Decimal           @default(0) @db.Decimal(12, 2)
   credit      Decimal           @default(0) @db.Decimal(12, 2)
   position    Int
   account     AccountingAccount @relation(fields: [accountId], references: [id])
+  branch      Branch?           @relation(fields: [branchId], references: [id])
+  customer    Customer?         @relation(fields: [customerId], references: [id])
   entry       JournalEntry      @relation(fields: [entryId], references: [id], onDelete: Cascade)
 
   @@index([entryId])
   @@index([accountId])
+  @@index([branchId])
+  @@index([customerId])
+  @@index([costCenter])
+  @@index([projectCode])
   @@map("journal_entry_lines")
 }
 

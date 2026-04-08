@@ -12,6 +12,7 @@ import * as https from 'https';
 import * as http from 'http';
 import * as QRCode from 'qrcode';
 import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/create-payroll';
+import { AccountingService } from '../accounting/accounting.service';
 
 // ─── Constantes DIAN Nómina Electrónica ── Fallbacks de habilitación ──────────
 // Se usan SOLO cuando la empresa no tiene configuradas sus propias credenciales.
@@ -86,7 +87,10 @@ interface DianStatusResult {
 export class PayrollService {
   private readonly logger = new Logger(PayrollService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private accountingService: AccountingService,
+  ) {}
 
   private async resolveEmployeeBranchId(companyId: string, branchId?: string | null): Promise<string | null> {
     if (branchId) {
@@ -629,6 +633,8 @@ export class PayrollService {
     // Propagar anulación al NIE raíz si esta NIAE-Eliminar fue aceptada
     await this.propagateAnulado(companyId, { ...updated, status: newStatus });
 
+    const accountingSync = await this.accountingService.syncPayrollEntry(companyId, id);
+
     return {
       record: updated,
       dian: {
@@ -640,6 +646,7 @@ export class PayrollService {
         errors:          dianResult.errorMessages,
         rawSendResponse: dianResult.raw?.slice(0, 4000),
       },
+      accountingSync,
     };
   }
 
