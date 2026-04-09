@@ -837,21 +837,35 @@ async function main() {
     },
   ];
 
-  // for (const product of demoProducts) {
-  //   const { unspscCode, ...productData } = product as any;
-  //   await prisma.product.upsert({
-  //     where: { companyId_sku: { companyId: demoCompany.id, sku: productData.sku } },
-  //     // ✅ FIX: update incluye unit + unspscCode para corregir registros existentes
-  //     update: {
-  //       unit: productData.unit,
-  //       unspscCode,
-  //       price: productData.price,
-  //       cost: productData.cost,
-  //       taxRate: productData.taxRate,
-  //     } as any,
-  //     create: { ...productData, companyId: demoCompany.id, unspscCode } as any,
-  //   });
-  // }
+  for (const product of demoProducts) {
+    const { unspscCode, ...productData } = product as any;
+    const existingProduct = await prisma.product.findFirst({
+      where: {
+        companyId: demoCompany.id,
+        sku: productData.sku,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    // ✅ FIX: update incluye unit + unspscCode para corregir registros existentes
+    if (existingProduct) {
+      await prisma.product.update({
+        where: { id: existingProduct.id },
+        data: {
+          unit: productData.unit,
+          unspscCode,
+          price: productData.price,
+          cost: productData.cost,
+          taxRate: productData.taxRate,
+        } as any,
+      });
+    } else {
+      await prisma.product.create({
+        data: { ...productData, companyId: demoCompany.id, unspscCode } as any,
+      });
+    }
+  }
 
 
   // ─── PARAMETERS ───────────────────────────────────────────────────────────────
