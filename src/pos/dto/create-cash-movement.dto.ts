@@ -1,4 +1,4 @@
-import { IsEnum, IsNumber, IsString, Min, MaxLength } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, Min, MaxLength } from 'class-validator';
 import { CashMovementType } from '@prisma/client';
 
 export class CreateCashMovementDto {
@@ -12,4 +12,8 @@ export class CreateCashMovementDto {
   @IsString()
   @MaxLength(200)
   reason: string;
+
+  @IsOptional()
+  @IsUUID()
+  governanceOverrideId?: string;
 }

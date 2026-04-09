@@ -1288,7 +1288,7 @@ export class AccountingService {
   // ───────────────────────────────────────────────────────────────────────────
 
   async getIntegrationsSummary(companyId: string) {
-    const [invoiceEligible, invoiceIntegrated, payrollEligible, payrollIntegrated, purchaseIntegrated, carteraIntegrated, inventoryLatest] =
+    const [invoiceEligible, invoiceIntegrated, payrollEligible, payrollIntegrated, purchaseIntegrated, carteraIntegrated, inventoryLatest, posEligibleRows, posIntegrated] =
       await Promise.all([
         this.prisma.invoice.count({
           where: {
@@ -1343,6 +1343,29 @@ export class AccountingService {
           `,
           companyId,
         ),
+        this.prisma.$queryRawUnsafe<Array<{ total: number }>>(
+          `
+            SELECT (
+              (SELECT COUNT(*) FROM "pos_sales" ps WHERE ps."companyId" = $1 AND ps."invoiceId" IS NULL AND ps."status" = 'COMPLETED')
+              +
+              (SELECT COUNT(*) FROM "pos_sales" ps WHERE ps."companyId" = $1 AND ps."invoiceId" IS NULL AND ps."status" IN ('REFUNDED', 'CANCELLED'))
+              +
+              (SELECT COUNT(*) FROM "pos_cash_movements" pcm WHERE pcm."companyId" = $1)
+            )::int AS total
+          `,
+          companyId,
+        ),
+        this.prisma.journalEntry.count({
+          where: {
+            companyId,
+            deletedAt: null,
+            OR: [
+              { sourceId: { startsWith: 'pos-sale:' } },
+              { sourceId: { startsWith: 'pos-refund:' } },
+              { sourceId: { startsWith: 'pos-cash-movement:' } },
+            ],
+          },
+        }),
       ]);
 
     const failureRows = await this.prisma.$queryRawUnsafe<Array<{ module: string; failed: number; lastActivityAt: Date | null }>>(
@@ -1360,6 +1383,7 @@ export class AccountingService {
 
     const failureMap = new Map(failureRows.map((row) => [row.module, row]));
     const inventoryStats = inventoryLatest[0] ?? { integrated: 0, failed: 0, lastActivityAt: null };
+    const posEligible = Number(posEligibleRows[0]?.total ?? 0);
 
     const rows: AccountingIntegrationSummaryRow[] = [
       {
@@ -1406,6 +1430,15 @@ export class AccountingService {
         pending: 0,
         failed: Number(inventoryStats.failed ?? 0),
         lastActivityAt: inventoryStats.lastActivityAt ?? null,
+      },
+      {
+        module: 'pos',
+        label: 'POS',
+        eligible: posEligible,
+        integrated: posIntegrated,
+        pending: Math.max(0, posEligible - posIntegrated),
+        failed: Number(failureMap.get('pos')?.failed ?? 0),
+        lastActivityAt: failureMap.get('pos')?.lastActivityAt ?? null,
       },
     ];
 
@@ -1497,9 +1530,31 @@ export class AccountingService {
       take: 25,
     });
 
+    const pendingPosSales = await this.prisma.posSale.findMany({
+      where: { companyId, invoiceId: null, status: 'COMPLETED' as any },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+      take: 25,
+    });
+
+    const pendingPosRefunds = await this.prisma.posSale.findMany({
+      where: { companyId, invoiceId: null, status: { in: ['REFUNDED', 'CANCELLED'] as any[] } },
+      select: { id: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 25,
+    });
+
+    const pendingPosCashMovements = await this.prisma.posCashMovement.findMany({
+      where: { companyId },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+      take: 25,
+    });
+
     const results = {
       invoices: [] as any[],
       payroll: [] as any[],
+      pos: [] as any[],
     };
 
     for (const invoice of pendingInvoices) {
@@ -1518,6 +1573,30 @@ export class AccountingService {
       if (!existing) results.payroll.push(await this.syncPayrollEntry(companyId, payroll.id));
     }
 
+    for (const sale of pendingPosSales) {
+      const existing = await this.prisma.journalEntry.findFirst({
+        where: { companyId, deletedAt: null, sourceId: `pos-sale:${sale.id}` },
+        select: { id: true },
+      });
+      if (!existing) results.pos.push(await this.syncPosSaleEntry(companyId, sale.id));
+    }
+
+    for (const sale of pendingPosRefunds) {
+      const existing = await this.prisma.journalEntry.findFirst({
+        where: { companyId, deletedAt: null, sourceId: `pos-refund:${sale.id}` },
+        select: { id: true },
+      });
+      if (!existing) results.pos.push(await this.syncPosRefundEntry(companyId, sale.id));
+    }
+
+    for (const movement of pendingPosCashMovements) {
+      const existing = await this.prisma.journalEntry.findFirst({
+        where: { companyId, deletedAt: null, sourceId: `pos-cash-movement:${movement.id}` },
+        select: { id: true },
+      });
+      if (!existing) results.pos.push(await this.syncPosCashMovementEntry(companyId, movement.id));
+    }
+
     return results;
   }
 
@@ -1525,7 +1604,10 @@ export class AccountingService {
     const normalized = module.trim().toLowerCase();
     if (normalized === 'invoices') return this.syncInvoiceEntry(companyId, resourceId);
     if (normalized === 'payroll') return this.syncPayrollEntry(companyId, resourceId);
-    throw new BadRequestException('Solo se soporta resincronización manual para facturación y nómina');
+    if (normalized === 'pos' || normalized === 'pos-sale') return this.syncPosSaleEntry(companyId, resourceId);
+    if (normalized === 'pos-refund') return this.syncPosRefundEntry(companyId, resourceId);
+    if (normalized === 'pos-cash-movement') return this.syncPosCashMovementEntry(companyId, resourceId);
+    throw new BadRequestException('Solo se soporta resincronización manual para facturación, nómina y POS');
   }
 
   async syncInvoiceEntry(companyId: string, invoiceId: string) {
@@ -1780,6 +1862,407 @@ export class AccountingService {
         sourceId,
         status: 'FAILED',
         message: error?.message ?? 'No fue posible integrar el ajuste de inventario',
+      });
+    }
+  }
+
+  async syncPosSaleEntry(companyId: string, saleId: string) {
+    const sourceId = `pos-sale:${saleId}`;
+    const existing = await this.prisma.journalEntry.findFirst({
+      where: { companyId, deletedAt: null, sourceId },
+      select: { id: true, number: true },
+    });
+    if (existing) {
+      return this.recordIntegration(companyId, {
+        module: 'pos',
+        resourceType: 'pos-sale',
+        resourceId: saleId,
+        sourceId,
+        entryId: existing.id,
+        status: 'SKIPPED',
+        message: `La venta POS ya estaba integrada en el comprobante ${existing.number}`,
+      });
+    }
+
+    try {
+      const sale = await this.prisma.posSale.findFirst({
+        where: { id: saleId, companyId },
+        include: {
+          payments: true,
+          session: {
+            select: {
+              id: true,
+              branchId: true,
+              terminalId: true,
+              terminal: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                },
+              },
+            },
+          },
+          items: {
+            include: {
+              product: { select: { cost: true, sku: true } },
+            },
+          },
+          invoice: { select: { id: true, invoiceNumber: true } },
+        },
+      });
+      if (!sale) throw new NotFoundException('Venta POS no encontrada');
+      if (sale.invoiceId) {
+        return this.recordIntegration(companyId, {
+          module: 'pos',
+          resourceType: 'pos-sale',
+          resourceId: saleId,
+          sourceId,
+          status: 'SKIPPED',
+          message: `La venta POS ${sale.saleNumber} se integra desde la factura ${sale.invoice?.invoiceNumber ?? sale.invoiceId}`,
+        });
+      }
+      if (sale.status !== 'COMPLETED') {
+        return this.recordIntegration(companyId, {
+          module: 'pos',
+          resourceType: 'pos-sale',
+          resourceId: saleId,
+          sourceId,
+          status: 'SKIPPED',
+          message: `La venta POS ${sale.saleNumber} aún no está completada para contabilización`,
+        });
+      }
+
+      const posAccounts = await this.resolvePosAccounts(companyId);
+      const lines: Array<any> = [];
+      const paymentLines =
+        sale.payments.length > 0
+          ? sale.payments.map((payment) => ({
+              paymentMethod: payment.paymentMethod,
+              amount: Number(payment.amount),
+            }))
+          : [{ paymentMethod: sale.paymentMethod as any, amount: Number(sale.amountPaid || sale.total) }];
+
+      let position = 1;
+      const groupedPayments = paymentLines.reduce<Record<string, number>>((acc, item) => {
+        acc[item.paymentMethod] = Number(acc[item.paymentMethod] ?? 0) + Number(item.amount ?? 0);
+        return acc;
+      }, {});
+      for (const [paymentMethod, amount] of Object.entries(groupedPayments)) {
+        if (Number(amount) <= 0) continue;
+        const account = this.resolvePosPaymentAccount(posAccounts, paymentMethod);
+        lines.push({
+          accountId: account!.id,
+          description: `Ingreso ${String(paymentMethod).toLowerCase()} POS ${sale.saleNumber}`,
+          branchId: sale.session?.branchId ?? null,
+          customerId: sale.customerId ?? null,
+          debit: this.roundMoney(amount),
+          credit: 0,
+          position: position++,
+        });
+      }
+
+      lines.push({
+        accountId: posAccounts.revenue.id,
+        description: `Ingreso POS ${sale.saleNumber}`,
+        branchId: sale.session?.branchId ?? null,
+        customerId: sale.customerId ?? null,
+        debit: 0,
+        credit: Number(sale.subtotal),
+        position: position++,
+      });
+
+      if (Number(sale.taxAmount) > 0) {
+        lines.push({
+          accountId: posAccounts.tax.id,
+          description: `IVA POS ${sale.saleNumber}`,
+          branchId: sale.session?.branchId ?? null,
+          customerId: sale.customerId ?? null,
+          debit: 0,
+          credit: Number(sale.taxAmount),
+          position: position++,
+        });
+      }
+
+      const saleCost = sale.items.reduce(
+        (sum, item) => sum + Number(item.product?.cost ?? 0) * Number(item.quantity),
+        0,
+      );
+      if (saleCost > 0) {
+        lines.push({
+          accountId: posAccounts.cost.id,
+          description: `Costo POS ${sale.saleNumber}`,
+          branchId: sale.session?.branchId ?? null,
+          debit: this.roundMoney(saleCost),
+          credit: 0,
+          position: position++,
+        });
+        lines.push({
+          accountId: posAccounts.inventory.id,
+          description: `Salida inventario POS ${sale.saleNumber}`,
+          branchId: sale.session?.branchId ?? null,
+          debit: 0,
+          credit: this.roundMoney(saleCost),
+          position: position++,
+        });
+      }
+
+      const entry = await this.createAutoPostedEntry(companyId, {
+        date: sale.createdAt.toISOString(),
+        description: `Contabilización automática POS ${sale.saleNumber}`,
+        reference: sale.saleNumber,
+        sourceType: JournalSourceType.ADJUSTMENT,
+        sourceId,
+        lines,
+      });
+
+      return this.recordIntegration(companyId, {
+        module: 'pos',
+        resourceType: 'pos-sale',
+        resourceId: saleId,
+        sourceId,
+        entryId: entry.id,
+        status: 'SUCCESS',
+        message: `Venta POS ${sale.saleNumber} integrada correctamente`,
+      });
+    } catch (error: any) {
+      return this.recordIntegration(companyId, {
+        module: 'pos',
+        resourceType: 'pos-sale',
+        resourceId: saleId,
+        sourceId,
+        status: 'FAILED',
+        message: error?.message ?? 'No fue posible integrar la venta POS',
+      });
+    }
+  }
+
+  async syncPosRefundEntry(companyId: string, saleId: string) {
+    const sourceId = `pos-refund:${saleId}`;
+    const existing = await this.prisma.journalEntry.findFirst({
+      where: { companyId, deletedAt: null, sourceId },
+      select: { id: true, number: true },
+    });
+    if (existing) {
+      return this.recordIntegration(companyId, {
+        module: 'pos',
+        resourceType: 'pos-refund',
+        resourceId: saleId,
+        sourceId,
+        entryId: existing.id,
+        status: 'SKIPPED',
+        message: `La reversión POS ya estaba integrada en el comprobante ${existing.number}`,
+      });
+    }
+
+    try {
+      const sale = await this.prisma.posSale.findFirst({
+        where: { id: saleId, companyId },
+        include: {
+          payments: true,
+          items: {
+            include: {
+              product: { select: { cost: true } },
+            },
+          },
+          invoice: { select: { id: true, invoiceNumber: true } },
+        },
+      });
+      if (!sale) throw new NotFoundException('Venta POS no encontrada');
+      if (sale.invoiceId) {
+        return this.recordIntegration(companyId, {
+          module: 'pos',
+          resourceType: 'pos-refund',
+          resourceId: saleId,
+          sourceId,
+          status: 'SKIPPED',
+          message: `La reversión POS ${sale.saleNumber} se controla desde la factura ${sale.invoice?.invoiceNumber ?? sale.invoiceId}`,
+        });
+      }
+      if (!['REFUNDED', 'CANCELLED'].includes(String(sale.status))) {
+        return this.recordIntegration(companyId, {
+          module: 'pos',
+          resourceType: 'pos-refund',
+          resourceId: saleId,
+          sourceId,
+          status: 'SKIPPED',
+          message: `La venta POS ${sale.saleNumber} no está en estado reversible`,
+        });
+      }
+
+      const posAccounts = await this.resolvePosAccounts(companyId);
+      const paymentLines =
+        sale.payments.length > 0
+          ? sale.payments.map((payment) => ({
+              paymentMethod: payment.paymentMethod,
+              amount: Number(payment.amount),
+            }))
+          : [{ paymentMethod: sale.paymentMethod as any, amount: Number(sale.amountPaid || sale.total) }];
+
+      const cashAmount = paymentLines
+        .filter((item) => item.paymentMethod === 'CASH')
+        .reduce((sum, item) => sum + Number(item.amount), 0);
+      const bankAmount = paymentLines
+        .filter((item) => item.paymentMethod !== 'CASH')
+        .reduce((sum, item) => sum + Number(item.amount), 0);
+      const saleCost = sale.items.reduce(
+        (sum, item) => sum + Number(item.product?.cost ?? 0) * Number(item.quantity),
+        0,
+      );
+
+      const lines: Array<any> = [];
+      let position = 1;
+      lines.push({
+        accountId: posAccounts.revenue.id,
+        description: `Reverso ingreso POS ${sale.saleNumber}`,
+        debit: Number(sale.subtotal),
+        credit: 0,
+        position: position++,
+      });
+      if (Number(sale.taxAmount) > 0) {
+        lines.push({
+          accountId: posAccounts.tax.id,
+          description: `Reverso IVA POS ${sale.saleNumber}`,
+          debit: Number(sale.taxAmount),
+          credit: 0,
+          position: position++,
+        });
+      }
+      if (cashAmount > 0) {
+        lines.push({
+          accountId: posAccounts.cash.id,
+          description: `Salida efectivo reembolso POS ${sale.saleNumber}`,
+          debit: 0,
+          credit: this.roundMoney(cashAmount),
+          position: position++,
+        });
+      }
+      if (bankAmount > 0) {
+        lines.push({
+          accountId: posAccounts.bank.id,
+          description: `Salida electrónica reembolso POS ${sale.saleNumber}`,
+          debit: 0,
+          credit: this.roundMoney(bankAmount),
+          position: position++,
+        });
+      }
+      if (saleCost > 0) {
+        lines.push({
+          accountId: posAccounts.inventory.id,
+          description: `Reingreso inventario POS ${sale.saleNumber}`,
+          debit: this.roundMoney(saleCost),
+          credit: 0,
+          position: position++,
+        });
+        lines.push({
+          accountId: posAccounts.cost.id,
+          description: `Reverso costo POS ${sale.saleNumber}`,
+          debit: 0,
+          credit: this.roundMoney(saleCost),
+          position: position++,
+        });
+      }
+
+      const entry = await this.createAutoPostedEntry(companyId, {
+        date: new Date().toISOString(),
+        description: `Reverso automático POS ${sale.saleNumber}`,
+        reference: sale.saleNumber,
+        sourceType: JournalSourceType.ADJUSTMENT,
+        sourceId,
+        lines,
+      });
+
+      return this.recordIntegration(companyId, {
+        module: 'pos',
+        resourceType: 'pos-refund',
+        resourceId: saleId,
+        sourceId,
+        entryId: entry.id,
+        status: 'SUCCESS',
+        message: `Reversión POS ${sale.saleNumber} integrada correctamente`,
+      });
+    } catch (error: any) {
+      return this.recordIntegration(companyId, {
+        module: 'pos',
+        resourceType: 'pos-refund',
+        resourceId: saleId,
+        sourceId,
+        status: 'FAILED',
+        message: error?.message ?? 'No fue posible integrar el reembolso POS',
+      });
+    }
+  }
+
+  async syncPosCashMovementEntry(companyId: string, movementId: string) {
+    const sourceId = `pos-cash-movement:${movementId}`;
+    const existing = await this.prisma.journalEntry.findFirst({
+      where: { companyId, deletedAt: null, sourceId },
+      select: { id: true, number: true },
+    });
+    if (existing) {
+      return this.recordIntegration(companyId, {
+        module: 'pos',
+        resourceType: 'pos-cash-movement',
+        resourceId: movementId,
+        sourceId,
+        entryId: existing.id,
+        status: 'SKIPPED',
+        message: `El movimiento de caja POS ya estaba integrado en el comprobante ${existing.number}`,
+      });
+    }
+
+    try {
+      const movement = await this.prisma.posCashMovement.findFirst({
+        where: { id: movementId, companyId },
+        include: {
+          session: { select: { id: true, userId: true } },
+        },
+      });
+      if (!movement) throw new NotFoundException('Movimiento de caja POS no encontrado');
+
+      const posAccounts = await this.resolvePosAccounts(companyId);
+      const isIn = movement.type === 'IN';
+      const entry = await this.createAutoPostedEntry(companyId, {
+        date: movement.createdAt.toISOString(),
+        description: `${isIn ? 'Ingreso' : 'Retiro'} caja POS: ${movement.reason}`,
+        reference: movement.id,
+        sourceType: JournalSourceType.ADJUSTMENT,
+        sourceId,
+        lines: [
+          {
+            accountId: isIn ? posAccounts.cash.id : posAccounts.adjustment.id,
+            description: `${isIn ? 'Ingreso' : 'Contrapartida'} movimiento POS`,
+            debit: Number(movement.amount),
+            credit: 0,
+            position: 1,
+          },
+          {
+            accountId: isIn ? posAccounts.adjustment.id : posAccounts.cash.id,
+            description: `${isIn ? 'Contrapartida' : 'Salida'} movimiento POS`,
+            debit: 0,
+            credit: Number(movement.amount),
+            position: 2,
+          },
+        ],
+      });
+
+      return this.recordIntegration(companyId, {
+        module: 'pos',
+        resourceType: 'pos-cash-movement',
+        resourceId: movementId,
+        sourceId,
+        entryId: entry.id,
+        status: 'SUCCESS',
+        message: `Movimiento de caja POS integrado correctamente`,
+      });
+    } catch (error: any) {
+      return this.recordIntegration(companyId, {
+        module: 'pos',
+        resourceType: 'pos-cash-movement',
+        resourceId: movementId,
+        sourceId,
+        status: 'FAILED',
+        message: error?.message ?? 'No fue posible integrar el movimiento de caja POS',
       });
     }
   }
@@ -3943,6 +4426,65 @@ export class AccountingService {
       throw new BadRequestException('No se encontraron cuentas contables base para integrar inventario');
     }
     return { inventory, adjustment };
+  }
+
+  private async resolvePosAccounts(companyId: string) {
+    const accounts = await this.prisma.accountingAccount.findMany({
+      where: { companyId, isActive: true },
+      select: { id: true, code: true, name: true },
+    });
+    const cash = this.findAccountByPrefixes(accounts, '1105', '110505', '11');
+    const bank = this.findAccountByPrefixes(accounts, '1110', '111005', '1120', '11');
+    const revenue = this.findAccountByPrefixes(accounts, '4135', '41', '42');
+    const tax = this.findAccountByPrefixes(accounts, '2408', '24');
+    const inventory = this.findAccountByPrefixes(accounts, '1435', '14');
+    const cost = this.findAccountByPrefixes(accounts, '6135', '61', '51');
+    const adjustment = this.findAccountByPrefixes(accounts, '5199', '5295', '6135', '61', '51');
+    const agreement = this.findAccountByPrefixes(accounts, '1305', '1330', '13');
+    const voucher = this.findAccountByPrefixes(accounts, '2805', '2380', '28', '23');
+    const giftCard = this.findAccountByPrefixes(accounts, '2810', '2385', '28', '23');
+    const wallet = this.findAccountByPrefixes(accounts, '1110', '111005', '1120', '11') ?? bank;
+    const dataphone = this.findAccountByPrefixes(accounts, '1110', '111005', '1120', '11') ?? bank;
+
+    if (!cash || !bank || !revenue || !tax || !inventory || !cost || !adjustment) {
+      throw new BadRequestException('No se encontraron cuentas contables base para integrar el POS');
+    }
+    return {
+      cash,
+      bank,
+      wallet,
+      dataphone,
+      agreement: agreement ?? adjustment,
+      voucher: voucher ?? adjustment,
+      giftCard: giftCard ?? adjustment,
+      revenue,
+      tax,
+      inventory,
+      cost,
+      adjustment,
+    };
+  }
+
+  private resolvePosPaymentAccount(
+    posAccounts: Awaited<ReturnType<AccountingService['resolvePosAccounts']>>,
+    paymentMethod: string,
+  ) {
+    switch (String(paymentMethod)) {
+      case 'CASH':
+        return posAccounts.cash;
+      case 'DATAPHONE':
+        return posAccounts.dataphone;
+      case 'WALLET':
+        return posAccounts.wallet;
+      case 'VOUCHER':
+        return posAccounts.voucher;
+      case 'GIFT_CARD':
+        return posAccounts.giftCard;
+      case 'AGREEMENT':
+        return posAccounts.agreement;
+      default:
+        return posAccounts.bank;
+    }
   }
 
   private findAccountByPrefixes<T extends { code: string }>(accounts: T[], ...prefixes: string[]) {

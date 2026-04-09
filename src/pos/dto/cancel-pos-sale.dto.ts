@@ -1,10 +1,10 @@
 import { IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
-export class RefundSaleDto {
+export class CancelPosSaleDto {
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  reason?: string;
+  notes?: string;
 
   @IsOptional()
   @IsUUID()

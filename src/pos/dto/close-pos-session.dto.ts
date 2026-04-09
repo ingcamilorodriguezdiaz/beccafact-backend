@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsNumber, IsObject, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 export class ClosePosSessionDto {
   @IsNumber()
@@ -6,6 +6,14 @@ export class ClosePosSessionDto {
   finalCash: number;
 
   @IsOptional()
+  @IsObject()
+  denominations?: Record<string, number>;
+
+  @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsUUID()
+  governanceOverrideId?: string;
 }

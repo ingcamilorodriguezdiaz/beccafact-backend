@@ -112,8 +112,31 @@ model Company {
   journalEntries              JournalEntry[]
   payroll_records             payroll_records[]
   posCashMovements            PosCashMovement[]
-  pos_sales                   PosSale[]
-  pos_sessions                PosSession[]
+  posCombos                  PosCombo[]
+  posCoupons                 PosCoupon[]
+  posCouponRedemptions       PosCouponRedemption[]
+  posExternalOrders          PosExternalOrder[]
+  posIntegrationTraces       PosIntegrationTrace[]
+  posInventoryAllocations    PosInventoryAllocation[]
+  posInventoryLocations      PosInventoryLocation[]
+  posInventoryReservations   PosInventoryReservation[]
+  posInventoryStocks         PosInventoryStock[]
+  posBankReconciliationBatches PosBankReconciliationBatch[]
+  posConfigDeployments        PosConfigDeployment[]
+  posOperationalIncidents     PosOperationalIncident[]
+  posInventoryTransferItems  PosInventoryTransferItem[]
+  posInventoryTransfers      PosInventoryTransfer[]
+  posGovernanceOverrides     PosSupervisorOverride[]
+  posGovernanceRules         PosGovernanceRule[]
+  posLoyaltyCampaigns        PosLoyaltyCampaign[]
+  posLoyaltyTransactions     PosLoyaltyTransaction[]
+  posPriceLists              PosPriceList[]
+  posPromotions              PosPromotion[]
+  posPostSaleRequests        PosPostSaleRequest[]
+  pos_sales                  PosSale[]
+  pos_sessions               PosSession[]
+  posShiftTemplates          PosShiftTemplate[]
+  posTerminals               PosTerminal[]
   products                    Product[]
   purchaseAdjustments         PurchaseAdjustment[]
   purchaseAdvanceApplications PurchaseAdvanceApplication[]
@@ -173,6 +196,27 @@ model Branch {
   payroll_records payroll_records[] @relation("PayrollBranch")
   posSales        PosSale[]
   posSessions     PosSession[]
+  posCombos       PosCombo[]
+  posCoupons      PosCoupon[]
+  posConfigDeployments PosConfigDeployment[]
+  posExternalOrders PosExternalOrder[]
+  posIntegrationTraces PosIntegrationTrace[]
+  posInventoryLocations PosInventoryLocation[]
+  posOperationalIncidents PosOperationalIncident[]
+  posBankReconciliationBatches PosBankReconciliationBatch[]
+  posInventoryReservations PosInventoryReservation[]
+  posInventoryStocks PosInventoryStock[]
+  posInventoryTransferItems PosInventoryTransferItem[]
+  posInventoryTransfersFrom PosInventoryTransfer[] @relation("PosInventoryTransferFromBranch")
+  posInventoryTransfersTo PosInventoryTransfer[] @relation("PosInventoryTransferToBranch")
+  posGovernanceOverrides PosSupervisorOverride[]
+  posGovernanceRules PosGovernanceRule[]
+  posLoyaltyCampaigns PosLoyaltyCampaign[]
+  posPostSaleRequests PosPostSaleRequest[]
+  posPriceLists   PosPriceList[]
+  posPromotions   PosPromotion[]
+  posShiftTemplates PosShiftTemplate[]
+  posTerminals    PosTerminal[]
   products        Product[]
   userBranches    UserBranch[]
 
@@ -245,6 +289,18 @@ model User {
   carteraReceipts                    CarteraReceipt[]
   importJobs                         ImportJob[]
   posCashMovements                   PosCashMovement[]
+  createdPosInventoryTransfers       PosInventoryTransfer[]       @relation("PosInventoryTransferCreatedBy")
+  createdPosBankReconciliationBatches PosBankReconciliationBatch[] @relation("PosBankReconciliationBatchCreatedBy")
+  createdPosConfigDeployments       PosConfigDeployment[]        @relation("PosConfigDeploymentCreatedBy")
+  createdPosIntegrationTraces        PosIntegrationTrace[]        @relation("PosIntegrationTraceCreatedBy")
+  resolvedPosOperationalIncidents   PosOperationalIncident[]     @relation("PosOperationalIncidentResolvedBy")
+  approvedPosPostSaleRequests        PosPostSaleRequest[]        @relation("PosPostSaleApprovedBy")
+  approvedPosGovernanceOverrides     PosSupervisorOverride[]     @relation("PosGovernanceApprovedBy")
+  createdPosPostSaleRequests         PosPostSaleRequest[]        @relation("PosPostSaleCreatedBy")
+  requestedPosGovernanceOverrides    PosSupervisorOverride[]     @relation("PosGovernanceRequestedBy")
+  approvedPosSessionCloses           PosSession[]                 @relation("PosSessionCloseApprovedBy")
+  reopenedPosSessions                PosSession[]                 @relation("PosSessionReopenedBy")
+  requestedPosSessionCloses          PosSession[]                 @relation("PosSessionCloseRequestedBy")
   pos_sessions                       PosSession[]
   approvedPurchaseAdjustments        PurchaseAdjustment[]         @relation("PurchaseAdjustmentApprovedBy")
   createdPurchaseAdjustments         PurchaseAdjustment[]         @relation("PurchaseAdjustmentCreatedBy")
@@ -354,6 +410,13 @@ model Product {
   branchId                        String?
   invoiceItems                    InvoiceItem[]
   posSaleItems                    PosSaleItem[]
+  posPostSaleRequestItems         PosPostSaleRequestItem[]
+  posComboItems                   PosComboItem[]
+  posPriceListItems               PosPriceListItem[]
+  posPromotions                   PosPromotion[]
+  posInventoryReservations        PosInventoryReservation[]
+  posInventoryStocks              PosInventoryStock[]
+  posInventoryTransferItems       PosInventoryTransferItem[]
   branch                          Branch?                          @relation(fields: [branchId], references: [id])
   category                        Category?                        @relation(fields: [categoryId], references: [id])
   company                         Company                          @relation(fields: [companyId], references: [id])
@@ -391,6 +454,13 @@ model Customer {
   creditDays                  Int?
   notes                       String?
   taxLevelCode                String?
+  loyaltyCode                 String?
+  membershipTier              String?
+  customerSegment             String?
+  loyaltyPointsBalance        Int                          @default(0)
+  loyaltyPointsEarned         Int                          @default(0)
+  loyaltyPointsRedeemed       Int                          @default(0)
+  lastPurchaseAt              DateTime?
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
   deletedAt                   DateTime?
@@ -399,9 +469,16 @@ model Customer {
   carteraCollectionFollowUps  CarteraCollectionFollowUp[]
   carteraPaymentPromises      CarteraPaymentPromise[]
   carteraReceipts             CarteraReceipt[]
+  posInventoryReservations    PosInventoryReservation[]
   company                     Company                      @relation(fields: [companyId], references: [id])
   invoices                    Invoice[]
   journalEntryLines           JournalEntryLine[]
+  posPromotions               PosPromotion[]
+  posCoupons                 PosCoupon[]
+  posCouponRedemptions       PosCouponRedemption[]
+  posExternalOrders          PosExternalOrder[]
+  posLoyaltyCampaigns         PosLoyaltyCampaign[]
+  posLoyaltyTransactions      PosLoyaltyTransaction[]
   pos_sales                   PosSale[]
   purchaseAdjustments         PurchaseAdjustment[]
   purchaseAdvances            PurchaseAdvance[]
@@ -471,6 +548,7 @@ model Invoice {
   creditDebitNotes           Invoice[]                   @relation("InvoiceNotes")
   payrollRecord              payroll_records?            @relation("PayrollInvoice")
   posSale                    PosSale?                    @relation("PosSaleInvoice")
+  posPostSaleCreditNotes     PosPostSaleRequest[]
   quote                      Quote?                      @relation("QuoteInvoice")
 
   @@unique([companyId, invoiceNumber])
@@ -976,20 +1054,117 @@ model PosSession {
   finalCash         Decimal?          @db.Decimal(12, 2)
   expectedCash      Decimal?          @db.Decimal(12, 2)
   cashDifference    Decimal?          @db.Decimal(12, 2)
+  countedCash       Decimal?          @db.Decimal(12, 2)
   totalSales        Decimal           @default(0) @db.Decimal(12, 2)
   totalTransactions Int               @default(0)
   notes             String?
   branchId          String?
+  terminalId        String?
+  shiftTemplateId   String?
+  openingSnapshot   Json?
+  openingDenominations Json?
+  closingDenominations Json?
+  closeRequestedAt  DateTime?
+  closeRequestedById String?
+  closeApprovedAt   DateTime?
+  closeApprovedById String?
+  closeRejectedAt   DateTime?
+  closeRejectedReason String?
+  reopenedFromSessionId String?
+  reopenedAt        DateTime?
+  reopenedById      String?
+  lastHeartbeatAt   DateTime?
+  offlineSinceAt    DateTime?
+  recoverySnapshot  Json?
+  offlineQueueDepth Int               @default(0)
   cashMovements     PosCashMovement[]
+  operationalIncidents PosOperationalIncident[]
+  inventoryReservations PosInventoryReservation[]
   sales             PosSale[]
   branch            Branch?           @relation(fields: [branchId], references: [id])
+  closeApprovedBy   User?             @relation("PosSessionCloseApprovedBy", fields: [closeApprovedById], references: [id])
+  closeRequestedBy  User?             @relation("PosSessionCloseRequestedBy", fields: [closeRequestedById], references: [id])
   company           Company           @relation(fields: [companyId], references: [id])
+  reopenedBy        User?             @relation("PosSessionReopenedBy", fields: [reopenedById], references: [id])
+  shiftTemplate     PosShiftTemplate? @relation(fields: [shiftTemplateId], references: [id])
+  terminal          PosTerminal?      @relation(fields: [terminalId], references: [id])
   user              User              @relation(fields: [userId], references: [id])
 
   @@index([companyId, status])
   @@index([companyId, openedAt])
   @@index([branchId])
+  @@index([terminalId])
+  @@index([shiftTemplateId])
+  @@index([offlineSinceAt])
+  @@index([closeRequestedById])
+  @@index([closeApprovedById])
   @@map("pos_sessions")
+}
+
+model PosTerminal {
+  id                        String       @id @default(uuid())
+  companyId                 String
+  branchId                  String?
+  code                      String
+  name                      String
+  cashRegisterName          String?
+  deviceName                String?
+  printerName               String?
+  printerConnectionType     String?
+  printerPaperWidth         Int          @default(80)
+  invoicePrefix             String?      @default("POS")
+  receiptPrefix             String?      @default("TIR")
+  resolutionNumber          String?
+  resolutionLabel           String?
+  defaultPriceListId        String?
+  defaultInventoryLocationId String?
+  isActive                  Boolean      @default(true)
+  isDefault                 Boolean      @default(false)
+  autoPrintReceipt          Boolean      @default(true)
+  autoPrintInvoice          Boolean      @default(false)
+  requireCustomerForInvoice Boolean      @default(true)
+  allowOpenDrawer           Boolean      @default(true)
+  parameters                Json?
+  lastHeartbeatAt           DateTime?
+  heartbeatMeta             Json?
+  heartbeatSlaSeconds       Int          @default(120)
+  createdAt                 DateTime     @default(now())
+  updatedAt                 DateTime     @updatedAt
+  branch                    Branch?      @relation(fields: [branchId], references: [id])
+  company                   Company      @relation(fields: [companyId], references: [id])
+  configDeployments         PosConfigDeployment[]
+  defaultPriceList          PosPriceList? @relation(fields: [defaultPriceListId], references: [id])
+  defaultInventoryLocation  PosInventoryLocation? @relation(fields: [defaultInventoryLocationId], references: [id])
+  operationalIncidents      PosOperationalIncident[]
+  sessions                  PosSession[]
+
+  @@unique([companyId, code])
+  @@index([companyId, branchId, isActive])
+  @@index([defaultInventoryLocationId])
+  @@index([defaultPriceListId])
+  @@map("pos_terminals")
+}
+
+model PosShiftTemplate {
+  id                 String       @id @default(uuid())
+  companyId          String
+  branchId           String?
+  code               String?
+  name               String
+  startTime          String
+  endTime            String
+  toleranceMinutes   Int          @default(0)
+  requiresBlindClose Boolean      @default(false)
+  isActive           Boolean      @default(true)
+  parameters         Json?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  branch             Branch?      @relation(fields: [branchId], references: [id])
+  company            Company      @relation(fields: [companyId], references: [id])
+  sessions           PosSession[]
+
+  @@index([companyId, branchId, isActive])
+  @@map("pos_shift_templates")
 }
 
 model PosSale {
@@ -997,7 +1172,21 @@ model PosSale {
   companyId       String
   sessionId       String
   customerId      String?
+  clientSyncId    String?
+  externalOrderId String?
+  orderType       PosOrderType   @default(IN_STORE)
+  orderStatus     PosOrderStatus @default(CLOSED)
   saleNumber      String
+  orderReference  String?
+  sourceChannel   String?
+  scheduledAt     DateTime?
+  dispatchedAt    DateTime?
+  deliveredAt     DateTime?
+  deliveryAddress String?
+  deliveryContactName String?
+  deliveryContactPhone String?
+  dispatchNotes   String?
+  isPreOrder      Boolean        @default(false)
   subtotal        Decimal        @db.Decimal(12, 2)
   taxAmount       Decimal        @db.Decimal(12, 2)
   discountAmount  Decimal        @default(0) @db.Decimal(12, 2)
@@ -1007,24 +1196,47 @@ model PosSale {
   change          Decimal        @default(0) @db.Decimal(12, 2)
   status          PosSaleStatus  @default(COMPLETED)
   invoiceId       String?        @unique
+  inventoryLocationId String?
   notes           String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   branchId        String?
+  priceListId     String?
+  loyaltyCampaignId String?
+  loyaltyPointsEarned Int          @default(0)
+  loyaltyPointsRedeemed Int        @default(0)
+  loyaltyRedemptionAmount Decimal   @default(0) @db.Decimal(12, 2)
+  couponDiscountAmount  Decimal     @default(0) @db.Decimal(12, 2)
   advanceAmount   Decimal        @default(0) @db.Decimal(12, 2)
   deliveryStatus  DeliveryStatus @default(DELIVERED)
   remainingAmount Decimal        @default(0) @db.Decimal(12, 2)
+  pricingSnapshot Json?
   items           PosSaleItem[]
+  inventoryReservations PosInventoryReservation[]
+  payments        PosSalePayment[]
+  postSaleRequests PosPostSaleRequest[]
   branch          Branch?        @relation(fields: [branchId], references: [id])
   company         Company        @relation(fields: [companyId], references: [id])
   customer        Customer?      @relation(fields: [customerId], references: [id])
+  externalOrder   PosExternalOrder? @relation(fields: [externalOrderId], references: [id])
   invoice         Invoice?       @relation("PosSaleInvoice", fields: [invoiceId], references: [id])
+  inventoryLocation PosInventoryLocation? @relation(fields: [inventoryLocationId], references: [id])
+  loyaltyCampaign PosLoyaltyCampaign? @relation(fields: [loyaltyCampaignId], references: [id])
+  priceList       PosPriceList?  @relation(fields: [priceListId], references: [id])
   session         PosSession     @relation(fields: [sessionId], references: [id])
+  loyaltyTransactions PosLoyaltyTransaction[]
+  couponRedemptions PosCouponRedemption[]
 
   @@unique([companyId, saleNumber])
+  @@unique([companyId, clientSyncId])
   @@index([companyId, createdAt])
   @@index([sessionId])
   @@index([branchId])
+  @@index([externalOrderId])
+  @@index([inventoryLocationId])
+  @@index([orderType, orderStatus])
+  @@index([loyaltyCampaignId])
+  @@index([priceListId])
   @@map("pos_sales")
 }
 
@@ -1040,11 +1252,562 @@ model PosSaleItem {
   discount    Decimal  @default(0) @db.Decimal(5, 2)
   subtotal    Decimal  @db.Decimal(12, 2)
   total       Decimal  @db.Decimal(12, 2)
+  allocations PosInventoryAllocation[]
   product     Product? @relation(fields: [productId], references: [id])
+  postSaleRequestItems PosPostSaleRequestItem[]
   sale        PosSale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
   @@index([saleId])
   @@map("pos_sale_items")
+}
+
+model PosSalePayment {
+  id                   String        @id @default(uuid())
+  saleId               String
+  paymentMethod        PaymentMethod
+  amount               Decimal       @db.Decimal(12, 2)
+  transactionReference String?
+  providerName         String?
+  notes                String?
+  createdAt            DateTime      @default(now())
+  sale                 PosSale       @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId, paymentMethod])
+  @@map("pos_sale_payments")
+}
+
+model PosPostSaleRequest {
+  id                 String                 @id @default(uuid())
+  companyId          String
+  saleId             String
+  branchId           String?
+  createdById        String?
+  approvedById       String?
+  type               PosPostSaleType
+  status             PosPostSaleStatus      @default(PENDING_APPROVAL)
+  reasonCode         PosPostSaleReason
+  reasonDetail       String?
+  subtotal           Decimal                @default(0) @db.Decimal(12, 2)
+  taxAmount          Decimal                @default(0) @db.Decimal(12, 2)
+  total              Decimal                @default(0) @db.Decimal(12, 2)
+  creditNoteInvoiceId String?
+  exchangeSnapshot   Json?
+  approvalNotes      String?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  approvedAt         DateTime?
+  branch             Branch?                @relation(fields: [branchId], references: [id])
+  company            Company                @relation(fields: [companyId], references: [id])
+  createdBy          User?                  @relation("PosPostSaleCreatedBy", fields: [createdById], references: [id])
+  approvedBy         User?                  @relation("PosPostSaleApprovedBy", fields: [approvedById], references: [id])
+  creditNoteInvoice  Invoice?               @relation(fields: [creditNoteInvoiceId], references: [id])
+  sale               PosSale                @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  items              PosPostSaleRequestItem[]
+
+  @@index([companyId, status, createdAt])
+  @@index([saleId])
+  @@map("pos_post_sale_requests")
+}
+
+model PosPostSaleRequestItem {
+  id           String                @id @default(uuid())
+  requestId     String
+  lineType      PosPostSaleLineType
+  saleItemId    String?
+  productId     String?
+  description   String
+  quantity      Decimal               @db.Decimal(12, 4)
+  unitPrice     Decimal               @db.Decimal(12, 2)
+  taxRate       Decimal               @db.Decimal(5, 2)
+  taxAmount     Decimal               @db.Decimal(12, 2)
+  subtotal      Decimal               @db.Decimal(12, 2)
+  total         Decimal               @db.Decimal(12, 2)
+  request       PosPostSaleRequest    @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  product       Product?              @relation(fields: [productId], references: [id])
+  saleItem      PosSaleItem?          @relation(fields: [saleItemId], references: [id])
+
+  @@index([requestId, lineType])
+  @@map("pos_post_sale_request_items")
+}
+
+model PosLoyaltyCampaign {
+  id                String    @id @default(uuid())
+  companyId         String
+  branchId          String?
+  customerId        String?
+  code              String?
+  name              String
+  description       String?
+  targetSegment     String?
+  targetTier        String?
+  minSubtotal       Decimal?  @db.Decimal(12, 2)
+  pointsPerAmount   Decimal   @default(0.1) @db.Decimal(12, 4)
+  amountStep        Decimal   @default(10000) @db.Decimal(12, 2)
+  bonusPoints       Int       @default(0)
+  startsAt          DateTime?
+  endsAt            DateTime?
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  branch            Branch?   @relation(fields: [branchId], references: [id])
+  company           Company   @relation(fields: [companyId], references: [id])
+  customer          Customer? @relation(fields: [customerId], references: [id])
+  posSales          PosSale[]
+  transactions      PosLoyaltyTransaction[]
+
+  @@index([companyId, isActive])
+  @@index([branchId])
+  @@map("pos_loyalty_campaigns")
+}
+
+model PosLoyaltyTransaction {
+  id               String                   @id @default(uuid())
+  companyId        String
+  customerId       String
+  saleId           String?
+  loyaltyCampaignId String?
+  type             PosLoyaltyTransactionType
+  points           Int
+  amountBase       Decimal?                 @db.Decimal(12, 2)
+  description      String?
+  createdAt        DateTime                 @default(now())
+  company          Company                  @relation(fields: [companyId], references: [id])
+  customer         Customer                 @relation(fields: [customerId], references: [id])
+  loyaltyCampaign  PosLoyaltyCampaign?      @relation(fields: [loyaltyCampaignId], references: [id])
+  sale             PosSale?                 @relation(fields: [saleId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, customerId, createdAt])
+  @@index([saleId])
+  @@map("pos_loyalty_transactions")
+}
+
+model PosCoupon {
+  id               String   @id @default(uuid())
+  companyId        String
+  branchId         String?
+  customerId       String?
+  code             String
+  name             String
+  description      String?
+  discountMode     PosDiscountMode
+  discountValue    Decimal  @db.Decimal(12, 2)
+  pointsCost       Int      @default(0)
+  minSubtotal      Decimal? @db.Decimal(12, 2)
+  targetSegment    String?
+  targetTier       String?
+  usageLimit       Int?
+  usageCount       Int      @default(0)
+  startsAt         DateTime?
+  endsAt           DateTime?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  branch           Branch?  @relation(fields: [branchId], references: [id])
+  company          Company  @relation(fields: [companyId], references: [id])
+  customer         Customer? @relation(fields: [customerId], references: [id])
+  redemptions      PosCouponRedemption[]
+
+  @@unique([companyId, code])
+  @@index([companyId, branchId, isActive])
+  @@map("pos_coupons")
+}
+
+model PosCouponRedemption {
+  id          String   @id @default(uuid())
+  companyId   String
+  couponId    String
+  saleId      String
+  customerId  String?
+  amount      Decimal  @db.Decimal(12, 2)
+  pointsSpent Int      @default(0)
+  createdAt   DateTime @default(now())
+  company     Company  @relation(fields: [companyId], references: [id])
+  coupon      PosCoupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  sale        PosSale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+  @@index([couponId])
+  @@index([saleId])
+  @@map("pos_coupon_redemptions")
+}
+
+model PosExternalOrder {
+  id                  String   @id @default(uuid())
+  companyId           String
+  branchId            String?
+  customerId          String?
+  channel             String
+  externalOrderNumber String
+  status              String
+  orderType           PosOrderType @default(PICKUP)
+  scheduledAt         DateTime?
+  deliveryAddress     String?
+  contactName         String?
+  contactPhone        String?
+  subtotal            Decimal  @default(0) @db.Decimal(12, 2)
+  taxAmount           Decimal  @default(0) @db.Decimal(12, 2)
+  total               Decimal  @default(0) @db.Decimal(12, 2)
+  payload             Json?
+  syncedAt            DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  branch              Branch?  @relation(fields: [branchId], references: [id])
+  company             Company  @relation(fields: [companyId], references: [id])
+  customer            Customer? @relation(fields: [customerId], references: [id])
+  sales               PosSale[]
+
+  @@unique([companyId, channel, externalOrderNumber])
+  @@index([companyId, branchId, status])
+  @@map("pos_external_orders")
+}
+
+model PosIntegrationTrace {
+  id         String   @id @default(uuid())
+  companyId  String
+  branchId   String?
+  createdById String?
+  module     String
+  sourceType String
+  sourceId   String
+  targetType String?
+  targetId   String?
+  status     String
+  message    String?
+  payload    Json?
+  createdAt  DateTime @default(now())
+  branch     Branch?  @relation(fields: [branchId], references: [id])
+  company    Company  @relation(fields: [companyId], references: [id])
+  createdBy  User?    @relation("PosIntegrationTraceCreatedBy", fields: [createdById], references: [id])
+
+  @@index([companyId, module, createdAt])
+  @@index([companyId, sourceType, sourceId])
+  @@index([companyId, targetType, targetId])
+  @@map("pos_integration_traces")
+}
+
+model PosInventoryLocation {
+  id            String   @id @default(uuid())
+  companyId     String
+  branchId      String?
+  code          String
+  name          String
+  type          PosInventoryLocationType @default(STORE)
+  isDefault     Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  allowPosSales Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  branch        Branch?  @relation(fields: [branchId], references: [id])
+  company       Company  @relation(fields: [companyId], references: [id])
+  reservations  PosInventoryReservation[]
+  sales         PosSale[]
+  stocks        PosInventoryStock[]
+  terminals     PosTerminal[]
+  transfersFrom PosInventoryTransfer[] @relation("PosInventoryTransferFromLocation")
+  transfersTo   PosInventoryTransfer[] @relation("PosInventoryTransferToLocation")
+
+  @@unique([companyId, code])
+  @@index([companyId, branchId, isActive])
+  @@map("pos_inventory_locations")
+}
+
+model PosInventoryStock {
+  id               String   @id @default(uuid())
+  companyId        String
+  branchId         String?
+  locationId       String
+  productId        String
+  lotNumber        String?
+  serialNumber     String?
+  expiresAt        DateTime?
+  quantity         Int      @default(0)
+  reservedQuantity Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  allocations      PosInventoryAllocation[]
+  branch           Branch?  @relation(fields: [branchId], references: [id])
+  company          Company  @relation(fields: [companyId], references: [id])
+  location         PosInventoryLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  product          Product  @relation(fields: [productId], references: [id])
+  reservations     PosInventoryReservation[]
+
+  @@index([companyId, branchId, productId])
+  @@index([locationId, productId])
+  @@index([serialNumber])
+  @@map("pos_inventory_stocks")
+}
+
+model PosInventoryReservation {
+  id          String   @id @default(uuid())
+  companyId   String
+  branchId    String?
+  locationId  String
+  productId   String
+  stockId     String?
+  saleId      String?
+  sessionId   String?
+  customerId  String?
+  quantity    Int
+  status      PosInventoryReservationStatus @default(OPEN)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  branch      Branch?  @relation(fields: [branchId], references: [id])
+  company     Company  @relation(fields: [companyId], references: [id])
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  location    PosInventoryLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [productId], references: [id])
+  sale        PosSale? @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  session     PosSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  stock       PosInventoryStock? @relation(fields: [stockId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, branchId, status])
+  @@index([saleId])
+  @@map("pos_inventory_reservations")
+}
+
+model PosInventoryAllocation {
+  id         String   @id @default(uuid())
+  companyId  String
+  saleItemId String
+  stockId    String
+  quantity   Int
+  createdAt  DateTime @default(now())
+  company    Company  @relation(fields: [companyId], references: [id])
+  saleItem   PosSaleItem @relation(fields: [saleItemId], references: [id], onDelete: Cascade)
+  stock      PosInventoryStock @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  @@index([saleItemId])
+  @@index([stockId])
+  @@map("pos_inventory_allocations")
+}
+
+model PosInventoryTransfer {
+  id             String   @id @default(uuid())
+  companyId      String
+  fromBranchId   String?
+  toBranchId     String?
+  fromLocationId String
+  toLocationId   String
+  reference      String
+  status         PosInventoryTransferStatus @default(PENDING)
+  notes          String?
+  createdById    String?
+  postedAt       DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  company        Company  @relation(fields: [companyId], references: [id])
+  createdBy      User?    @relation("PosInventoryTransferCreatedBy", fields: [createdById], references: [id])
+  fromBranch     Branch?  @relation("PosInventoryTransferFromBranch", fields: [fromBranchId], references: [id])
+  fromLocation   PosInventoryLocation @relation("PosInventoryTransferFromLocation", fields: [fromLocationId], references: [id])
+  items          PosInventoryTransferItem[]
+  toBranch       Branch?  @relation("PosInventoryTransferToBranch", fields: [toBranchId], references: [id])
+  toLocation     PosInventoryLocation @relation("PosInventoryTransferToLocation", fields: [toLocationId], references: [id])
+
+  @@unique([companyId, reference])
+  @@index([companyId, status, createdAt])
+  @@map("pos_inventory_transfers")
+}
+
+model PosBankReconciliationBatch {
+  id                 String   @id @default(uuid())
+  companyId          String
+  branchId           String?
+  createdById        String?
+  reference          String
+  totalPayments      Int      @default(0)
+  matchedPayments    Int      @default(0)
+  reconciledPayments Int      @default(0)
+  differenceAmount   Decimal  @default(0) @db.Decimal(12, 2)
+  payload            Json?
+  createdAt          DateTime @default(now())
+  branch             Branch?  @relation(fields: [branchId], references: [id])
+  company            Company  @relation(fields: [companyId], references: [id])
+  createdBy          User?    @relation("PosBankReconciliationBatchCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([companyId, reference])
+  @@index([companyId, branchId, createdAt])
+  @@map("pos_bank_reconciliation_batches")
+}
+
+model PosOperationalIncident {
+  id           String   @id @default(uuid())
+  companyId    String
+  branchId     String?
+  terminalId   String?
+  sessionId    String?
+  type         String
+  severity     String
+  status       String
+  title        String
+  description  String?
+  startedAt    DateTime @default(now())
+  resolvedAt   DateTime?
+  resolvedById String?
+  meta         Json?
+  branch       Branch?  @relation(fields: [branchId], references: [id])
+  company      Company  @relation(fields: [companyId], references: [id])
+  resolvedBy   User?    @relation("PosOperationalIncidentResolvedBy", fields: [resolvedById], references: [id])
+  session      PosSession? @relation(fields: [sessionId], references: [id])
+  terminal     PosTerminal? @relation(fields: [terminalId], references: [id])
+
+  @@index([companyId, status, startedAt])
+  @@index([branchId])
+  @@index([terminalId])
+  @@index([sessionId])
+  @@map("pos_operational_incidents")
+}
+
+model PosConfigDeployment {
+  id              String   @id @default(uuid())
+  companyId       String
+  branchId        String?
+  terminalId      String?
+  createdById     String?
+  scope           String
+  deploymentType  String
+  status          String
+  versionLabel    String?
+  snapshot        Json?
+  conflictCount   Int      @default(0)
+  appliedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  branch          Branch?  @relation(fields: [branchId], references: [id])
+  company         Company  @relation(fields: [companyId], references: [id])
+  createdBy       User?    @relation("PosConfigDeploymentCreatedBy", fields: [createdById], references: [id])
+  terminal        PosTerminal? @relation(fields: [terminalId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([branchId, status])
+  @@index([terminalId, status])
+  @@map("pos_config_deployments")
+}
+
+model PosInventoryTransferItem {
+  id          String   @id @default(uuid())
+  transferId  String
+  companyId   String
+  branchId    String?
+  productId   String
+  quantity    Int
+  lotNumber   String?
+  serialNumber String?
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  branch      Branch?  @relation(fields: [branchId], references: [id])
+  company     Company  @relation(fields: [companyId], references: [id])
+  product     Product  @relation(fields: [productId], references: [id])
+  transfer    PosInventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([transferId])
+  @@map("pos_inventory_transfer_items")
+}
+
+model PosPriceList {
+  id          String             @id @default(uuid())
+  companyId   String
+  branchId    String?
+  code        String?
+  name        String
+  description String?
+  isActive    Boolean            @default(true)
+  isDefault   Boolean            @default(false)
+  validFrom   DateTime?
+  validTo     DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  branch      Branch?            @relation(fields: [branchId], references: [id])
+  company     Company            @relation(fields: [companyId], references: [id])
+  items       PosPriceListItem[]
+  sales       PosSale[]
+  terminals   PosTerminal[]
+
+  @@index([companyId, branchId, isActive])
+  @@map("pos_price_lists")
+}
+
+model PosPriceListItem {
+  id          String       @id @default(uuid())
+  priceListId String
+  productId   String
+  price       Decimal      @db.Decimal(12, 2)
+  minQuantity Decimal?     @db.Decimal(12, 4)
+  createdAt   DateTime     @default(now())
+  priceList   PosPriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  product     Product      @relation(fields: [productId], references: [id])
+
+  @@index([priceListId, productId])
+  @@map("pos_price_list_items")
+}
+
+model PosPromotion {
+  id            String          @id @default(uuid())
+  companyId     String
+  branchId      String?
+  customerId    String?
+  productId     String?
+  code          String?
+  name          String
+  description   String?
+  type          PosPromotionType
+  discountMode  PosDiscountMode @default(PERCENT)
+  discountValue Decimal         @db.Decimal(12, 2)
+  minQuantity   Decimal?        @db.Decimal(12, 4)
+  minSubtotal   Decimal?        @db.Decimal(12, 2)
+  daysOfWeek    Json?
+  startTime     String?
+  endTime       String?
+  startsAt      DateTime?
+  endsAt        DateTime?
+  priority      Int             @default(0)
+  stackable     Boolean         @default(false)
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  branch        Branch?         @relation(fields: [branchId], references: [id])
+  company       Company         @relation(fields: [companyId], references: [id])
+  customer      Customer?       @relation(fields: [customerId], references: [id])
+  product       Product?        @relation(fields: [productId], references: [id])
+
+  @@index([companyId, branchId, isActive])
+  @@index([productId])
+  @@index([customerId])
+  @@map("pos_promotions")
+}
+
+model PosCombo {
+  id          String       @id @default(uuid())
+  companyId   String
+  branchId    String?
+  code        String?
+  name        String
+  description String?
+  comboPrice  Decimal      @db.Decimal(12, 2)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  branch      Branch?      @relation(fields: [branchId], references: [id])
+  company     Company      @relation(fields: [companyId], references: [id])
+  items       PosComboItem[]
+
+  @@index([companyId, branchId, isActive])
+  @@map("pos_combos")
+}
+
+model PosComboItem {
+  id        String   @id @default(uuid())
+  comboId    String
+  productId  String
+  quantity   Decimal  @default(1) @db.Decimal(12, 4)
+  combo      PosCombo @relation(fields: [comboId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id])
+
+  @@index([comboId, productId])
+  @@map("pos_combo_items")
 }
 
 model PosCashMovement {
@@ -1063,6 +1826,54 @@ model PosCashMovement {
   @@index([sessionId])
   @@index([companyId, createdAt])
   @@map("pos_cash_movements")
+}
+
+model PosGovernanceRule {
+  id                         String              @id @default(uuid())
+  companyId                  String
+  branchId                   String?
+  action                     PosGovernanceAction
+  allowedRoles               Json?
+  requiresSupervisorOverride Boolean             @default(false)
+  maxDiscountPct             Decimal?            @db.Decimal(5, 2)
+  maxAmountThreshold         Decimal?            @db.Decimal(12, 2)
+  isActive                   Boolean             @default(true)
+  notes                      String?
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
+  branch                     Branch?             @relation(fields: [branchId], references: [id])
+  company                    Company             @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, branchId, action, isActive])
+  @@map("pos_governance_rules")
+}
+
+model PosSupervisorOverride {
+  id               String                      @id @default(uuid())
+  companyId        String
+  branchId         String?
+  action           PosGovernanceAction
+  resourceType     String
+  resourceId       String?
+  status           PosSupervisorOverrideStatus @default(PENDING)
+  reason           String
+  requestedPayload Json?
+  decisionNotes    String?
+  requestedById    String?
+  approvedById     String?
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  consumedAt       DateTime?
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+  branch           Branch?                     @relation(fields: [branchId], references: [id])
+  company          Company                     @relation(fields: [companyId], references: [id])
+  approvedBy       User?                       @relation("PosGovernanceApprovedBy", fields: [approvedById], references: [id])
+  requestedBy      User?                       @relation("PosGovernanceRequestedBy", fields: [requestedById], references: [id])
+
+  @@index([companyId, branchId, status, createdAt])
+  @@index([action, resourceType, resourceId])
+  @@map("pos_supervisor_overrides")
 }
 
 model DianTestSet {
@@ -2439,6 +3250,7 @@ enum DianDocumentType {
 
 enum PosSessionStatus {
   OPEN
+  PENDING_CLOSE_APPROVAL
   CLOSED
 }
 
@@ -2459,6 +3271,106 @@ enum PaymentMethod {
   CARD
   TRANSFER
   MIXED
+  DATAPHONE
+  WALLET
+  VOUCHER
+  GIFT_CARD
+  AGREEMENT
+}
+
+enum PosPromotionType {
+  PRODUCT
+  CUSTOMER
+  ORDER
+  VOLUME
+  SCHEDULE
+}
+
+enum PosDiscountMode {
+  PERCENT
+  FIXED
+}
+
+enum PosPostSaleType {
+  RETURN
+  EXCHANGE
+}
+
+enum PosPostSaleStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum PosPostSaleReason {
+  DEFECTIVE_PRODUCT
+  WRONG_PRODUCT
+  CUSTOMER_DISSATISFACTION
+  BILLING_ERROR
+  WARRANTY
+  OTHER
+}
+
+enum PosPostSaleLineType {
+  RETURN
+  REPLACEMENT
+}
+
+enum PosLoyaltyTransactionType {
+  EARN
+  REDEEM
+  ADJUSTMENT
+}
+
+enum PosInventoryLocationType {
+  STORE
+  BACKROOM
+  WAREHOUSE
+  TRANSIT
+}
+
+enum PosInventoryReservationStatus {
+  OPEN
+  CONSUMED
+  RELEASED
+}
+
+enum PosInventoryTransferStatus {
+  PENDING
+  POSTED
+  CANCELLED
+}
+
+enum PosOrderType {
+  IN_STORE
+  PICKUP
+  DELIVERY
+  LAYAWAY
+  PREORDER
+}
+
+enum PosOrderStatus {
+  OPEN
+  READY
+  IN_TRANSIT
+  CLOSED
+  CANCELLED
+}
+
+enum PosGovernanceAction {
+  MANUAL_DISCOUNT
+  CASH_WITHDRAWAL
+  CANCEL_SALE
+  REFUND_SALE
+  REOPEN_SESSION
+  APPROVE_POST_SALE
+}
+
+enum PosSupervisorOverrideStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CONSUMED
 }
 
 enum CashMovementType {

@@ -17,6 +17,40 @@ export enum PaymentMethodDto {
   CARD = 'CARD',
   TRANSFER = 'TRANSFER',
   MIXED = 'MIXED',
+  DATAPHONE = 'DATAPHONE',
+  WALLET = 'WALLET',
+  VOUCHER = 'VOUCHER',
+  GIFT_CARD = 'GIFT_CARD',
+  AGREEMENT = 'AGREEMENT',
+}
+
+export enum PosOrderTypeDto {
+  IN_STORE = 'IN_STORE',
+  PICKUP = 'PICKUP',
+  DELIVERY = 'DELIVERY',
+  LAYAWAY = 'LAYAWAY',
+  PREORDER = 'PREORDER',
+}
+
+export class PosSalePaymentLineDto {
+  @IsEnum(PaymentMethodDto)
+  paymentMethod: PaymentMethodDto;
+
+  @IsNumber()
+  @Min(0.01)
+  amount: number;
+
+  @IsOptional()
+  @IsString()
+  transactionReference?: string;
+
+  @IsOptional()
+  @IsString()
+  providerName?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
 
 export class PosSaleItemDto {
@@ -50,20 +84,85 @@ export class CreatePosSaleDto {
   sessionId: string;
 
   @IsOptional()
+  @IsString()
+  clientSyncId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  inventoryLocationId?: string;
+
+  @IsOptional()
   @IsUUID()
   customerId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  externalOrderId?: string;
+
+  @IsOptional()
+  @IsEnum(PosOrderTypeDto)
+  orderType?: PosOrderTypeDto;
+
+  @IsOptional()
+  @IsString()
+  orderReference?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceChannel?: string;
+
+  @IsOptional()
+  @IsString()
+  scheduledAt?: string;
+
+  @IsOptional()
+  @IsString()
+  deliveryAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  deliveryContactName?: string;
+
+  @IsOptional()
+  @IsString()
+  deliveryContactPhone?: string;
+
+  @IsOptional()
+  @IsUUID()
+  priceListId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  governanceOverrideId?: string;
+
+  @IsOptional()
+  @IsString()
+  couponCode?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  loyaltyPointsToRedeem?: number;
 
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => PosSaleItemDto)
   items: PosSaleItemDto[];
 
+  @IsOptional()
   @IsEnum(PaymentMethodDto)
-  paymentMethod: PaymentMethodDto;
+  paymentMethod?: PaymentMethodDto;
 
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  amountPaid: number;
+  amountPaid?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PosSalePaymentLineDto)
+  payments?: PosSalePaymentLineDto[];
 
   @IsOptional()
   @IsString()
