@@ -109,6 +109,19 @@ interface CollectionFollowUpRow {
   invoiceNumber?: string | null;
 }
 
+interface InvoiceStatementReceiptRow {
+  receiptId: string;
+  receiptNumber: string;
+  receiptStatus: string;
+  paymentMethod: string;
+  reference: string | null;
+  paymentDate: Date | string;
+  appliedAmount: Prisma.Decimal | number | string;
+  bankMovementId: string | null;
+  bankMovementStatus: string | null;
+  bankMovementReference: string | null;
+}
+
 interface AdjustmentFilters {
   status?: string;
   type?: string;
@@ -925,6 +938,184 @@ export class CarteraService {
         outstandingBalance,
         balance: outstandingBalance - unappliedBalance - creditBalance,
       },
+      movements: statementMovements,
+    };
+  }
+
+  async getInvoiceStatement(companyId: string, invoiceId: string) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: invoiceId, companyId, deletedAt: null },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            documentNumber: true,
+            email: true,
+            phone: true,
+          },
+        },
+        payments: {
+          include: {
+            user: { select: { id: true, firstName: true, lastName: true } },
+          },
+          orderBy: { paymentDate: 'asc' },
+        },
+      },
+    });
+    if (!invoice) throw new NotFoundException('Factura no encontrada');
+
+    const [adjustmentMap, promises, followUps, receiptApplications] = await Promise.all([
+      this.getAppliedInvoiceAdjustmentMap(companyId, [invoiceId]),
+      this.prisma.$queryRaw<PaymentPromiseRow[]>`
+        SELECT
+          p."id",
+          p."companyId",
+          p."customerId",
+          p."invoiceId",
+          p."amount",
+          p."promisedDate",
+          p."status",
+          p."notes",
+          p."createdById",
+          p."resolvedById",
+          p."resolvedAt",
+          p."createdAt",
+          p."updatedAt",
+          c."name" AS "customerName",
+          c."documentNumber" AS "customerDocumentNumber",
+          i."invoiceNumber" AS "invoiceNumber"
+        FROM "cartera_payment_promises" p
+        INNER JOIN "customers" c ON c."id" = p."customerId"
+        LEFT JOIN "invoices" i ON i."id" = p."invoiceId"
+        WHERE p."companyId" = ${companyId} AND p."invoiceId" = ${invoiceId}
+        ORDER BY p."promisedDate" DESC, p."createdAt" DESC
+      `,
+      this.prisma.$queryRaw<CollectionFollowUpRow[]>`
+        SELECT
+          f."id",
+          f."companyId",
+          f."customerId",
+          f."invoiceId",
+          f."activityType",
+          f."outcome",
+          f."nextActionDate",
+          f."nextAction",
+          f."createdById",
+          f."createdAt",
+          f."updatedAt",
+          c."name" AS "customerName",
+          i."invoiceNumber" AS "invoiceNumber"
+        FROM "cartera_collection_followups" f
+        INNER JOIN "customers" c ON c."id" = f."customerId"
+        LEFT JOIN "invoices" i ON i."id" = f."invoiceId"
+        WHERE f."companyId" = ${companyId} AND f."invoiceId" = ${invoiceId}
+        ORDER BY COALESCE(f."nextActionDate", f."createdAt") DESC, f."createdAt" DESC
+      `,
+      this.prisma.$queryRaw<InvoiceStatementReceiptRow[]>`
+        SELECT
+          r."id" AS "receiptId",
+          r."number" AS "receiptNumber",
+          r."status" AS "receiptStatus",
+          r."paymentMethod",
+          r."reference",
+          r."paymentDate",
+          a."amount" AS "appliedAmount",
+          bm."id" AS "bankMovementId",
+          bm."status" AS "bankMovementStatus",
+          bm."reference" AS "bankMovementReference"
+        FROM "cartera_receipt_applications" a
+        INNER JOIN "cartera_receipts" r ON r."id" = a."receiptId"
+        LEFT JOIN "cartera_bank_movements" bm ON bm."matchedReceiptId" = r."id"
+        WHERE a."invoiceId" = ${invoiceId}
+        ORDER BY r."paymentDate" DESC, r."createdAt" DESC
+      `,
+    ]);
+
+    const totalPaid = invoice.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
+    const adjustmentNet = Number(adjustmentMap.get(invoiceId) ?? 0);
+    const balance = this.calculateInvoiceBalance(Number(invoice.total), totalPaid, adjustmentNet);
+    const nextPromise = promises.find((item) => item.status === 'OPEN') ?? null;
+
+    const movements = [
+      {
+        id: `INV-${invoice.id}`,
+        date: invoice.issueDate,
+        type: 'FACTURA',
+        description: `Factura ${invoice.invoiceNumber}`,
+        debit: Number(invoice.total),
+        credit: 0,
+      },
+      ...invoice.payments.map((payment) => ({
+        id: `PAY-${payment.id}`,
+        date: payment.paymentDate,
+        type: Number(payment.amount) >= 0 ? 'PAGO' : 'REVERSO',
+        description:
+          Number(payment.amount) >= 0
+            ? `Pago ${payment.paymentMethod}`
+            : `Reverso ${payment.paymentMethod}`,
+        debit: Number(payment.amount) < 0 ? Math.abs(Number(payment.amount)) : 0,
+        credit: Number(payment.amount) > 0 ? Number(payment.amount) : 0,
+      })),
+    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    let runningBalance = 0;
+    const statementMovements = movements.map((movement) => {
+      runningBalance += movement.debit - movement.credit;
+      return {
+        ...movement,
+        runningBalance,
+      };
+    });
+
+    const reconciledAmount = receiptApplications
+      .filter((item) => item.bankMovementStatus === 'RECONCILED')
+      .reduce((sum, item) => sum + this.toNumber(item.appliedAmount), 0);
+    const pendingReconciliation = receiptApplications
+      .filter((item) => item.bankMovementStatus !== 'RECONCILED')
+      .reduce((sum, item) => sum + this.toNumber(item.appliedAmount), 0);
+
+    return {
+      invoice: {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        status: invoice.status,
+        issueDate: invoice.issueDate,
+        dueDate: invoice.dueDate,
+        total: Number(invoice.total),
+        customer: invoice.customer,
+      },
+      summary: {
+        total: Number(invoice.total),
+        paidAmount: totalPaid,
+        adjustmentNet,
+        balance,
+        receiptsApplied: receiptApplications.length,
+        nextPromise: nextPromise ? this.mapPromiseRow(nextPromise) : null,
+      },
+      reconciliation: {
+        appliedAmount: receiptApplications.reduce((sum, item) => sum + this.toNumber(item.appliedAmount), 0),
+        reconciledAmount,
+        pendingReconciliation,
+        receipts: receiptApplications.map((item) => ({
+          receiptId: item.receiptId,
+          receiptNumber: item.receiptNumber,
+          receiptStatus: item.receiptStatus,
+          paymentMethod: item.paymentMethod,
+          reference: item.reference,
+          paymentDate: item.paymentDate,
+          appliedAmount: this.toNumber(item.appliedAmount),
+          bankMovementId: item.bankMovementId,
+          bankMovementStatus: item.bankMovementStatus,
+          bankMovementReference: item.bankMovementReference,
+        })),
+      },
+      payments: invoice.payments.map((payment) => ({
+        ...payment,
+        amount: Number(payment.amount),
+      })),
+      agreements: promises.map((item) => this.mapPromiseRow(item)),
+      followUps: followUps.map((item) => this.mapFollowUpRow(item)),
       movements: statementMovements,
     };
   }
@@ -2334,6 +2525,29 @@ export class CarteraService {
 
     for (const row of rows) {
       map.set(row.invoiceId, this.toNumber(row.net));
+    }
+
+    const noteRows = await client.$queryRaw<Array<{ invoiceId: string; net: Prisma.Decimal | number | string }>>`
+      SELECT
+        i."originalInvoiceId" AS "invoiceId",
+        COALESCE(SUM(
+          CASE
+            WHEN i."type" = 'NOTA_CREDITO' THEN -i."total"
+            WHEN i."type" = 'NOTA_DEBITO' THEN i."total"
+            ELSE 0
+          END
+        ), 0) AS net
+      FROM "invoices" i
+      WHERE
+        i."companyId" = ${companyId}
+        AND i."deletedAt" IS NULL
+        AND i."status" NOT IN ('CANCELLED', 'REJECTED_DIAN')
+        AND i."originalInvoiceId" IN (${Prisma.join(invoiceIds)})
+      GROUP BY i."originalInvoiceId"
+    `;
+
+    for (const row of noteRows) {
+      map.set(row.invoiceId, this.roundMoney((map.get(row.invoiceId) ?? 0) + this.toNumber(row.net)));
     }
     return map;
   }

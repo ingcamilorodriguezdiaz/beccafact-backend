@@ -25,6 +25,7 @@ import { CreateAccountingBankAccountDto } from './dto/create-accounting-bank-acc
 import { ImportAccountingBankStatementDto } from './dto/import-accounting-bank-statement.dto';
 import { ReconcileAccountingBankMovementDto } from './dto/reconcile-accounting-bank-movement.dto';
 import { UpsertAccountingTaxConfigDto } from './dto/accounting-tax-config.dto';
+import { UpsertInvoiceAccountingProfileDto } from './dto/invoice-accounting-profile.dto';
 import {
   AmortizeAccountingDeferredChargeDto,
   CreateAccountingDeferredChargeDto,
@@ -529,6 +530,23 @@ export class AccountingController {
     @Body() dto: UpsertAccountingTaxConfigDto,
   ) {
     return this.accountingService.upsertTaxConfig(companyId, dto);
+  }
+
+  @Get('invoice-accounting-profiles')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Listar perfiles contables para facturación electrónica' })
+  getInvoiceAccountingProfiles(@CurrentUser('companyId') companyId: string) {
+    return this.accountingService.getInvoiceAccountingProfiles(companyId);
+  }
+
+  @Post('invoice-accounting-profiles')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Crear o actualizar perfil contable de facturación' })
+  upsertInvoiceAccountingProfile(
+    @CurrentUser('companyId') companyId: string,
+    @Body() dto: UpsertInvoiceAccountingProfileDto,
+  ) {
+    return this.accountingService.upsertInvoiceAccountingProfile(companyId, dto);
   }
 
   @Get('reports/fiscal-summary')

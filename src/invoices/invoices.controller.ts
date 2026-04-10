@@ -8,6 +8,27 @@ import { Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import {
+  CreateInvoiceDocumentConfigDto,
+  UpdateInvoiceDocumentConfigDto,
+} from './dto/invoice-document-config.dto';
+import {
+  CreateDeliveryNoteDto,
+  CreateSalesOrderDto,
+  CreateSourceInvoiceDto,
+} from './dto/invoice-commercial-flow.dto';
+import { InvoiceRegisterPaymentDto } from './dto/invoice-register-payment.dto';
+import { CreateInvoicePaymentAgreementDto } from './dto/invoice-collections.dto';
+import {
+  AddInvoiceAttachmentDto,
+  RejectInvoiceApprovalDto,
+  RequestInvoiceApprovalDto,
+} from './dto/invoice-governance.dto';
+import {
+  BulkInvoiceReprocessDto,
+  CreateInvoiceExternalIntakeDto,
+  QueueInvoiceReprocessDto,
+} from './dto/invoice-operations.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CompanyStatusGuard } from '../common/guards/company-status.guard';
@@ -75,6 +96,164 @@ export class InvoicesController {
     return this.invoicesService.getSummary(companyId,branchId, from, to);
   }
 
+  @Get('analytics/summary')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Analítica empresarial y gestión documental de facturación' })
+  getAnalyticsSummary(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.invoicesService.getAnalyticsSummary(companyId, branchId, { dateFrom, dateTo });
+  }
+
+  @Get('operations/monitor')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'OPERATOR')
+  @ApiOperation({ summary: 'Monitor técnico DIAN y cola operativa de facturación' })
+  getOperationalMonitor(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+  ) {
+    return this.invoicesService.getOperationalMonitor(companyId, branchId);
+  }
+
+  @Get('external-intakes')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @ApiOperation({ summary: 'Listar intake de documentos externos para facturación' })
+  getExternalIntakes(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+  ) {
+    return this.invoicesService.getExternalIntakes(companyId, branchId);
+  }
+
+  @Post('external-intakes')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @ApiOperation({ summary: 'Registrar intake externo desde e-commerce u otro canal' })
+  createExternalIntake(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @CurrentBranchId() branchId: string,
+    @Body() dto: CreateInvoiceExternalIntakeDto,
+  ) {
+    return this.invoicesService.createExternalIntake(companyId, branchId, dto, userId);
+  }
+
+  @Patch('external-intakes/:id/process')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @ApiOperation({ summary: 'Procesar intake externo y convertirlo en factura' })
+  processExternalIntake(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invoicesService.processExternalIntake(companyId, branchId, id, userId);
+  }
+
+  @Post('operations/process-queue')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'OPERATOR')
+  @ApiOperation({ summary: 'Procesar cola pendiente de reprocesos DIAN' })
+  processQueuedOperations(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @CurrentBranchId() branchId: string,
+  ) {
+    return this.invoicesService.processQueuedOperations(companyId, branchId, userId);
+  }
+
+  @Post('operations/reprocess')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'OPERATOR')
+  @ApiOperation({ summary: 'Programar reenvíos masivos o consultas masivas de DIAN' })
+  bulkReprocess(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @CurrentBranchId() branchId: string,
+    @Body() dto: BulkInvoiceReprocessDto,
+  ) {
+    return this.invoicesService.bulkReprocess(companyId, branchId, dto, userId);
+  }
+
+  @Get('reports/fiscal-summary')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Resumen fiscal documental de facturación por rango de fechas' })
+  getFiscalSummaryReport(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Query('dateFrom') dateFrom: string,
+    @Query('dateTo') dateTo: string,
+  ) {
+    return this.invoicesService.getFiscalSummaryReport(companyId, branchId, { dateFrom, dateTo });
+  }
+
+  @Get('reports/vat-sales-book')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Libro fiscal de IVA ventas desde facturación' })
+  getVatSalesBookReport(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Query('dateFrom') dateFrom: string,
+    @Query('dateTo') dateTo: string,
+  ) {
+    return this.invoicesService.getVatSalesBookReport(companyId, branchId, { dateFrom, dateTo });
+  }
+
+  @Get('reports/withholdings-book')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Libro documental de retenciones en ventas e ICA' })
+  getWithholdingsBookReport(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Query('dateFrom') dateFrom: string,
+    @Query('dateTo') dateTo: string,
+  ) {
+    return this.invoicesService.getWithholdingsBookReport(companyId, branchId, { dateFrom, dateTo });
+  }
+
+  @Get('reports/dian-validation')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Reporte de validaciones fiscales previas y control DIAN' })
+  getDianValidationReport(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Query('dateFrom') dateFrom: string,
+    @Query('dateTo') dateTo: string,
+  ) {
+    return this.invoicesService.getDianValidationReport(companyId, branchId, { dateFrom, dateTo });
+  }
+
+  @Get('document-configs')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Listar configuraciones documentales de facturación' })
+  getDocumentConfigs(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+  ) {
+    return this.invoicesService.getDocumentConfigs(companyId, branchId);
+  }
+
+  @Post('document-configs')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Crear configuración documental de facturación' })
+  createDocumentConfig(
+    @CurrentUser('companyId') companyId: string,
+    @Body() dto: CreateInvoiceDocumentConfigDto,
+  ) {
+    return this.invoicesService.createDocumentConfig(companyId, dto);
+  }
+
+  @Patch('document-configs/:id')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Actualizar configuración documental de facturación' })
+  updateDocumentConfig(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateInvoiceDocumentConfigDto,
+  ) {
+    return this.invoicesService.updateDocumentConfig(companyId, id, dto);
+  }
+
   @Get(':id')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   findOne(
@@ -96,6 +275,59 @@ export class InvoicesController {
     return this.invoicesService.create(companyId,branchId, dto);
   }
 
+  @Get('sales-orders')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @ApiOperation({ summary: 'Listar pedidos comerciales' })
+  getSalesOrders(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+  ) {
+    return this.invoicesService.getSalesOrders(companyId, branchId);
+  }
+
+  @Get('delivery-notes')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @ApiOperation({ summary: 'Listar remisiones comerciales' })
+  getDeliveryNotes(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+  ) {
+    return this.invoicesService.getDeliveryNotes(companyId, branchId);
+  }
+
+  @Post('sales-orders')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @ApiOperation({ summary: 'Crear pedido comercial desde cotización, POS u origen libre' })
+  createSalesOrder(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Body() dto: CreateSalesOrderDto,
+  ) {
+    return this.invoicesService.createSalesOrder(companyId, branchId, dto);
+  }
+
+  @Post('delivery-notes')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CONTADOR')
+  @ApiOperation({ summary: 'Crear remisión desde pedido comercial o POS' })
+  createDeliveryNote(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Body() dto: CreateDeliveryNoteDto,
+  ) {
+    return this.invoicesService.createDeliveryNote(companyId, branchId, dto);
+  }
+
+  @Post('from-source')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
+  @ApiOperation({ summary: 'Crear factura parcial o total desde pedido, remisión, cotización o POS' })
+  createFromSource(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Body() dto: CreateSourceInvoiceDto,
+  ) {
+    return this.invoicesService.createInvoiceFromSource(companyId, branchId, dto);
+  }
+
   // ── DIAN: Enviar factura ────────────────────────────────────────────────
 
   @Post(':id/issue')
@@ -108,6 +340,19 @@ export class InvoicesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.invoicesService.sendToDian(companyId,source, id);
+  }
+
+  @Post(':id/queue-reprocess')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'OPERATOR')
+  @ApiOperation({ summary: 'Agregar factura a la cola de reproceso DIAN' })
+  queueReprocess(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: QueueInvoiceReprocessDto,
+  ) {
+    return this.invoicesService.queueInvoiceReprocess(companyId, branchId, id, dto, userId);
   }
 
   @Patch(':id/send-dian')
@@ -252,6 +497,149 @@ export class InvoicesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.invoicesService.getRemainingBalance(companyId,branchId, id);
+  }
+
+  @Get(':id/note-context')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
+  @ApiOperation({ summary: 'Obtener contexto de notas crédito/débito: saldo exacto, líneas pendientes y reverso guiado' })
+  getNoteContext(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invoicesService.getNoteContext(companyId, branchId, id);
+  }
+
+  @Get(':id/statement')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
+  @ApiOperation({ summary: 'Obtener estado de cuenta detallado por factura' })
+  getStatement(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invoicesService.getInvoiceStatement(companyId, branchId, id);
+  }
+
+  @Get(':id/approval-flow')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
+  @ApiOperation({ summary: 'Obtener flujo de aprobación para emitir o anular la factura' })
+  getApprovalFlow(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invoicesService.getApprovalFlow(companyId, branchId, id);
+  }
+
+  @Post(':id/request-approval')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
+  @ApiOperation({ summary: 'Solicitar aprobación para emitir o anular la factura' })
+  requestApproval(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RequestInvoiceApprovalDto,
+  ) {
+    return this.invoicesService.requestApproval(companyId, branchId, id, dto, userId);
+  }
+
+  @Patch(':id/approve-approval')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Aprobar solicitud pendiente sobre la factura' })
+  approveApproval(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invoicesService.approveApproval(companyId, branchId, id, userId);
+  }
+
+  @Patch(':id/reject-approval')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Rechazar solicitud pendiente sobre la factura' })
+  rejectApproval(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RejectInvoiceApprovalDto,
+  ) {
+    return this.invoicesService.rejectApproval(companyId, branchId, id, dto, userId);
+  }
+
+  @Get(':id/attachments')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
+  @ApiOperation({ summary: 'Listar adjuntos y soportes de la factura' })
+  getAttachments(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invoicesService.getAttachments(companyId, branchId, id);
+  }
+
+  @Post(':id/attachments')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
+  @ApiOperation({ summary: 'Agregar adjunto o soporte documental a la factura' })
+  addAttachment(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddInvoiceAttachmentDto,
+  ) {
+    return this.invoicesService.addAttachment(companyId, branchId, id, dto, userId);
+  }
+
+  @Get(':id/audit-trail')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
+  @ApiOperation({ summary: 'Obtener bitácora visible y trazabilidad de usuario de la factura' })
+  getAuditTrail(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invoicesService.getAuditTrail(companyId, branchId, id);
+  }
+
+  @Get(':id/reconciliation')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
+  @ApiOperation({ summary: 'Obtener conciliación factura vs recaudo' })
+  getReconciliation(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invoicesService.getInvoiceReconciliation(companyId, branchId, id);
+  }
+
+  @Post(':id/payments')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Registrar pago parcial o total sobre una factura' })
+  registerPartialPayment(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: InvoiceRegisterPaymentDto,
+  ) {
+    return this.invoicesService.registerPartialPayment(companyId, branchId, id, dto, userId);
+  }
+
+  @Post(':id/payment-agreements')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Crear acuerdo o promesa de pago sobre una factura' })
+  createPaymentAgreement(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') userId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateInvoicePaymentAgreementDto,
+  ) {
+    return this.invoicesService.createPaymentAgreement(companyId, branchId, id, dto, userId);
   }
 
   @Post(':id/credit-note')

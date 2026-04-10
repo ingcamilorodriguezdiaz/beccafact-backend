@@ -16,6 +16,7 @@ import { CreateAccountingBankAccountDto } from './dto/create-accounting-bank-acc
 import { ImportAccountingBankStatementDto } from './dto/import-accounting-bank-statement.dto';
 import { ReconcileAccountingBankMovementDto } from './dto/reconcile-accounting-bank-movement.dto';
 import { UpsertAccountingTaxConfigDto } from './dto/accounting-tax-config.dto';
+import { UpsertInvoiceAccountingProfileDto } from './dto/invoice-accounting-profile.dto';
 import {
   AmortizeAccountingDeferredChargeDto,
   CreateAccountingDeferredChargeDto,
@@ -246,6 +247,35 @@ type AccountingTaxConfigRow = {
   accountId: string;
   accountCode: string;
   accountName: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type InvoiceAccountingProfileRow = {
+  id: string;
+  companyId: string;
+  profileName: string;
+  invoiceType: string;
+  sourceChannel: string | null;
+  branchId: string | null;
+  receivableAccountId: string;
+  receivableAccountCode: string;
+  receivableAccountName: string;
+  revenueAccountId: string;
+  revenueAccountCode: string;
+  revenueAccountName: string;
+  taxAccountId: string;
+  taxAccountCode: string;
+  taxAccountName: string;
+  withholdingReceivableAccountId: string | null;
+  withholdingReceivableAccountCode: string | null;
+  withholdingReceivableAccountName: string | null;
+  withholdingRate: Prisma.Decimal | number | string | null;
+  icaReceivableAccountId: string | null;
+  icaReceivableAccountCode: string | null;
+  icaReceivableAccountName: string | null;
+  icaRate: Prisma.Decimal | number | string | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -1633,10 +1663,14 @@ export class AccountingService {
         where: { id: invoiceId, companyId, deletedAt: null },
         select: {
           id: true,
+          branchId: true,
+          sourceChannel: true,
           invoiceNumber: true,
           issueDate: true,
           subtotal: true,
           taxAmount: true,
+          withholdingAmount: true,
+          icaAmount: true,
           total: true,
           type: true,
           status: true,
@@ -1654,24 +1688,119 @@ export class AccountingService {
         });
       }
 
-      const accounts = await this.resolveInvoiceAccounts(companyId);
-      const lines = [
-        { accountId: accounts.receivable.id, description: `Cuenta por cobrar ${invoice.invoiceNumber}`, debit: Number(invoice.total), credit: 0, position: 1 },
-        { accountId: accounts.revenue.id, description: `Ingreso operativo ${invoice.invoiceNumber}`, debit: 0, credit: Number(invoice.subtotal), position: 2 },
-      ];
-      if (Number(invoice.taxAmount) > 0) {
-        lines.push({
-          accountId: accounts.tax.id,
-          description: `IVA generado ${invoice.invoiceNumber}`,
-          debit: 0,
-          credit: Number(invoice.taxAmount),
-          position: 3,
-        });
+      const accounts = await this.resolveInvoiceAccounts(companyId, {
+        invoiceType: invoice.type,
+        sourceChannel: invoice.sourceChannel ?? null,
+        branchId: invoice.branchId ?? null,
+      });
+      const subtotal = Number(invoice.subtotal);
+      const taxAmount = Number(invoice.taxAmount);
+      const grossTotal = Number(invoice.total);
+      const withholdingAmount = Number(invoice.withholdingAmount ?? 0);
+      const icaAmount = Number(invoice.icaAmount ?? 0);
+      const netReceivable = this.roundMoney(grossTotal - withholdingAmount - icaAmount);
+      const isCreditNote = invoice.type === 'NOTA_CREDITO';
+      let position = 1;
+      const lines: Array<any> = [];
+
+      if (isCreditNote) {
+        lines.push(
+          {
+            accountId: accounts.revenue.id,
+            description: `Reverso ingreso ${invoice.invoiceNumber}`,
+            debit: subtotal,
+            credit: 0,
+            position: position++,
+          },
+          {
+            accountId: accounts.receivable.id,
+            description: `Reverso cuenta por cobrar ${invoice.invoiceNumber}`,
+            debit: 0,
+            credit: netReceivable,
+            position: position++,
+          },
+        );
+        if (taxAmount > 0) {
+          lines.push({
+            accountId: accounts.tax.id,
+            description: `Reverso IVA ${invoice.invoiceNumber}`,
+            debit: taxAmount,
+            credit: 0,
+            position: position++,
+          });
+        }
+        if (withholdingAmount > 0 && accounts.withholdingReceivable) {
+          lines.push({
+            accountId: accounts.withholdingReceivable.id,
+            description: `Reverso retefuente ${invoice.invoiceNumber}`,
+            debit: 0,
+            credit: withholdingAmount,
+            position: position++,
+          });
+        }
+        if (icaAmount > 0 && accounts.icaReceivable) {
+          lines.push({
+            accountId: accounts.icaReceivable.id,
+            description: `Reverso ICA ${invoice.invoiceNumber}`,
+            debit: 0,
+            credit: icaAmount,
+            position: position++,
+          });
+        }
+      } else {
+        lines.push(
+          {
+            accountId: accounts.receivable.id,
+            description: `Cuenta por cobrar ${invoice.invoiceNumber}`,
+            debit: netReceivable,
+            credit: 0,
+            position: position++,
+          },
+          {
+            accountId: accounts.revenue.id,
+            description: `Ingreso operativo ${invoice.invoiceNumber}`,
+            debit: 0,
+            credit: subtotal,
+            position: position++,
+          },
+        );
+        if (taxAmount > 0) {
+          lines.push({
+            accountId: accounts.tax.id,
+            description: `IVA generado ${invoice.invoiceNumber}`,
+            debit: 0,
+            credit: taxAmount,
+            position: position++,
+          });
+        }
+        if (withholdingAmount > 0 && accounts.withholdingReceivable) {
+          lines.push({
+            accountId: accounts.withholdingReceivable.id,
+            description: `ReteFuente por cobrar ${invoice.invoiceNumber}`,
+            debit: withholdingAmount,
+            credit: 0,
+            position: position++,
+          });
+        }
+        if (icaAmount > 0 && accounts.icaReceivable) {
+          lines.push({
+            accountId: accounts.icaReceivable.id,
+            description: `ICA por cobrar ${invoice.invoiceNumber}`,
+            debit: icaAmount,
+            credit: 0,
+            position: position++,
+          });
+        }
       }
 
       const entry = await this.createAutoPostedEntry(companyId, {
         date: new Date(invoice.issueDate).toISOString(),
-        description: `Contabilización automática factura ${invoice.invoiceNumber}`,
+        description:
+          invoice.type === 'NOTA_CREDITO'
+            ? `Contabilización automática nota crédito ${invoice.invoiceNumber}`
+            : invoice.type === 'NOTA_DEBITO'
+              ? `Contabilización automática nota débito ${invoice.invoiceNumber}`
+              : `Contabilización automática factura ${invoice.invoiceNumber}`,
         reference: invoice.invoiceNumber,
         sourceType: JournalSourceType.INVOICE,
         sourceId,
@@ -1686,6 +1815,15 @@ export class AccountingService {
         entryId: entry.id,
         status: 'SUCCESS',
         message: `Factura ${invoice.invoiceNumber} integrada correctamente`,
+        context: {
+          invoiceType: invoice.type,
+          sourceChannel: invoice.sourceChannel ?? null,
+          branchId: invoice.branchId ?? null,
+          profileId: accounts.profileId ?? null,
+          withholdingAmount,
+          icaAmount,
+          netReceivable,
+        },
       });
     } catch (error: any) {
       return this.recordIntegration(companyId, {
@@ -4344,6 +4482,7 @@ export class AccountingService {
       entryId?: string | null;
       status: IntegrationStatus;
       message?: string | null;
+      context?: Record<string, any>;
     },
   ) {
     const id = randomUUID();
@@ -4372,7 +4511,7 @@ export class AccountingService {
       payload.entryId ?? null,
       payload.status,
       payload.message ?? null,
-      JSON.stringify(entry ?? {}),
+      JSON.stringify({ ...(entry ?? {}), ...(payload.context ?? {}) }),
       createdAt,
     );
 
@@ -4384,19 +4523,203 @@ export class AccountingService {
     };
   }
 
-  private async resolveInvoiceAccounts(companyId: string) {
+  async getInvoiceAccountingProfiles(companyId: string) {
+    const rows = await this.prisma.$queryRawUnsafe<InvoiceAccountingProfileRow[]>(
+      `
+        SELECT
+          iap."id",
+          iap."companyId",
+          iap."profileName",
+          iap."invoiceType",
+          iap."sourceChannel",
+          iap."branchId",
+          iap."receivableAccountId",
+          ar."code" AS "receivableAccountCode",
+          ar."name" AS "receivableAccountName",
+          iap."revenueAccountId",
+          ai."code" AS "revenueAccountCode",
+          ai."name" AS "revenueAccountName",
+          iap."taxAccountId",
+          at."code" AS "taxAccountCode",
+          at."name" AS "taxAccountName",
+          iap."withholdingReceivableAccountId",
+          aw."code" AS "withholdingReceivableAccountCode",
+          aw."name" AS "withholdingReceivableAccountName",
+          iap."withholdingRate",
+          iap."icaReceivableAccountId",
+          aica."code" AS "icaReceivableAccountCode",
+          aica."name" AS "icaReceivableAccountName",
+          iap."icaRate",
+          iap."isActive",
+          iap."createdAt",
+          iap."updatedAt"
+        FROM "invoice_accounting_profiles" iap
+        INNER JOIN "accounting_accounts" ar ON ar."id" = iap."receivableAccountId"
+        INNER JOIN "accounting_accounts" ai ON ai."id" = iap."revenueAccountId"
+        INNER JOIN "accounting_accounts" at ON at."id" = iap."taxAccountId"
+        LEFT JOIN "accounting_accounts" aw ON aw."id" = iap."withholdingReceivableAccountId"
+        LEFT JOIN "accounting_accounts" aica ON aica."id" = iap."icaReceivableAccountId"
+        WHERE iap."companyId" = $1
+        ORDER BY iap."invoiceType" ASC, iap."sourceChannel" ASC NULLS FIRST, iap."profileName" ASC
+      `,
+      companyId,
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      profileName: row.profileName,
+      invoiceType: row.invoiceType,
+      sourceChannel: row.sourceChannel,
+      branchId: row.branchId,
+      isActive: row.isActive,
+      receivableAccount: { id: row.receivableAccountId, code: row.receivableAccountCode, name: row.receivableAccountName },
+      revenueAccount: { id: row.revenueAccountId, code: row.revenueAccountCode, name: row.revenueAccountName },
+      taxAccount: { id: row.taxAccountId, code: row.taxAccountCode, name: row.taxAccountName },
+      withholdingReceivableAccount: row.withholdingReceivableAccountId
+        ? { id: row.withholdingReceivableAccountId, code: row.withholdingReceivableAccountCode, name: row.withholdingReceivableAccountName }
+        : null,
+      withholdingRate: row.withholdingRate !== null ? this.toNumber(row.withholdingRate) : null,
+      icaReceivableAccount: row.icaReceivableAccountId
+        ? { id: row.icaReceivableAccountId, code: row.icaReceivableAccountCode, name: row.icaReceivableAccountName }
+        : null,
+      icaRate: row.icaRate !== null ? this.toNumber(row.icaRate) : null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    }));
+  }
+
+  async upsertInvoiceAccountingProfile(companyId: string, dto: UpsertInvoiceAccountingProfileDto) {
+    await this.validateAccountsExist(companyId, [
+      dto.receivableAccountId,
+      dto.revenueAccountId,
+      dto.taxAccountId,
+      ...(dto.withholdingReceivableAccountId ? [dto.withholdingReceivableAccountId] : []),
+      ...(dto.icaReceivableAccountId ? [dto.icaReceivableAccountId] : []),
+    ]);
+
+    if (dto.branchId) {
+      const branch = await this.prisma.branch.findFirst({
+        where: { id: dto.branchId, companyId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!branch) throw new BadRequestException('La sucursal indicada no pertenece a la empresa');
+    }
+
+    const id = dto.id ?? randomUUID();
+    const exists = dto.id
+      ? await this.prisma.$queryRawUnsafe<Array<{ id: string }>>(
+          `SELECT "id" FROM "invoice_accounting_profiles" WHERE "companyId" = $1 AND "id" = $2 LIMIT 1`,
+          companyId,
+          dto.id,
+        )
+      : [];
+
+    if (exists[0]) {
+      await this.prisma.$executeRawUnsafe(
+        `
+          UPDATE "invoice_accounting_profiles"
+          SET
+            "profileName" = $3,
+            "invoiceType" = $4,
+            "sourceChannel" = $5,
+            "branchId" = $6,
+            "receivableAccountId" = $7,
+            "revenueAccountId" = $8,
+            "taxAccountId" = $9,
+            "withholdingReceivableAccountId" = $10,
+            "withholdingRate" = $11,
+            "icaReceivableAccountId" = $12,
+            "icaRate" = $13,
+            "isActive" = $14,
+            "updatedAt" = NOW()
+          WHERE "companyId" = $1 AND "id" = $2
+        `,
+        companyId,
+        id,
+        dto.profileName.trim(),
+        dto.invoiceType.trim().toUpperCase(),
+        dto.sourceChannel?.trim().toUpperCase() || null,
+        dto.branchId ?? null,
+        dto.receivableAccountId,
+        dto.revenueAccountId,
+        dto.taxAccountId,
+        dto.withholdingReceivableAccountId ?? null,
+        dto.withholdingRate ?? null,
+        dto.icaReceivableAccountId ?? null,
+        dto.icaRate ?? null,
+        dto.isActive ?? true,
+      );
+    } else {
+      await this.prisma.$executeRawUnsafe(
+        `
+          INSERT INTO "invoice_accounting_profiles" (
+            "id","companyId","profileName","invoiceType","sourceChannel","branchId",
+            "receivableAccountId","revenueAccountId","taxAccountId",
+            "withholdingReceivableAccountId","withholdingRate",
+            "icaReceivableAccountId","icaRate","isActive","createdAt","updatedAt"
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())
+        `,
+        id,
+        companyId,
+        dto.profileName.trim(),
+        dto.invoiceType.trim().toUpperCase(),
+        dto.sourceChannel?.trim().toUpperCase() || null,
+        dto.branchId ?? null,
+        dto.receivableAccountId,
+        dto.revenueAccountId,
+        dto.taxAccountId,
+        dto.withholdingReceivableAccountId ?? null,
+        dto.withholdingRate ?? null,
+        dto.icaReceivableAccountId ?? null,
+        dto.icaRate ?? null,
+        dto.isActive ?? true,
+      );
+    }
+
+    return (await this.getInvoiceAccountingProfiles(companyId)).find((item) => item.id === id);
+  }
+
+  private async resolveInvoiceAccounts(
+    companyId: string,
+    params?: { invoiceType?: string | null; sourceChannel?: string | null; branchId?: string | null },
+  ) {
     const accounts = await this.prisma.accountingAccount.findMany({
       where: { companyId, isActive: true },
       select: { id: true, code: true, name: true },
     });
+    const taxConfigs = await this.prisma.accountingTaxConfig.findMany({
+      where: { companyId, isActive: true, taxCode: { in: ['IVA_VENTAS', 'IVA_GENERADO', 'RETEFUENTE', 'ICA'] } },
+      include: { account: { select: { id: true, code: true, name: true } } },
+    });
+    const profiles = await this.getInvoiceAccountingProfiles(companyId);
+    const normalizedType = (params?.invoiceType ?? 'VENTA').trim().toUpperCase();
+    const normalizedChannel = params?.sourceChannel?.trim().toUpperCase() ?? null;
+    const profile =
+      profiles.find((item) => item.isActive && item.invoiceType === normalizedType && item.branchId === params?.branchId && item.sourceChannel === normalizedChannel) ||
+      profiles.find((item) => item.isActive && item.invoiceType === normalizedType && !item.branchId && item.sourceChannel === normalizedChannel) ||
+      profiles.find((item) => item.isActive && item.invoiceType === normalizedType && item.branchId === params?.branchId && !item.sourceChannel) ||
+      profiles.find((item) => item.isActive && item.invoiceType === normalizedType && !item.branchId && !item.sourceChannel) ||
+      null;
     const receivable = this.findAccountByPrefixes(accounts, '1305', '130505', '13');
     const revenue = this.findAccountByPrefixes(accounts, '4135', '41', '42');
-    const tax = this.findAccountByPrefixes(accounts, '2408', '24');
+    const tax = taxConfigs.find((item) => ['IVA_VENTAS', 'IVA_GENERADO'].includes(item.taxCode))?.account
+      ?? this.findAccountByPrefixes(accounts, '2408', '24');
+    const withholdingReceivable = taxConfigs.find((item) => item.taxCode === 'RETEFUENTE')?.account ?? null;
+    const icaReceivable = taxConfigs.find((item) => item.taxCode === 'ICA')?.account ?? null;
 
     if (!receivable || !revenue || !tax) {
       throw new BadRequestException('No se encontraron cuentas contables base para integrar facturación');
     }
-    return { receivable, revenue, tax };
+    return {
+      profileId: profile?.id ?? null,
+      receivable: profile?.receivableAccount ?? receivable,
+      revenue: profile?.revenueAccount ?? revenue,
+      tax: profile?.taxAccount ?? tax,
+      withholdingReceivable: profile?.withholdingReceivableAccount ?? withholdingReceivable,
+      withholdingRate: profile?.withholdingRate ?? 0,
+      icaReceivable: profile?.icaReceivableAccount ?? icaReceivable,
+      icaRate: profile?.icaRate ?? 0,
+    };
   }
 
   private async resolvePayrollAccounts(companyId: string) {

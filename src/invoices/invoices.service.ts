@@ -9,8 +9,30 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../config/prisma.service';
 import { CompaniesService } from '../companies/companies.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import {
+  CreateInvoiceDocumentConfigDto,
+  UpdateInvoiceDocumentConfigDto,
+} from './dto/invoice-document-config.dto';
+import {
+  CreateDeliveryNoteDto,
+  CreateSalesOrderDto,
+  CreateSourceInvoiceDto,
+} from './dto/invoice-commercial-flow.dto';
+import { InvoiceRegisterPaymentDto } from './dto/invoice-register-payment.dto';
+import { CreateInvoicePaymentAgreementDto } from './dto/invoice-collections.dto';
+import {
+  AddInvoiceAttachmentDto,
+  RejectInvoiceApprovalDto,
+  RequestInvoiceApprovalDto,
+} from './dto/invoice-governance.dto';
+import {
+  BulkInvoiceReprocessDto,
+  CreateInvoiceExternalIntakeDto,
+  QueueInvoiceReprocessDto,
+} from './dto/invoice-operations.dto';
 import { AccountingService } from '../accounting/accounting.service';
-import { createHash, createSign, randomBytes } from 'crypto';
+import { CarteraService } from '../cartera/cartera.service';
+import { createHash, createSign, randomBytes, randomUUID } from 'crypto';
 import * as archiver from 'archiver';
 import * as https from 'https';
 import * as http from 'http';
@@ -50,7 +72,125 @@ export class InvoicesService {
     private prisma: PrismaService,
     private companiesService: CompaniesService,
     private accountingService: AccountingService,
+    private carteraService: CarteraService,
   ) {
+  }
+
+  private async createDianJob(params: {
+    companyId: string;
+    invoiceId?: string | null;
+    branchId?: string | null;
+    actionType: string;
+    sourceChannel?: string | null;
+    triggeredById?: string | null;
+    payload?: Record<string, any> | null;
+    status?: string;
+  }) {
+    return this.prisma.invoiceDianProcessingJob.create({
+      data: {
+        companyId: params.companyId,
+        invoiceId: params.invoiceId ?? undefined,
+        branchId: params.branchId ?? undefined,
+        actionType: params.actionType,
+        sourceChannel: params.sourceChannel ?? undefined,
+        triggeredById: params.triggeredById ?? undefined,
+        payload: params.payload ?? undefined,
+        status: params.status ?? 'PENDING',
+      },
+    });
+  }
+
+  private async completeDianJob(jobId: string, data: {
+    status: string;
+    attempts?: number;
+    responseCode?: string | null;
+    responseMessage?: string | null;
+    result?: Record<string, any> | null;
+  }) {
+    return this.prisma.invoiceDianProcessingJob.update({
+      where: { id: jobId },
+      data: {
+        status: data.status,
+        attempts: data.attempts ?? undefined,
+        responseCode: data.responseCode ?? undefined,
+        responseMessage: data.responseMessage ?? undefined,
+        result: data.result ?? undefined,
+        lastAttemptAt: new Date(),
+        processedAt: ['SUCCESS', 'FAILED', 'SKIPPED'].includes(data.status) ? new Date() : undefined,
+      },
+    });
+  }
+
+  private async logInvoiceAudit(
+    companyId: string,
+    userId: string | null,
+    action: string,
+    invoiceId: string,
+    before: Record<string, any> | null,
+    after: Record<string, any> | null,
+  ) {
+    await this.prisma.auditLog.create({
+      data: {
+        companyId,
+        userId: userId ?? undefined,
+        action,
+        resource: 'invoice',
+        resourceId: invoiceId,
+        before: before ?? undefined,
+        after: after ?? undefined,
+      },
+    });
+  }
+
+  private async getLatestApprovalRequest(companyId: string, invoiceId: string, actionType: 'ISSUE' | 'CANCEL') {
+    const rows = await this.prisma.$queryRawUnsafe<Array<any>>(
+      `
+        SELECT *
+        FROM "invoice_approval_requests"
+        WHERE "companyId" = $1
+          AND "invoiceId" = $2
+          AND "actionType" = $3
+        ORDER BY "createdAt" DESC
+        LIMIT 1
+      `,
+      companyId,
+      invoiceId,
+      actionType,
+    );
+    return rows[0] ?? null;
+  }
+
+  private async ensureActionApprovalState(
+    companyId: string,
+    invoiceId: string,
+    actionType: 'ISSUE' | 'CANCEL',
+  ) {
+    const latest = await this.getLatestApprovalRequest(companyId, invoiceId, actionType);
+    if (!latest) return null;
+    if (latest.status === 'PENDING') {
+      throw new BadRequestException(
+        `La factura tiene una aprobación pendiente para ${actionType === 'ISSUE' ? 'emitir' : 'anular'}`,
+      );
+    }
+    if (latest.status === 'REJECTED') {
+      throw new BadRequestException(
+        `La solicitud de aprobación para ${actionType === 'ISSUE' ? 'emitir' : 'anular'} fue rechazada${latest.rejectedReason ? `: ${latest.rejectedReason}` : ''}`,
+      );
+    }
+    return latest.status === 'APPROVED' ? latest : null;
+  }
+
+  private async consumeApprovalRequest(approvalId: string) {
+    await this.prisma.$executeRawUnsafe(
+      `
+        UPDATE "invoice_approval_requests"
+        SET "status" = 'CONSUMED',
+            "consumedAt" = NOW(),
+            "updatedAt" = NOW()
+        WHERE "id" = $1
+      `,
+      approvalId,
+    );
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -108,6 +248,7 @@ export class InvoicesService {
       where: { id, companyId, deletedAt: null, branchId },
       include: {
         customer: true,
+        documentConfig: true,
         items: {
           include: { product: { select: { id: true, name: true, sku: true, unit: true, unspscCode: true } } },
           orderBy: { position: 'asc' },
@@ -116,6 +257,394 @@ export class InvoicesService {
     });
     if (!invoice) throw new NotFoundException('Factura no encontrada');
     return invoice;
+  }
+
+  async getDocumentConfigs(companyId: string, branchId?: string) {
+    return this.prisma.invoiceDocumentConfig.findMany({
+      where: {
+        companyId,
+        ...(branchId ? { OR: [{ branchId }, { branchId: null }] } : {}),
+      },
+      include: {
+        branch: { select: { id: true, name: true } },
+        posTerminal: { select: { id: true, code: true, name: true, branchId: true } },
+      },
+      orderBy: [
+        { isActive: 'desc' },
+        { isDefault: 'desc' },
+        { channel: 'asc' },
+        { name: 'asc' },
+      ],
+    });
+  }
+
+  async createDocumentConfig(companyId: string, dto: CreateInvoiceDocumentConfigDto) {
+    if (dto.isDefault) {
+      await this.prisma.invoiceDocumentConfig.updateMany({
+        where: {
+          companyId,
+          channel: String(dto.channel ?? 'DIRECT').trim().toUpperCase(),
+          type: dto.type ?? 'VENTA',
+          ...(dto.branchId ? { branchId: dto.branchId } : { branchId: null }),
+          ...(dto.posTerminalId ? { posTerminalId: dto.posTerminalId } : {}),
+        },
+        data: { isDefault: false },
+      });
+    }
+    return this.prisma.invoiceDocumentConfig.create({
+      data: {
+        companyId,
+        branchId: dto.branchId ?? null,
+        posTerminalId: dto.posTerminalId ?? null,
+        name: dto.name.trim(),
+        channel: String(dto.channel ?? 'DIRECT').trim().toUpperCase(),
+        type: dto.type ?? 'VENTA',
+        prefix: dto.prefix.trim().toUpperCase(),
+        resolutionNumber: dto.resolutionNumber?.trim() || null,
+        resolutionLabel: dto.resolutionLabel?.trim() || null,
+        rangeFrom: dto.rangeFrom ?? null,
+        rangeTo: dto.rangeTo ?? null,
+        validFrom: dto.validFrom?.trim() || null,
+        validTo: dto.validTo?.trim() || null,
+        technicalKey: dto.technicalKey?.trim() || null,
+        fiscalRules: dto.fiscalRules ? JSON.parse(dto.fiscalRules) : undefined,
+        isActive: dto.isActive !== false,
+        isDefault: dto.isDefault === true,
+      },
+    });
+  }
+
+  async updateDocumentConfig(companyId: string, id: string, dto: UpdateInvoiceDocumentConfigDto) {
+    const current = await this.prisma.invoiceDocumentConfig.findFirst({ where: { id, companyId } });
+    if (!current) throw new NotFoundException('Configuración documental no encontrada');
+    const nextChannel = String(dto.channel ?? current.channel).trim().toUpperCase();
+    const nextType = dto.type ?? current.type;
+    const nextBranchId = dto.branchId === undefined ? current.branchId : dto.branchId;
+    const nextPosTerminalId = dto.posTerminalId === undefined ? current.posTerminalId : dto.posTerminalId;
+    if (dto.isDefault) {
+      await this.prisma.invoiceDocumentConfig.updateMany({
+        where: {
+          companyId,
+          id: { not: id },
+          channel: nextChannel,
+          type: nextType,
+          ...(nextBranchId ? { branchId: nextBranchId } : { branchId: null }),
+          ...(nextPosTerminalId ? { posTerminalId: nextPosTerminalId } : {}),
+        },
+        data: { isDefault: false },
+      });
+    }
+    return this.prisma.invoiceDocumentConfig.update({
+      where: { id },
+      data: {
+        branchId: dto.branchId ?? undefined,
+        posTerminalId: dto.posTerminalId ?? undefined,
+        name: dto.name?.trim(),
+        channel: dto.channel ? String(dto.channel).trim().toUpperCase() : undefined,
+        type: dto.type,
+        prefix: dto.prefix?.trim().toUpperCase(),
+        resolutionNumber: dto.resolutionNumber === undefined ? undefined : dto.resolutionNumber?.trim() || null,
+        resolutionLabel: dto.resolutionLabel === undefined ? undefined : dto.resolutionLabel?.trim() || null,
+        rangeFrom: dto.rangeFrom === undefined ? undefined : dto.rangeFrom ?? null,
+        rangeTo: dto.rangeTo === undefined ? undefined : dto.rangeTo ?? null,
+        validFrom: dto.validFrom === undefined ? undefined : dto.validFrom?.trim() || null,
+        validTo: dto.validTo === undefined ? undefined : dto.validTo?.trim() || null,
+        technicalKey: dto.technicalKey === undefined ? undefined : dto.technicalKey?.trim() || null,
+        fiscalRules: dto.fiscalRules === undefined ? undefined : (dto.fiscalRules ? JSON.parse(dto.fiscalRules) : Prisma.JsonNull),
+        isActive: dto.isActive,
+        isDefault: dto.isDefault,
+      },
+    });
+  }
+
+  private normalizeInvoiceChannel(value?: string | null) {
+    return String(value ?? 'DIRECT').trim().toUpperCase() || 'DIRECT';
+  }
+
+  private async getSalesFiscalSetup(companyId: string) {
+    const taxConfigs = await this.prisma.accountingTaxConfig.findMany({
+      where: {
+        companyId,
+        isActive: true,
+        taxCode: { in: ['IVA_VENTAS', 'IVA_GENERADO', 'RETEFUENTE', 'ICA'] },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    const iva = taxConfigs.find((item) => ['IVA_VENTAS', 'IVA_GENERADO'].includes(item.taxCode));
+    const retefuente = taxConfigs.find((item) => item.taxCode === 'RETEFUENTE');
+    const ica = taxConfigs.find((item) => item.taxCode === 'ICA');
+    return {
+      ivaRate: Number(iva?.rate ?? 19),
+      retefuenteRate: Number(retefuente?.rate ?? 0),
+      icaRate: Number(ica?.rate ?? 0),
+    };
+  }
+
+  private buildFiscalValidationResult(params: {
+    customer: any;
+    issueDate?: string | Date | null;
+    invoiceType?: string | null;
+    subtotal: number;
+    taxAmount: number;
+    withholdingAmount?: number;
+    icaAmount?: number;
+    sourceChannel?: string | null;
+    documentConfig?: any;
+  }) {
+    const issues: string[] = [];
+    const customer = params.customer;
+    const documentConfig = params.documentConfig;
+    const customerDocument = String(customer.documentNumber ?? '').trim();
+    const customerName = String(customer.name ?? '').trim();
+    const customerAddress = String(customer.address ?? '').trim();
+    const customerCountry = String(customer.country ?? '').trim();
+    const issueDate = params.issueDate ? new Date(params.issueDate) : new Date();
+    const invoiceType = String(params.invoiceType ?? 'VENTA').trim().toUpperCase();
+    const withholdingAmount = Number(params.withholdingAmount ?? 0);
+    const icaAmount = Number(params.icaAmount ?? 0);
+
+    if (!customer.documentType) issues.push('El cliente no tiene tipo de documento');
+    if (!customerDocument) issues.push('El cliente no tiene número de documento');
+    if (!customerName) issues.push('El cliente no tiene nombre o razón social');
+    if (!customerAddress) issues.push('El cliente no tiene dirección registrada');
+    if (!customerCountry) issues.push('El cliente no tiene país registrado');
+    if (params.subtotal <= 0) issues.push('La base gravable debe ser mayor a cero');
+    if (params.taxAmount < 0) issues.push('El IVA no puede ser negativo');
+    if (withholdingAmount < 0) issues.push('La retefuente no puede ser negativa');
+    if (icaAmount < 0) issues.push('El ICA no puede ser negativo');
+    if ((invoiceType === 'VENTA' || invoiceType === 'NOTA_DEBITO') && params.taxAmount <= 0) {
+      issues.push('La factura debe tener un valor de IVA válido para la operación gravada');
+    }
+
+    if (documentConfig?.resolutionNumber) {
+      if (documentConfig.validFrom && issueDate < new Date(documentConfig.validFrom)) {
+        issues.push('La fecha de emisión es anterior a la vigencia inicial de la resolución');
+      }
+      if (documentConfig.validTo && issueDate > new Date(documentConfig.validTo)) {
+        issues.push('La fecha de emisión supera la vigencia final de la resolución');
+      }
+    }
+
+    if (params.sourceChannel === 'POS' && !params.documentConfig?.prefix) {
+      issues.push('Las facturas POS deben usar una configuración documental con prefijo definido');
+    }
+    if (params.sourceChannel === 'POS' && !params.documentConfig?.resolutionNumber) {
+      issues.push('Las facturas POS deben tener resolución DIAN configurada');
+    }
+    if (!documentConfig?.resolutionNumber) {
+      issues.push('La factura no tiene resolución documental asociada');
+    }
+
+    return {
+      status: issues.length > 0 ? 'REVIEW_REQUIRED' : 'READY',
+      notes: issues.length > 0 ? issues.join('; ') : 'Validación fiscal completa',
+      issues,
+    };
+  }
+
+  private shouldRestockCreditNote(reasonCode?: string | null) {
+    return new Set(['1', '2', '4']).has(String(reasonCode ?? '').trim());
+  }
+
+  private async validateInventoryAvailability(
+    companyId: string,
+    items: Array<{ productId?: string | null; quantity: number; description?: string | null }>,
+    actionLabel: string,
+  ) {
+    const requested = new Map<string, number>();
+    for (const item of items) {
+      if (!item.productId) continue;
+      requested.set(item.productId, (requested.get(item.productId) ?? 0) + Number(item.quantity ?? 0));
+    }
+    if (!requested.size) return;
+
+    const products = await this.prisma.product.findMany({
+      where: { companyId, id: { in: Array.from(requested.keys()) }, deletedAt: null },
+      select: { id: true, name: true, stock: true },
+    });
+    const productMap = new Map(products.map((product) => [product.id, product]));
+
+    for (const [productId, quantity] of requested.entries()) {
+      const product = productMap.get(productId);
+      if (!product) {
+        throw new NotFoundException(`Producto no encontrado para ${actionLabel}`);
+      }
+      if (Number(product.stock ?? 0) < quantity - 0.0001) {
+        throw new BadRequestException(
+          `Stock insuficiente para ${product.name}. Disponible: ${Number(product.stock ?? 0)}, solicitado: ${quantity}`,
+        );
+      }
+    }
+  }
+
+  private async applyInventoryMovements(
+    tx: Prisma.TransactionClient,
+    params: {
+      companyId: string;
+      branchId?: string | null;
+      invoiceId?: string | null;
+      deliveryNoteId?: string | null;
+      movementType: string;
+      direction: 'OUT' | 'IN';
+      notes?: string | null;
+      items: Array<{ productId?: string | null; quantity: number; unitPrice?: number | null }>;
+    },
+  ) {
+    let appliedCount = 0;
+
+    for (const item of params.items) {
+      if (!item.productId || Number(item.quantity ?? 0) <= 0) continue;
+      const quantity = Number(item.quantity);
+      const delta = params.direction === 'OUT' ? -quantity : quantity;
+      const product = await tx.product.findUnique({
+        where: { id: item.productId },
+        select: { id: true, stock: true, status: true },
+      });
+      if (!product) throw new NotFoundException('Producto no encontrado para movimiento de inventario');
+
+      const currentStock = Number(product.stock ?? 0);
+      const nextStock = currentStock + delta;
+      if (nextStock < -0.0001) {
+        throw new BadRequestException(`Stock insuficiente para el producto ${item.productId}`);
+      }
+
+      await tx.product.update({
+        where: { id: item.productId },
+        data: {
+          stock: nextStock,
+          status:
+            nextStock <= 0
+              ? 'OUT_OF_STOCK'
+              : product.status === 'OUT_OF_STOCK'
+                ? 'ACTIVE'
+                : product.status,
+        },
+      });
+
+      await tx.$executeRawUnsafe(
+        `INSERT INTO "invoice_inventory_movements"
+          ("id","companyId","branchId","invoiceId","deliveryNoteId","productId","movementType","quantity","unitPrice","notes","createdAt")
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())`,
+        randomUUID(),
+        params.companyId,
+        params.branchId ?? null,
+        params.invoiceId ?? null,
+        params.deliveryNoteId ?? null,
+        item.productId,
+        params.movementType,
+        quantity,
+        item.unitPrice ?? null,
+        params.notes ?? null,
+      );
+
+      appliedCount += 1;
+    }
+
+    return appliedCount;
+  }
+
+  private async resolveInvoiceDocumentConfig(params: {
+    companyId: string;
+    branchId?: string | null;
+    type: string;
+    documentConfigId?: string | null;
+    sourceChannel?: string | null;
+    sourceTerminalId?: string | null;
+    preferredPrefix?: string | null;
+  }) {
+    const channel = this.normalizeInvoiceChannel(params.sourceChannel);
+    if (params.documentConfigId) {
+      const explicitConfig = await this.prisma.invoiceDocumentConfig.findFirst({
+        where: {
+          id: params.documentConfigId,
+          companyId: params.companyId,
+          isActive: true,
+        },
+      });
+      if (explicitConfig) return explicitConfig;
+    }
+    const configs = await this.prisma.invoiceDocumentConfig.findMany({
+      where: {
+        companyId: params.companyId,
+        isActive: true,
+        type: params.type as any,
+        channel,
+        OR: [
+          ...(params.sourceTerminalId ? [{ posTerminalId: params.sourceTerminalId }] : []),
+          ...(params.branchId ? [{ branchId: params.branchId, posTerminalId: null }] : []),
+          { branchId: null, posTerminalId: null },
+        ],
+      },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+    });
+
+    const matchedByPrefix = params.preferredPrefix
+      ? configs.find((item) => item.prefix === params.preferredPrefix)
+      : null;
+    if (matchedByPrefix) return matchedByPrefix;
+    if (configs.length > 0) return configs[0];
+
+    if (channel === 'POS' && params.sourceTerminalId) {
+      const terminal = await this.prisma.posTerminal.findFirst({
+        where: { id: params.sourceTerminalId, companyId: params.companyId },
+        select: {
+          id: true,
+          invoicePrefix: true,
+          resolutionNumber: true,
+          resolutionLabel: true,
+        },
+      });
+      if (terminal) {
+        return {
+          id: null,
+          prefix: terminal.invoicePrefix || 'POS',
+          resolutionNumber: terminal.resolutionNumber ?? null,
+          resolutionLabel: terminal.resolutionLabel ?? null,
+          rangeFrom: null,
+          rangeTo: null,
+          validFrom: null,
+          validTo: null,
+          technicalKey: null,
+          fiscalRules: null,
+          channel,
+          posTerminalId: terminal.id,
+        };
+      }
+    }
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: params.companyId },
+      select: {
+        dianPrefijo: true,
+        dianResolucion: true,
+        dianRangoDesde: true,
+        dianRangoHasta: true,
+        dianFechaDesde: true,
+        dianFechaHasta: true,
+        dianPosPrefijo: true,
+        dianPosResolucion: true,
+        dianPosRangoDesde: true,
+        dianPosRangoHasta: true,
+        dianPosFechaDesde: true,
+        dianPosFechaHasta: true,
+        dianClaveTecnica: true,
+      },
+    });
+    const isPos = channel === 'POS';
+    return {
+      id: null,
+      prefix: params.preferredPrefix || (isPos ? company?.dianPosPrefijo : company?.dianPrefijo) || (isPos ? 'POS' : 'FV'),
+      resolutionNumber: (isPos ? company?.dianPosResolucion : company?.dianResolucion) ?? null,
+      resolutionLabel: null,
+      rangeFrom: isPos ? company?.dianPosRangoDesde ?? null : company?.dianRangoDesde ?? null,
+      rangeTo: isPos ? company?.dianPosRangoHasta ?? null : company?.dianRangoHasta ?? null,
+      validFrom: isPos ? company?.dianPosFechaDesde ?? null : company?.dianFechaDesde ?? null,
+      validTo: isPos ? company?.dianPosFechaHasta ?? null : company?.dianFechaHasta ?? null,
+      technicalKey: company?.dianClaveTecnica ?? null,
+      fiscalRules: null,
+      channel,
+      posTerminalId: params.sourceTerminalId ?? null,
+    };
   }
 
   async create(companyId: string, branchId: string | null, dto: CreateInvoiceDto) {
@@ -130,8 +659,20 @@ export class InvoicesService {
       await this.ensureCustomerCommercialEligibility(companyId, customer.id, customer.creditLimit ? Number(customer.creditLimit) : null);
     }
 
+    let originalInvoiceForOperation: any = null;
+
     // ── Validar referencia para Nota Crédito / Nota Débito ──────────────
     if (dto.type === 'NOTA_CREDITO' || dto.type === 'NOTA_DEBITO') {
+      const allowedReasonCodes =
+        dto.type === 'NOTA_CREDITO'
+          ? new Set(['1', '2', '3', '4', '5', '6'])
+          : new Set(['1', '2', '3', '4', '5', '6']);
+      if (!dto.discrepancyReasonCode || !allowedReasonCodes.has(dto.discrepancyReasonCode)) {
+        throw new BadRequestException('La causal DIAN de la nota es obligatoria o no es válida');
+      }
+      if (!dto.discrepancyReason?.trim()) {
+        throw new BadRequestException('La descripción del motivo de la nota es obligatoria');
+      }
       if (!dto.originalInvoiceId) {
         throw new BadRequestException(
           `Las notas de ${dto.type === 'NOTA_CREDITO' ? 'crédito' : 'débito'} deben referenciar una factura original (originalInvoiceId).`
@@ -148,10 +689,19 @@ export class InvoicesService {
         where.branchId = branchId;
       }
 
-      const originalInvoice = await this.prisma.invoice.findFirst({ where });
+      const originalInvoice = await this.prisma.invoice.findFirst({
+        where,
+        include: {
+          items: {
+            include: { product: { select: { id: true, name: true, sku: true } } },
+            orderBy: { position: 'asc' },
+          },
+        },
+      });
       if (!originalInvoice) {
         throw new NotFoundException('La factura original referenciada no existe.');
       }
+      originalInvoiceForOperation = originalInvoice;
       if (originalInvoice.type !== 'VENTA') {
         throw new BadRequestException('Solo se pueden crear notas sobre facturas de venta (tipo VENTA).');
       }
@@ -178,6 +728,57 @@ export class InvoicesService {
           throw new BadRequestException(
             `El valor de la nota crédito ($${newNoteTotal.toFixed(2)}) supera el saldo disponible de la factura ($${remaining.toFixed(2)}).`
           );
+        }
+
+        const relatedNotes = await this.prisma.invoice.findMany({
+          where: {
+            originalInvoiceId: dto.originalInvoiceId,
+            companyId,
+            deletedAt: null,
+            status: { notIn: ['CANCELLED', 'REJECTED_DIAN'] },
+          },
+          include: {
+            items: {
+              include: { product: { select: { id: true } } },
+            },
+          },
+        });
+
+        const originalLines = (originalInvoice.items ?? []).map((item) => ({
+          key: item.productId ? `product:${item.productId}` : `desc:${item.description.trim().toLowerCase()}`,
+          quantity: Number(item.quantity),
+          total: Number(item.total),
+        }));
+
+        const consumedMap = new Map<string, { quantity: number; total: number }>();
+        for (const note of relatedNotes) {
+          if (note.type !== 'NOTA_CREDITO') continue;
+          for (const noteItem of note.items) {
+            const key = noteItem.productId
+              ? `product:${noteItem.productId}`
+              : `desc:${noteItem.description.trim().toLowerCase()}`;
+            const current = consumedMap.get(key) ?? { quantity: 0, total: 0 };
+            current.quantity += Number(noteItem.quantity);
+            current.total += Number(noteItem.total);
+            consumedMap.set(key, current);
+          }
+        }
+
+        for (const item of dto.items) {
+          const key = item.productId
+            ? `product:${item.productId}`
+            : `desc:${item.description.trim().toLowerCase()}`;
+          const originalLine = originalLines.find((line) => line.key === key);
+          if (!originalLine) {
+            throw new BadRequestException(`La línea "${item.description}" no corresponde a una línea de la factura original`);
+          }
+          const consumed = consumedMap.get(key) ?? { quantity: 0, total: 0 };
+          const remainingQuantity = this.roundMoney(originalLine.quantity - consumed.quantity);
+          if (Number(item.quantity) > remainingQuantity + 0.0001) {
+            throw new BadRequestException(
+              `La cantidad de la línea "${item.description}" supera lo pendiente por revertir (${remainingQuantity})`,
+            );
+          }
         }
       }
     }
@@ -224,34 +825,179 @@ export class InvoicesService {
     });
 
     const total = subtotal + taxAmount;
-    const invoiceNumber = await this.getNextInvoiceNumber(companyId, dto.prefix ?? 'FV');
+    const fiscalSetup = await this.getSalesFiscalSetup(companyId);
+    const invoiceType = dto.type ?? 'VENTA';
+    const withholdingAmount =
+      invoiceType === 'VENTA' || invoiceType === 'NOTA_DEBITO'
+        ? this.roundMoney(subtotal * ((fiscalSetup.retefuenteRate ?? 0) / 100))
+        : 0;
+    const icaAmount =
+      invoiceType === 'VENTA' || invoiceType === 'NOTA_DEBITO'
+        ? this.roundMoney(subtotal * ((fiscalSetup.icaRate ?? 0) / 100))
+        : 0;
+    const resolvedConfig = await this.resolveInvoiceDocumentConfig({
+      companyId,
+      branchId,
+      type: dto.type ?? 'VENTA',
+      documentConfigId: dto.documentConfigId,
+      sourceChannel: dto.sourceChannel,
+      sourceTerminalId: dto.sourceTerminalId,
+      preferredPrefix: dto.prefix,
+    });
+    const fiscalPrefix = resolvedConfig.prefix || dto.prefix || 'FV';
+    const invoiceNumber = await this.getNextInvoiceNumber(
+      companyId,
+      fiscalPrefix,
+      resolvedConfig.rangeFrom ?? undefined,
+    );
+    const fiscalValidation = this.buildFiscalValidationResult({
+      customer,
+      issueDate: dto.issueDate,
+      invoiceType: dto.type ?? 'VENTA',
+      subtotal,
+      taxAmount,
+      withholdingAmount,
+      icaAmount,
+      sourceChannel: dto.sourceChannel ?? null,
+      documentConfig: resolvedConfig,
+    });
 
-    const invoice = await this.prisma.invoice.create({
-      data: {
-        branchId,
+    const normalizedChannel = this.normalizeInvoiceChannel(dto.sourceChannel);
+    const shouldApplyDirectInventory =
+      (dto.type ?? 'VENTA') === 'VENTA' &&
+      normalizedChannel !== 'POS' &&
+      String(dto.inventoryMode ?? '').toUpperCase() !== 'DEFER';
+
+    if (shouldApplyDirectInventory) {
+      await this.validateInventoryAvailability(
         companyId,
-        customerId: dto.customerId,
-        invoiceNumber,
-        prefix: dto.prefix ?? 'FV',
-        type: dto.type ?? 'VENTA',
-        status: 'DRAFT',
-        issueDate: dto.issueDate ? new Date(dto.issueDate) : new Date(),
-        dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
-        subtotal,
-        taxAmount,
-        discountAmount: dto.discountAmount ?? 0,
-        total,
-        notes: dto.notes,
-        currency: dto.currency ?? 'COP',
-        ...(dto.originalInvoiceId && { originalInvoiceId: dto.originalInvoiceId }),
-        ...(dto.discrepancyReasonCode && { discrepancyReasonCode: dto.discrepancyReasonCode }),
-        ...(dto.discrepancyReason && { discrepancyReason: dto.discrepancyReason }),
-        items: { create: itemsWithTotals },
-      },
-      include: { customer: true, items: true },
+        dto.items.map((item) => ({
+          productId: item.productId ?? null,
+          quantity: Number(item.quantity),
+          description: item.description,
+        })),
+        'facturar',
+      );
+    }
+
+    let invoice: any;
+    await this.prisma.$transaction(async (tx) => {
+      invoice = await tx.invoice.create({
+        data: {
+          branchId,
+          companyId,
+          customerId: dto.customerId,
+          invoiceNumber,
+          prefix: fiscalPrefix,
+          sourceChannel: normalizedChannel,
+          sourceTerminalId: dto.sourceTerminalId ?? null,
+          type: dto.type ?? 'VENTA',
+          status: 'DRAFT',
+          issueDate: dto.issueDate ? new Date(dto.issueDate) : new Date(),
+          dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
+          subtotal,
+          taxAmount,
+          withholdingAmount,
+          icaAmount,
+          discountAmount: dto.discountAmount ?? 0,
+          total,
+          notes: dto.notes,
+          currency: dto.currency ?? 'COP',
+          documentConfigId: resolvedConfig.id ?? null,
+          resolutionNumber: resolvedConfig.resolutionNumber ?? null,
+          resolutionLabel: resolvedConfig.resolutionLabel ?? null,
+          numberingRangeFrom: resolvedConfig.rangeFrom ?? null,
+          numberingRangeTo: resolvedConfig.rangeTo ?? null,
+          resolutionValidFrom: resolvedConfig.validFrom ?? null,
+          resolutionValidTo: resolvedConfig.validTo ?? null,
+          fiscalRulesSnapshot: resolvedConfig.fiscalRules ?? undefined,
+          fiscalValidationStatus: fiscalValidation.status,
+          fiscalValidationNotes: fiscalValidation.notes,
+          ...(dto.originalInvoiceId && { originalInvoiceId: dto.originalInvoiceId }),
+          ...(dto.discrepancyReasonCode && { discrepancyReasonCode: dto.discrepancyReasonCode }),
+          ...(dto.discrepancyReason && { discrepancyReason: dto.discrepancyReason }),
+          items: { create: itemsWithTotals },
+        },
+        include: { customer: true, items: true, documentConfig: true },
+      });
+
+      const invoiceType = dto.type ?? 'VENTA';
+      if (invoiceType === 'VENTA') {
+        const applied = shouldApplyDirectInventory
+          ? await this.applyInventoryMovements(tx, {
+              companyId,
+              branchId,
+              invoiceId: invoice.id,
+              movementType: 'INVOICE_OUT',
+              direction: 'OUT',
+              notes: `Salida por factura ${invoice.invoiceNumber}`,
+              items: dto.items.map((item) => ({
+                productId: item.productId ?? null,
+                quantity: Number(item.quantity),
+                unitPrice: Number(item.unitPrice ?? 0),
+              })),
+            })
+          : 0;
+
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+            inventoryStatus: shouldApplyDirectInventory
+              ? applied > 0
+                ? 'POSTED'
+                : 'NOT_APPLICABLE'
+              : 'EXTERNAL',
+            inventoryAppliedAt: shouldApplyDirectInventory && applied > 0 ? new Date() : null,
+            deliveryStatus: normalizedChannel === 'POS' ? 'EXTERNAL' : 'DELIVERED',
+          },
+        });
+      } else if (
+        invoiceType === 'NOTA_CREDITO' &&
+        originalInvoiceForOperation &&
+        this.shouldRestockCreditNote(dto.discrepancyReasonCode) &&
+        !originalInvoiceForOperation.sourcePosSaleId &&
+        originalInvoiceForOperation.inventoryStatus === 'POSTED'
+      ) {
+        const restocked = await this.applyInventoryMovements(tx, {
+          companyId,
+          branchId,
+          invoiceId: invoice.id,
+          movementType: 'CREDIT_RETURN',
+          direction: 'IN',
+          notes: `Reingreso por nota crédito ${invoice.invoiceNumber}`,
+          items: dto.items.map((item) => ({
+            productId: item.productId ?? null,
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice ?? 0),
+          })),
+        });
+
+        if (restocked > 0) {
+          await tx.invoice.update({
+            where: { id: invoice.id },
+            data: {
+              inventoryStatus: 'RETURNED',
+              inventoryAppliedAt: new Date(),
+              inventoryReversedAt: new Date(),
+              deliveryStatus: 'RETURNED',
+            },
+          });
+        }
+      }
     });
 
     await this.companiesService.incrementUsage(companyId, 'max_documents_per_month');
+    await this.logInvoiceAudit(companyId, null, 'INVOICE_CREATED', invoice.id, null, {
+      invoiceNumber: invoice.invoiceNumber,
+      type: invoice.type,
+      total: invoice.total,
+      withholdingAmount,
+      icaAmount,
+      fiscalValidationStatus: fiscalValidation.status,
+      sourceChannel: invoice.sourceChannel,
+      inventoryStatus: (invoice as any).inventoryStatus ?? null,
+      deliveryStatus: (invoice as any).deliveryStatus ?? null,
+    });
     return invoice;
   }
 
@@ -315,6 +1061,7 @@ export class InvoicesService {
 
   async cancel(companyId: string, branchId: string, invoiceId: string, reason: string) {
     const invoice = await this.findOne(companyId, branchId, invoiceId);
+    const approvedRequest = await this.ensureActionApprovalState(companyId, invoiceId, 'CANCEL');
     if (['CANCELLED', 'PAID'].includes(invoice.status)) {
       throw new BadRequestException('Esta factura no puede cancelarse');
     }
@@ -324,16 +1071,25 @@ export class InvoicesService {
         'Debe emitir una Nota Crédito (tipo 2 – anulación) que la referencie.'
       );
     }
-    return this.prisma.invoice.update({
+    const cancelled = await this.prisma.invoice.update({
       where: { id: invoiceId },
       data: { status: 'CANCELLED', notes: `${invoice.notes ?? ''}\n[CANCELADA]: ${reason}` },
     });
+    if (approvedRequest?.id) await this.consumeApprovalRequest(approvedRequest.id);
+    await this.logInvoiceAudit(companyId, null, 'INVOICE_CANCELLED', invoiceId, { status: invoice.status }, {
+      status: 'CANCELLED',
+      reason,
+      approvalId: approvedRequest?.id ?? null,
+    });
+    return cancelled;
   }
 
   async markAsPaid(companyId: string, branchId: string, invoiceId: string) {
     const invoice = await this.findOne(companyId, branchId, invoiceId);
     if (invoice.status === 'PAID') throw new BadRequestException('La factura ya está pagada');
-    return this.prisma.invoice.update({ where: { id: invoiceId }, data: { status: 'PAID' } });
+    const updated = await this.prisma.invoice.update({ where: { id: invoiceId }, data: { status: 'PAID' } });
+    await this.logInvoiceAudit(companyId, null, 'INVOICE_MARKED_PAID', invoiceId, { status: invoice.status }, { status: 'PAID' });
+    return updated;
   }
 
   async getRemainingBalance(companyId: string, branchId: string, invoiceId: string) {
@@ -380,6 +1136,277 @@ export class InvoicesService {
     };
   }
 
+  async getInvoiceStatement(companyId: string, branchId: string, invoiceId: string) {
+    await this.findOne(companyId, branchId, invoiceId);
+    return this.carteraService.getInvoiceStatement(companyId, invoiceId);
+  }
+
+  async getInvoiceReconciliation(companyId: string, branchId: string, invoiceId: string) {
+    await this.findOne(companyId, branchId, invoiceId);
+    const statement = await this.carteraService.getInvoiceStatement(companyId, invoiceId);
+    return {
+      invoice: statement.invoice,
+      summary: statement.summary,
+      reconciliation: statement.reconciliation,
+    };
+  }
+
+  async getApprovalFlow(companyId: string, branchId: string, invoiceId: string) {
+    await this.findOne(companyId, branchId, invoiceId);
+    const rows = await this.prisma.$queryRawUnsafe<Array<any>>(
+      `
+        SELECT
+          iar."id",
+          iar."actionType",
+          iar."status",
+          iar."reason",
+          iar."requestedAt",
+          iar."approvedAt",
+          iar."rejectedAt",
+          iar."rejectedReason",
+          iar."consumedAt",
+          iar."requestedById",
+          iar."approvedById",
+          TRIM(COALESCE(req."firstName",'') || ' ' || COALESCE(req."lastName",'')) AS "requestedByName",
+          TRIM(COALESCE(app."firstName",'') || ' ' || COALESCE(app."lastName",'')) AS "approvedByName"
+        FROM "invoice_approval_requests" iar
+        LEFT JOIN "users" req ON req."id" = iar."requestedById"
+        LEFT JOIN "users" app ON app."id" = iar."approvedById"
+        WHERE iar."companyId" = $1
+          AND iar."invoiceId" = $2
+        ORDER BY iar."createdAt" DESC
+      `,
+      companyId,
+      invoiceId,
+    );
+    return rows.map((row) => ({
+      ...row,
+      requestedByName: row.requestedByName?.trim() || null,
+      approvedByName: row.approvedByName?.trim() || null,
+    }));
+  }
+
+  async requestApproval(companyId: string, branchId: string, invoiceId: string, dto: RequestInvoiceApprovalDto, userId: string) {
+    const invoice = await this.findOne(companyId, branchId, invoiceId);
+    const actionType = dto.actionType;
+    if (actionType === 'ISSUE' && invoice.status !== 'DRAFT') {
+      throw new BadRequestException('Solo se puede solicitar aprobación de emisión sobre facturas en borrador');
+    }
+    if (actionType === 'CANCEL' && ['CANCELLED', 'PAID'].includes(invoice.status)) {
+      throw new BadRequestException('La factura ya no admite solicitud de anulación');
+    }
+    const latest = await this.getLatestApprovalRequest(companyId, invoiceId, actionType);
+    if (latest?.status === 'PENDING') {
+      throw new BadRequestException('Ya existe una solicitud pendiente para esta acción');
+    }
+
+    await this.prisma.$executeRawUnsafe(
+      `
+        INSERT INTO "invoice_approval_requests" (
+          "id","companyId","invoiceId","actionType","status","reason","requestedById","requestedAt","createdAt","updatedAt"
+        )
+        VALUES ($1,$2,$3,$4,'PENDING',$5,$6,NOW(),NOW(),NOW())
+      `,
+      randomUUID(),
+      companyId,
+      invoiceId,
+      actionType,
+      dto.reason?.trim() || null,
+      userId,
+    );
+
+    await this.logInvoiceAudit(companyId, userId, 'INVOICE_APPROVAL_REQUESTED', invoiceId, null, {
+      actionType,
+      reason: dto.reason?.trim() || null,
+    });
+
+    return this.getApprovalFlow(companyId, branchId, invoiceId);
+  }
+
+  async approveApproval(companyId: string, branchId: string, invoiceId: string, userId: string) {
+    await this.findOne(companyId, branchId, invoiceId);
+    const approval = (await this.getApprovalFlow(companyId, branchId, invoiceId)).find((item) => item.status === 'PENDING');
+    if (!approval) throw new BadRequestException('No existe una aprobación pendiente para esta factura');
+
+    await this.prisma.$executeRawUnsafe(
+      `
+        UPDATE "invoice_approval_requests"
+        SET "status" = 'APPROVED',
+            "approvedById" = $2,
+            "approvedAt" = NOW(),
+            "updatedAt" = NOW()
+        WHERE "id" = $1
+      `,
+      approval.id,
+      userId,
+    );
+
+    await this.logInvoiceAudit(companyId, userId, 'INVOICE_APPROVAL_APPROVED', invoiceId, null, {
+      approvalId: approval.id,
+      actionType: approval.actionType,
+    });
+
+    return this.getApprovalFlow(companyId, branchId, invoiceId);
+  }
+
+  async rejectApproval(
+    companyId: string,
+    branchId: string,
+    invoiceId: string,
+    dto: RejectInvoiceApprovalDto,
+    userId: string,
+  ) {
+    await this.findOne(companyId, branchId, invoiceId);
+    const approval = (await this.getApprovalFlow(companyId, branchId, invoiceId)).find((item) => item.status === 'PENDING');
+    if (!approval) throw new BadRequestException('No existe una aprobación pendiente para esta factura');
+
+    await this.prisma.$executeRawUnsafe(
+      `
+        UPDATE "invoice_approval_requests"
+        SET "status" = 'REJECTED',
+            "approvedById" = $2,
+            "rejectedAt" = NOW(),
+            "rejectedReason" = $3,
+            "updatedAt" = NOW()
+        WHERE "id" = $1
+      `,
+      approval.id,
+      userId,
+      dto.reason?.trim() || null,
+    );
+
+    await this.logInvoiceAudit(companyId, userId, 'INVOICE_APPROVAL_REJECTED', invoiceId, null, {
+      approvalId: approval.id,
+      actionType: approval.actionType,
+      reason: dto.reason?.trim() || null,
+    });
+
+    return this.getApprovalFlow(companyId, branchId, invoiceId);
+  }
+
+  async getAttachments(companyId: string, branchId: string, invoiceId: string) {
+    await this.findOne(companyId, branchId, invoiceId);
+    const rows = await this.prisma.$queryRawUnsafe<Array<any>>(
+      `
+        SELECT
+          ia."id",
+          ia."invoiceId",
+          ia."fileName",
+          ia."fileUrl",
+          ia."mimeType",
+          ia."category",
+          ia."notes",
+          ia."sizeBytes",
+          ia."createdAt",
+          ia."uploadedById",
+          TRIM(COALESCE(u."firstName",'') || ' ' || COALESCE(u."lastName",'')) AS "uploadedByName"
+        FROM "invoice_attachments" ia
+        LEFT JOIN "users" u ON u."id" = ia."uploadedById"
+        WHERE ia."companyId" = $1
+          AND ia."invoiceId" = $2
+        ORDER BY ia."createdAt" DESC
+      `,
+      companyId,
+      invoiceId,
+    );
+    return rows.map((row) => ({
+      ...row,
+      uploadedByName: row.uploadedByName?.trim() || null,
+    }));
+  }
+
+  async addAttachment(companyId: string, branchId: string, invoiceId: string, dto: AddInvoiceAttachmentDto, userId: string) {
+    await this.findOne(companyId, branchId, invoiceId);
+    await this.prisma.$executeRawUnsafe(
+      `
+        INSERT INTO "invoice_attachments" (
+          "id","companyId","invoiceId","fileName","fileUrl","mimeType","category","notes","sizeBytes","uploadedById","createdAt","updatedAt"
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())
+      `,
+      randomUUID(),
+      companyId,
+      invoiceId,
+      dto.fileName.trim(),
+      dto.fileUrl.trim(),
+      dto.mimeType?.trim() || null,
+      dto.category?.trim() || null,
+      dto.notes?.trim() || null,
+      dto.sizeBytes ?? null,
+      userId,
+    );
+
+    await this.logInvoiceAudit(companyId, userId, 'INVOICE_ATTACHMENT_ADDED', invoiceId, null, {
+      fileName: dto.fileName.trim(),
+      fileUrl: dto.fileUrl.trim(),
+      category: dto.category?.trim() || null,
+    });
+
+    return this.getAttachments(companyId, branchId, invoiceId);
+  }
+
+  async getAuditTrail(companyId: string, branchId: string, invoiceId: string) {
+    await this.findOne(companyId, branchId, invoiceId);
+    const rows = await this.prisma.$queryRawUnsafe<Array<any>>(
+      `
+        SELECT
+          al."id",
+          al."action",
+          al."resource",
+          al."resourceId",
+          al."createdAt",
+          al."before",
+          al."after",
+          al."userId",
+          TRIM(COALESCE(u."firstName",'') || ' ' || COALESCE(u."lastName",'')) AS "userName"
+        FROM "audit_logs" al
+        LEFT JOIN "users" u ON u."id" = al."userId"
+        WHERE al."companyId" = $1
+          AND al."resource" = 'invoice'
+          AND al."resourceId" = $2
+        ORDER BY al."createdAt" DESC
+      `,
+      companyId,
+      invoiceId,
+    );
+    return rows.map((row) => ({
+      ...row,
+      userName: row.userName?.trim() || null,
+    }));
+  }
+
+  async registerPartialPayment(
+    companyId: string,
+    branchId: string,
+    invoiceId: string,
+    dto: InvoiceRegisterPaymentDto,
+    userId: string,
+  ) {
+    await this.findOne(companyId, branchId, invoiceId);
+    return this.carteraService.registrarPago(companyId, invoiceId, dto as any, userId);
+  }
+
+  async createPaymentAgreement(
+    companyId: string,
+    branchId: string,
+    invoiceId: string,
+    dto: CreateInvoicePaymentAgreementDto,
+    userId: string,
+  ) {
+    const invoice = await this.findOne(companyId, branchId, invoiceId);
+    return this.carteraService.createPaymentPromise(
+      companyId,
+      {
+        customerId: invoice.customerId,
+        invoiceId,
+        amount: dto.amount,
+        promisedDate: dto.promisedDate,
+        notes: dto.notes,
+      },
+      userId,
+    );
+  }
+
   async getAssociatedNotes(companyId: string, branchId: string, invoiceId: string) {
     await this.findOne(companyId, branchId, invoiceId); // validates ownership
     return this.prisma.invoice.findMany({
@@ -387,6 +1414,112 @@ export class InvoicesService {
       include: { customer: { select: { id: true, name: true } }, items: true },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async getNoteContext(companyId: string, branchId: string, invoiceId: string) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: invoiceId, companyId, deletedAt: null, branchId },
+      include: {
+        customer: { select: { id: true, name: true, documentNumber: true } },
+        items: {
+          include: { product: { select: { id: true, name: true, sku: true } } },
+          orderBy: { position: 'asc' },
+        },
+      },
+    });
+    if (!invoice) throw new NotFoundException('Factura no encontrada');
+    if (invoice.type !== 'VENTA') {
+      throw new BadRequestException('El contexto de notas solo aplica a facturas de venta');
+    }
+
+    const [balance, statement, notes] = await Promise.all([
+      this.getRemainingBalance(companyId, branchId, invoiceId),
+      this.carteraService.getInvoiceStatement(companyId, invoiceId),
+      this.getAssociatedNotes(companyId, branchId, invoiceId),
+    ]);
+
+    const consumedMap = new Map<string, { creditedQty: number; creditedTotal: number; debitedQty: number; debitedTotal: number }>();
+    for (const note of notes) {
+      for (const item of note.items ?? []) {
+        const key = item.productId
+          ? `product:${item.productId}`
+          : `desc:${item.description.trim().toLowerCase()}`;
+        const current = consumedMap.get(key) ?? { creditedQty: 0, creditedTotal: 0, debitedQty: 0, debitedTotal: 0 };
+        if (note.type === 'NOTA_CREDITO') {
+          current.creditedQty += Number(item.quantity);
+          current.creditedTotal += Number(item.total);
+        } else if (note.type === 'NOTA_DEBITO') {
+          current.debitedQty += Number(item.quantity);
+          current.debitedTotal += Number(item.total);
+        }
+        consumedMap.set(key, current);
+      }
+    }
+
+    const lineContext = (invoice.items ?? []).map((item) => {
+      const key = item.productId
+        ? `product:${item.productId}`
+        : `desc:${item.description.trim().toLowerCase()}`;
+      const consumed = consumedMap.get(key) ?? { creditedQty: 0, creditedTotal: 0, debitedQty: 0, debitedTotal: 0 };
+      return {
+        id: item.id,
+        productId: item.productId,
+        description: item.description,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        taxRate: Number(item.taxRate),
+        discount: Number(item.discount),
+        total: Number(item.total),
+        product: item.product,
+        creditedQty: consumed.creditedQty,
+        debitedQty: consumed.debitedQty,
+        remainingCreditQty: this.roundMoney(Number(item.quantity) - consumed.creditedQty),
+        remainingCreditAmount: this.roundMoney(Number(item.total) - consumed.creditedTotal),
+      };
+    });
+
+    return {
+      invoice: {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        issueDate: invoice.issueDate,
+        dueDate: invoice.dueDate,
+        total: Number(invoice.total),
+        customer: invoice.customer,
+        sourceChannel: invoice.sourceChannel,
+        inventoryStatus: (invoice as any).inventoryStatus ?? null,
+        deliveryStatus: (invoice as any).deliveryStatus ?? null,
+      },
+      documentBalance: balance,
+      cartera: statement.summary,
+      notes,
+      lines: lineContext,
+      reasonCatalog: {
+        credit: [
+          { code: '1', label: 'Devolución parcial de bienes o servicios' },
+          { code: '2', label: 'Anulación o reverso total de la factura' },
+          { code: '3', label: 'Rebaja o descuento sobre la operación' },
+          { code: '4', label: 'Ajuste comercial o de calidad' },
+          { code: '5', label: 'Rescisión o nulidad' },
+          { code: '6', label: 'Otros ajustes del documento' },
+        ],
+        debit: [
+          { code: '1', label: 'Intereses' },
+          { code: '2', label: 'Gastos por cobrar' },
+          { code: '3', label: 'Cambio en el valor facturado' },
+          { code: '4', label: 'Otros' },
+          { code: '5', label: 'Ajuste por servicio adicional' },
+          { code: '6', label: 'Regularización comercial' },
+        ],
+      },
+      guidedActions: {
+        canFullCreditReverse: balance.remainingBalance > 0.01,
+        canPartialByLine: lineContext.some((line) => line.remainingCreditQty > 0.0001),
+        inventoryReturnEligible:
+          !invoice.sourcePosSaleId &&
+          String((invoice as any).inventoryStatus ?? '') === 'POSTED',
+      },
+    };
   }
 
   async getSummary(companyId: string, branchId: string, from: string, to: string) {
@@ -403,17 +1536,1443 @@ export class InvoicesService {
     };
   }
 
+  async getAnalyticsSummary(
+    companyId: string,
+    branchId: string | null,
+    filters: { dateFrom?: string; dateTo?: string },
+  ) {
+    const now = new Date();
+    const dateFrom = filters.dateFrom ? new Date(filters.dateFrom) : new Date(now.getFullYear(), now.getMonth(), 1);
+    const dateTo = filters.dateTo ? new Date(filters.dateTo) : now;
+    const where: Prisma.InvoiceWhereInput = {
+      companyId,
+      deletedAt: null,
+      issueDate: { gte: dateFrom, lte: dateTo },
+      ...(branchId ? { branchId } : {}),
+    };
+
+    const invoices = await this.prisma.invoice.findMany({
+      where,
+      select: {
+        id: true,
+        invoiceNumber: true,
+        issueDate: true,
+        total: true,
+        status: true,
+        dianStatus: true,
+        dianStatusCode: true,
+        dianSentAt: true,
+        dianResponseAt: true,
+        sourceChannel: true,
+        branchId: true,
+        sourceQuoteId: true,
+        customerId: true,
+        createdAt: true,
+        branch: { select: { id: true, name: true } },
+        payments: { select: { amount: true } },
+      },
+      orderBy: [{ issueDate: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    const invoiceIds = invoices.map((invoice) => invoice.id);
+    const quoteIds = Array.from(new Set(invoices.map((invoice) => invoice.sourceQuoteId).filter(Boolean) as string[]));
+
+    const [quotes, pendingApprovals, attachmentsCount] = await Promise.all([
+      quoteIds.length
+        ? this.prisma.quote.findMany({
+            where: { companyId, id: { in: quoteIds }, deletedAt: null },
+            select: { id: true, salesOwnerName: true, sourceChannel: true },
+          })
+        : Promise.resolve([]),
+      invoiceIds.length
+        ? this.prisma.invoiceApprovalRequest.count({
+            where: { companyId, invoiceId: { in: invoiceIds }, status: 'PENDING' as any },
+          })
+        : Promise.resolve(0),
+      invoiceIds.length
+        ? this.prisma.invoiceAttachment.count({
+            where: { companyId, invoiceId: { in: invoiceIds } },
+          })
+        : Promise.resolve(0),
+    ]);
+
+    const quoteMap = new Map(quotes.map((quote) => [quote.id, quote]));
+    const normalized = invoices.map((invoice) => {
+      const emitted = !['DRAFT', 'CANCELLED'].includes(String(invoice.status));
+      const collected = invoice.payments.reduce((sum, payment) => sum + Math.max(0, Number(payment.amount ?? 0)), 0);
+      const responseMinutes =
+        invoice.dianSentAt && invoice.dianResponseAt
+          ? Math.max(
+              0,
+              Math.round((new Date(invoice.dianResponseAt).getTime() - new Date(invoice.dianSentAt).getTime()) / 60000),
+            )
+          : null;
+      const quote = invoice.sourceQuoteId ? quoteMap.get(invoice.sourceQuoteId) : null;
+      const seller = String(quote?.salesOwnerName ?? '').trim() || (invoice.sourceChannel === 'POS' ? 'POS / Caja' : 'Sin vendedor');
+      const channel = this.normalizeInvoiceChannel(invoice.sourceChannel);
+      const branchName = invoice.branch?.name ?? 'Sin sucursal';
+      return {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        issueDate: invoice.issueDate,
+        total: Number(invoice.total ?? 0),
+        status: String(invoice.status),
+        dianStatus: invoice.dianStatus ?? null,
+        dianStatusCode: invoice.dianStatusCode ?? null,
+        channel,
+        branchId: invoice.branchId ?? null,
+        branchName,
+        seller,
+        customerId: invoice.customerId,
+        emitted,
+        collected,
+        rejected: String(invoice.status) === 'REJECTED_DIAN',
+        pendingDian: ['DRAFT', 'SENT_DIAN', 'ISSUED'].includes(String(invoice.status)),
+        responseMinutes,
+      };
+    });
+
+    const emittedDocs = normalized.filter((item) => item.emitted);
+    const emittedAmount = emittedDocs.reduce((sum, item) => sum + item.total, 0);
+    const collectedAmount = normalized.reduce((sum, item) => sum + item.collected, 0);
+    const rejectedDocs = normalized.filter((item) => item.rejected).length;
+    const pendingDianDocs = normalized.filter((item) => item.pendingDian).length;
+    const acceptedDocs = normalized.filter((item) => ['ACCEPTED_DIAN', 'PAID', 'OVERDUE'].includes(item.status)).length;
+    const responseTimes = normalized
+      .map((item) => item.responseMinutes)
+      .filter((value): value is number => value !== null);
+    const avgResponseMinutes = responseTimes.length
+      ? Math.round(responseTimes.reduce((sum, value) => sum + value, 0) / responseTimes.length)
+      : 0;
+    const rejectionRate = emittedDocs.length ? Number(((rejectedDocs / emittedDocs.length) * 100).toFixed(1)) : 0;
+    const collectionRate = emittedAmount > 0 ? Number(((collectedAmount / emittedAmount) * 100).toFixed(1)) : 0;
+    const attachmentCoverage = emittedDocs.length ? Number((((attachmentsCount > 0 ? attachmentsCount : 0) / emittedDocs.length) * 100).toFixed(1)) : 0;
+
+    const topCodesMap = new Map<string, number>();
+    for (const item of normalized) {
+      const key = item.dianStatusCode || item.dianStatus || 'SIN_CODIGO';
+      topCodesMap.set(key, (topCodesMap.get(key) ?? 0) + 1);
+    }
+
+    const aggregateDimension = <T extends string>(keyResolver: (item: typeof normalized[number]) => T) => {
+      const map = new Map<T, { count: number; emittedAmount: number; collectedAmount: number; rejectedCount: number }>();
+      for (const item of normalized) {
+        const key = keyResolver(item);
+        const current = map.get(key) ?? { count: 0, emittedAmount: 0, collectedAmount: 0, rejectedCount: 0 };
+        current.count += 1;
+        current.emittedAmount += item.total;
+        current.collectedAmount += item.collected;
+        current.rejectedCount += item.rejected ? 1 : 0;
+        map.set(key, current);
+      }
+      return Array.from(map.entries())
+        .map(([key, value]) => ({
+          key,
+          ...value,
+          rejectionRate: value.count ? Number(((value.rejectedCount / value.count) * 100).toFixed(1)) : 0,
+          collectionRate: value.emittedAmount > 0 ? Number(((value.collectedAmount / value.emittedAmount) * 100).toFixed(1)) : 0,
+        }))
+        .sort((a, b) => b.emittedAmount - a.emittedAmount);
+    };
+
+    return {
+      kpis: {
+        issuedCount: emittedDocs.length,
+        acceptedCount: acceptedDocs,
+        rejectedCount: rejectedDocs,
+        pendingDianCount: pendingDianDocs,
+        emittedAmount,
+        collectedAmount,
+        rejectionRate,
+        collectionRate,
+        avgResponseMinutes,
+      },
+      documentControl: {
+        attachmentsCount,
+        pendingApprovals,
+        attachmentCoverage,
+      },
+      dian: {
+        topStatusCodes: Array.from(topCodesMap.entries())
+          .map(([code, count]) => ({ code, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 6),
+      },
+      byBranch: aggregateDimension((item) => item.branchName),
+      byChannel: aggregateDimension((item) => item.channel),
+      bySeller: aggregateDimension((item) => item.seller),
+      latestDocuments: normalized.slice(0, 10).map((item) => ({
+        id: item.id,
+        invoiceNumber: item.invoiceNumber,
+        issueDate: item.issueDate,
+        total: item.total,
+        status: item.status,
+        dianStatus: item.dianStatus,
+        dianStatusCode: item.dianStatusCode,
+        branchName: item.branchName,
+        channel: item.channel,
+        seller: item.seller,
+        collected: item.collected,
+        responseMinutes: item.responseMinutes,
+      })),
+    };
+  }
+
+  async getOperationalMonitor(companyId: string, branchId?: string | null) {
+    const [jobs, intakes, integrations] = await Promise.all([
+      this.prisma.invoiceDianProcessingJob.findMany({
+        where: {
+          companyId,
+          ...(branchId ? { branchId } : {}),
+        },
+        include: {
+          invoice: {
+            select: {
+              id: true,
+              invoiceNumber: true,
+              status: true,
+              dianStatus: true,
+              dianStatusCode: true,
+              sourceChannel: true,
+              branchId: true,
+            },
+          },
+          branch: { select: { id: true, name: true } },
+        },
+        orderBy: [{ createdAt: 'desc' }],
+        take: 30,
+      }),
+      this.prisma.invoiceExternalIntake.findMany({
+        where: { companyId, ...(branchId ? { branchId } : {}) },
+        include: {
+          linkedInvoice: { select: { id: true, invoiceNumber: true, status: true, dianStatus: true } },
+          branch: { select: { id: true, name: true } },
+        },
+        orderBy: [{ createdAt: 'desc' }],
+        take: 20,
+      }),
+      this.prisma.accountingIntegration.findMany({
+        where: {
+          companyId,
+          module: 'invoices',
+          ...(branchId ? { context: { path: ['branchId'], equals: branchId } as any } : {}),
+        },
+        orderBy: [{ createdAt: 'desc' }],
+        take: 20,
+      }),
+    ]);
+
+    return {
+      queue: {
+        pending: jobs.filter((job: any) => job.status === 'PENDING').length,
+        failed: jobs.filter((job: any) => job.status === 'FAILED').length,
+        success: jobs.filter((job: any) => job.status === 'SUCCESS').length,
+        recent: jobs,
+      },
+      externalIntakes: {
+        pending: intakes.filter((item: any) => item.status === 'PENDING').length,
+        processed: intakes.filter((item: any) => item.status === 'PROCESSED').length,
+        recent: intakes,
+      },
+      accounting: {
+        recent: integrations,
+      },
+    };
+  }
+
+  async getExternalIntakes(companyId: string, branchId?: string | null) {
+    return this.prisma.invoiceExternalIntake.findMany({
+      where: {
+        companyId,
+        ...(branchId ? { branchId } : {}),
+      },
+      include: {
+        linkedInvoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            status: true,
+            dianStatus: true,
+          },
+        },
+        branch: { select: { id: true, name: true } },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      take: 50,
+    });
+  }
+
+  async createExternalIntake(
+    companyId: string,
+    branchId: string | null,
+    dto: CreateInvoiceExternalIntakeDto,
+    userId: string,
+  ) {
+    const created = await this.prisma.invoiceExternalIntake.create({
+      data: {
+        companyId,
+        branchId: branchId ?? undefined,
+        channel: String(dto.channel).trim().toUpperCase(),
+        externalRef: dto.externalRef.trim(),
+        customerPayload: dto.customerPayload ?? undefined,
+        invoicePayload: dto.invoicePayload ?? undefined,
+        notes: dto.notes?.trim() || undefined,
+        triggeredById: userId,
+        status: dto.autoProcess ? 'QUEUED' : 'PENDING',
+      },
+    });
+    await this.logInvoiceAudit(companyId, userId, 'INVOICE_EXTERNAL_INTAKE_CREATED', created.id, null, {
+      channel: created.channel,
+      externalRef: created.externalRef,
+      status: created.status,
+    });
+    if (dto.autoProcess) {
+      return this.processExternalIntake(companyId, branchId, created.id, userId);
+    }
+    return created;
+  }
+
+  async processExternalIntake(
+    companyId: string,
+    branchId: string | null,
+    intakeId: string,
+    userId: string,
+  ) {
+    const intake = await this.prisma.invoiceExternalIntake.findFirst({
+      where: { id: intakeId, companyId },
+    });
+    if (!intake) throw new NotFoundException('Intake externo no encontrado');
+    if (intake.linkedInvoiceId) {
+      return this.prisma.invoiceExternalIntake.findFirst({
+        where: { id: intakeId, companyId },
+        include: { linkedInvoice: true },
+      });
+    }
+
+    const payload = (intake.invoicePayload as any) ?? {};
+    const customerPayload = (intake.customerPayload as any) ?? {};
+    const sourceChannel = String(payload.sourceChannel ?? intake.channel ?? 'ONLINE').trim().toUpperCase();
+    const customerId = String(payload.customerId ?? customerPayload.customerId ?? '').trim();
+    if (!customerId) throw new BadRequestException('El intake externo requiere customerId para convertirse en factura');
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    if (!items.length) throw new BadRequestException('El intake externo requiere líneas para convertirse en factura');
+
+    const invoice = await this.create(companyId, branchId, {
+      customerId,
+      issueDate: payload.issueDate,
+      dueDate: payload.dueDate,
+      notes: payload.notes ?? intake.notes ?? `Factura creada desde intake ${intake.externalRef}`,
+      currency: payload.currency ?? 'COP',
+      type: payload.type ?? 'VENTA',
+      sourceChannel,
+      prefix: payload.prefix,
+      documentConfigId: payload.documentConfigId,
+      sendToDian: false,
+      items,
+    } as any);
+
+    await this.prisma.invoiceExternalIntake.update({
+      where: { id: intake.id },
+      data: {
+        linkedInvoiceId: invoice.id,
+        status: 'PROCESSED',
+        processedAt: new Date(),
+      },
+    });
+
+    await this.logInvoiceAudit(companyId, userId, 'INVOICE_EXTERNAL_INTAKE_PROCESSED', invoice.id, null, {
+      intakeId: intake.id,
+      channel: intake.channel,
+      externalRef: intake.externalRef,
+    });
+
+    return this.prisma.invoiceExternalIntake.findFirst({
+      where: { id: intake.id, companyId },
+      include: { linkedInvoice: true, branch: true },
+    });
+  }
+
+  async queueInvoiceReprocess(
+    companyId: string,
+    branchId: string,
+    invoiceId: string,
+    dto: QueueInvoiceReprocessDto,
+    userId: string,
+  ) {
+    const invoice = await this.findOne(companyId, branchId, invoiceId);
+    const job = await this.createDianJob({
+      companyId,
+      invoiceId,
+      branchId,
+      actionType: dto.actionType,
+      sourceChannel: invoice.sourceChannel ?? null,
+      triggeredById: userId,
+      payload: { notes: dto.notes ?? null },
+    });
+    await this.logInvoiceAudit(companyId, userId, 'INVOICE_REPROCESS_QUEUED', invoiceId, null, {
+      jobId: job.id,
+      actionType: dto.actionType,
+    });
+    return job;
+  }
+
+  async bulkReprocess(
+    companyId: string,
+    branchId: string,
+    dto: BulkInvoiceReprocessDto,
+    userId: string,
+  ) {
+    const invoices = dto.invoiceIds?.length
+      ? await this.prisma.invoice.findMany({
+          where: { id: { in: dto.invoiceIds }, companyId, branchId, deletedAt: null },
+          select: { id: true, sourceChannel: true },
+        })
+      : await this.prisma.invoice.findMany({
+          where: {
+            companyId,
+            branchId,
+            deletedAt: null,
+            ...(dto.actionType === 'SEND_DIAN'
+              ? { status: { in: ['DRAFT', 'REJECTED_DIAN'] as any[] } }
+              : { OR: [{ dianZipKey: { not: null } }, { dianCufe: { not: null } }] }),
+          },
+          select: { id: true, sourceChannel: true },
+          take: 50,
+        });
+
+    const jobs = [];
+    for (const invoice of invoices) {
+      jobs.push(
+        await this.createDianJob({
+          companyId,
+          invoiceId: invoice.id,
+          branchId,
+          actionType: dto.actionType,
+          sourceChannel: invoice.sourceChannel ?? null,
+          triggeredById: userId,
+          payload: { bulk: true },
+        }),
+      );
+    }
+    return { queued: jobs.length, jobs };
+  }
+
+  async processQueuedOperations(companyId: string, branchId: string, userId: string) {
+    const jobs = await this.prisma.invoiceDianProcessingJob.findMany({
+      where: {
+        companyId,
+        branchId,
+        status: 'PENDING',
+      },
+      orderBy: [{ createdAt: 'asc' }],
+      take: 20,
+    });
+
+    const results: any[] = [];
+    for (const job of jobs) {
+      try {
+        await this.prisma.invoiceDianProcessingJob.update({
+          where: { id: job.id },
+          data: {
+            status: 'PROCESSING',
+            attempts: { increment: 1 },
+            lastAttemptAt: new Date(),
+          },
+        });
+        let result: any;
+        if (job.actionType === 'SEND_DIAN') {
+          result = await this.sendToDian(companyId, job.sourceChannel ?? 'DIRECT', job.invoiceId!, {
+            skipJobRegistration: true,
+          });
+          await this.completeDianJob(job.id, {
+            status: 'SUCCESS',
+            responseCode: result?.dianStatusCode ?? null,
+            responseMessage: result?.dianStatusMsg ?? 'Envío ejecutado',
+            result: { invoiceId: job.invoiceId, status: result?.status, dianStatus: result?.dianStatus },
+          });
+        } else {
+          result = await this.queryDianStatus(companyId, job.invoiceId!, { skipJobRegistration: true });
+          await this.completeDianJob(job.id, {
+            status: 'SUCCESS',
+            responseCode: result?.dianStatusCode ?? null,
+            responseMessage: result?.dianStatusMsg ?? 'Consulta ejecutada',
+            result: { invoiceId: job.invoiceId, status: result?.status, dianStatus: result?.dianStatus },
+          });
+        }
+        results.push({ jobId: job.id, status: 'SUCCESS', invoiceId: job.invoiceId });
+      } catch (error: any) {
+        await this.completeDianJob(job.id, {
+          status: 'FAILED',
+          responseMessage: error?.message ?? 'No fue posible procesar el reproceso',
+        });
+        results.push({ jobId: job.id, status: 'FAILED', message: error?.message ?? 'Error' });
+      }
+    }
+
+    await this.logInvoiceAudit(companyId, userId, 'INVOICE_QUEUE_PROCESSED', branchId, null, {
+      jobs: results.length,
+      results,
+    });
+
+    return {
+      processed: results.length,
+      results,
+    };
+  }
+
+  async getFiscalSummaryReport(
+    companyId: string,
+    branchId: string | null,
+    filters: { dateFrom: string; dateTo: string },
+  ) {
+    if (!filters.dateFrom || !filters.dateTo) {
+      throw new BadRequestException('Debes indicar dateFrom y dateTo para el resumen fiscal');
+    }
+    const where: Prisma.InvoiceWhereInput = {
+      companyId,
+      deletedAt: null,
+      branchId: branchId ?? undefined,
+      issueDate: { gte: new Date(filters.dateFrom), lte: new Date(filters.dateTo) },
+      status: { notIn: ['CANCELLED', 'REJECTED_DIAN'] as any },
+    };
+    const [aggregate, byType, byValidation] = await Promise.all([
+      this.prisma.invoice.aggregate({
+        where,
+        _count: { id: true },
+        _sum: {
+          subtotal: true,
+          taxAmount: true,
+          withholdingAmount: true,
+          icaAmount: true,
+          total: true,
+        },
+      }),
+      this.prisma.invoice.groupBy({
+        by: ['type'],
+        where,
+        _count: { id: true },
+        _sum: { subtotal: true, taxAmount: true, withholdingAmount: true, icaAmount: true, total: true },
+      }),
+      this.prisma.invoice.groupBy({
+        by: ['fiscalValidationStatus'],
+        where,
+        _count: { id: true },
+      }),
+    ]);
+
+    return {
+      summary: {
+        count: aggregate._count.id,
+        taxableBase: Number(aggregate._sum.subtotal ?? 0),
+        iva: Number(aggregate._sum.taxAmount ?? 0),
+        retefuente: Number(aggregate._sum.withholdingAmount ?? 0),
+        ica: Number(aggregate._sum.icaAmount ?? 0),
+        total: Number(aggregate._sum.total ?? 0),
+      },
+      byType: byType.map((row) => ({
+        type: row.type,
+        count: row._count.id,
+        taxableBase: Number(row._sum.subtotal ?? 0),
+        iva: Number(row._sum.taxAmount ?? 0),
+        retefuente: Number(row._sum.withholdingAmount ?? 0),
+        ica: Number(row._sum.icaAmount ?? 0),
+        total: Number(row._sum.total ?? 0),
+      })),
+      byValidation: byValidation.map((row) => ({
+        status: row.fiscalValidationStatus,
+        count: row._count.id,
+      })),
+    };
+  }
+
+  async getVatSalesBookReport(
+    companyId: string,
+    branchId: string | null,
+    filters: { dateFrom: string; dateTo: string },
+  ) {
+    if (!filters.dateFrom || !filters.dateTo) {
+      throw new BadRequestException('Debes indicar dateFrom y dateTo para el libro de IVA');
+    }
+    const rows = await this.prisma.invoice.findMany({
+      where: {
+        companyId,
+        deletedAt: null,
+        ...(branchId ? { branchId } : {}),
+        issueDate: { gte: new Date(filters.dateFrom), lte: new Date(filters.dateTo) },
+        status: { notIn: ['CANCELLED', 'REJECTED_DIAN'] as any },
+      },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        prefix: true,
+        issueDate: true,
+        type: true,
+        subtotal: true,
+        taxAmount: true,
+        total: true,
+        sourceChannel: true,
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            documentNumber: true,
+            documentType: true,
+          },
+        },
+      },
+      orderBy: [{ issueDate: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      invoiceNumber: row.invoiceNumber,
+      prefix: row.prefix,
+      issueDate: row.issueDate,
+      type: row.type,
+      sourceChannel: row.sourceChannel,
+      customerName: row.customer.name,
+      customerDocument: row.customer.documentNumber,
+      customerDocumentType: row.customer.documentType,
+      taxableBase: Number(row.subtotal ?? 0),
+      iva: Number(row.taxAmount ?? 0),
+      total: Number(row.total ?? 0),
+    }));
+  }
+
+  async getWithholdingsBookReport(
+    companyId: string,
+    branchId: string | null,
+    filters: { dateFrom: string; dateTo: string },
+  ) {
+    if (!filters.dateFrom || !filters.dateTo) {
+      throw new BadRequestException('Debes indicar dateFrom y dateTo para el libro de retenciones');
+    }
+    const rows = await this.prisma.invoice.findMany({
+      where: {
+        companyId,
+        deletedAt: null,
+        ...(branchId ? { branchId } : {}),
+        issueDate: { gte: new Date(filters.dateFrom), lte: new Date(filters.dateTo) },
+        status: { notIn: ['CANCELLED', 'REJECTED_DIAN'] as any },
+        OR: [
+          { withholdingAmount: { gt: 0 } },
+          { icaAmount: { gt: 0 } },
+        ],
+      },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        prefix: true,
+        issueDate: true,
+        type: true,
+        subtotal: true,
+        withholdingAmount: true,
+        icaAmount: true,
+        total: true,
+        customer: {
+          select: {
+            name: true,
+            documentNumber: true,
+          },
+        },
+      },
+      orderBy: [{ issueDate: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      invoiceNumber: row.invoiceNumber,
+      prefix: row.prefix,
+      issueDate: row.issueDate,
+      type: row.type,
+      customerName: row.customer.name,
+      customerDocument: row.customer.documentNumber,
+      taxableBase: Number(row.subtotal ?? 0),
+      retefuente: Number(row.withholdingAmount ?? 0),
+      ica: Number(row.icaAmount ?? 0),
+      total: Number(row.total ?? 0),
+    }));
+  }
+
+  async getDianValidationReport(
+    companyId: string,
+    branchId: string | null,
+    filters: { dateFrom: string; dateTo: string },
+  ) {
+    if (!filters.dateFrom || !filters.dateTo) {
+      throw new BadRequestException('Debes indicar dateFrom y dateTo para el reporte de validación fiscal');
+    }
+    const rows = await this.prisma.invoice.findMany({
+      where: {
+        companyId,
+        deletedAt: null,
+        ...(branchId ? { branchId } : {}),
+        issueDate: { gte: new Date(filters.dateFrom), lte: new Date(filters.dateTo) },
+      },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        prefix: true,
+        issueDate: true,
+        type: true,
+        status: true,
+        sourceChannel: true,
+        dianStatus: true,
+        dianStatusCode: true,
+        fiscalValidationStatus: true,
+        fiscalValidationNotes: true,
+        customer: {
+          select: {
+            name: true,
+            documentNumber: true,
+          },
+        },
+      },
+      orderBy: [{ issueDate: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      invoiceNumber: row.invoiceNumber,
+      prefix: row.prefix,
+      issueDate: row.issueDate,
+      type: row.type,
+      status: row.status,
+      sourceChannel: row.sourceChannel,
+      dianStatus: row.dianStatus,
+      dianStatusCode: row.dianStatusCode,
+      fiscalValidationStatus: row.fiscalValidationStatus,
+      fiscalValidationNotes: row.fiscalValidationNotes,
+      customerName: row.customer.name,
+      customerDocument: row.customer.documentNumber,
+    }));
+  }
+
+  async getSalesOrders(companyId: string, branchId?: string | null) {
+    return this.prisma.$queryRawUnsafe(
+      `
+        SELECT
+          so."id",
+          so."number",
+          so."status",
+          so."issueDate",
+          so."requestedDate",
+          so."total",
+          so."currency",
+          so."quoteId",
+          so."posSaleId",
+          c."name" AS "customerName",
+          COUNT(soi."id")::int AS "itemsCount"
+        FROM "sales_orders" so
+        INNER JOIN "customers" c ON c."id" = so."customerId"
+        LEFT JOIN "sales_order_items" soi ON soi."orderId" = so."id"
+        WHERE so."companyId" = $1
+          AND so."deletedAt" IS NULL
+          ${branchId ? 'AND so."branchId" = $2' : ''}
+        GROUP BY so."id", c."name"
+        ORDER BY so."createdAt" DESC
+        LIMIT 50
+      `,
+      ...(branchId ? [companyId, branchId] : [companyId]),
+    );
+  }
+
+  async getDeliveryNotes(companyId: string, branchId?: string | null) {
+    return this.prisma.$queryRawUnsafe(
+      `
+        SELECT
+          dn."id",
+          dn."number",
+          dn."status",
+          dn."inventoryStatus",
+          dn."issueDate",
+          dn."salesOrderId",
+          dn."posSaleId",
+          c."name" AS "customerName",
+          COUNT(dni."id")::int AS "itemsCount",
+          COALESCE(SUM(dni."total"), 0) AS "total"
+        FROM "delivery_notes" dn
+        INNER JOIN "customers" c ON c."id" = dn."customerId"
+        LEFT JOIN "delivery_note_items" dni ON dni."deliveryNoteId" = dn."id"
+        WHERE dn."companyId" = $1
+          AND dn."deletedAt" IS NULL
+          ${branchId ? 'AND dn."branchId" = $2' : ''}
+        GROUP BY dn."id", c."name"
+        ORDER BY dn."createdAt" DESC
+        LIMIT 50
+      `,
+      ...(branchId ? [companyId, branchId] : [companyId]),
+    );
+  }
+
+  async createSalesOrder(companyId: string, branchId: string | null, dto: CreateSalesOrderDto) {
+    const source = await this.resolveCommercialSource(companyId, branchId, {
+      customerId: dto.customerId,
+      quoteId: dto.quoteId,
+      posSaleId: dto.posSaleId,
+      items: dto.items,
+    });
+    const items = source.items;
+    if (!items.length) throw new BadRequestException('El pedido debe tener al menos una línea');
+    const number = await this.getNextCommercialNumber('sales_orders', companyId, 'PED');
+    const totals = this.calculateCommercialTotals(items);
+    const normalizedItems = totals.items;
+    const orderId = randomUUID();
+    const issueDate = dto.issueDate ? new Date(dto.issueDate) : new Date();
+    const requestedDate = dto.requestedDate ? new Date(dto.requestedDate) : null;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `INSERT INTO "sales_orders"
+          ("id","companyId","branchId","customerId","quoteId","posSaleId","number","status","issueDate","requestedDate","subtotal","taxAmount","discountAmount","total","currency","notes","createdAt","updatedAt")
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN',$8,$9,$10,$11,$12,$13,$14,$15,NOW(),NOW())`,
+        orderId,
+        companyId,
+        branchId,
+        source.customerId,
+        dto.quoteId ?? null,
+        dto.posSaleId ?? null,
+        number,
+        issueDate,
+        requestedDate,
+        totals.subtotal,
+        totals.taxAmount,
+        totals.discountAmount,
+        totals.total,
+        dto.currency ?? source.currency ?? 'COP',
+        dto.notes ?? source.notes ?? null,
+      );
+
+      for (let index = 0; index < normalizedItems.length; index += 1) {
+        const item = normalizedItems[index] as any;
+        await tx.$executeRawUnsafe(
+          `INSERT INTO "sales_order_items"
+            ("id","orderId","productId","sourceQuoteItemId","sourcePosSaleItemId","description","orderedQuantity","unitPrice","taxRate","discount","total","position")
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+          randomUUID(),
+          orderId,
+          item.productId ?? null,
+          item.quoteItemId ?? null,
+          item.posSaleItemId ?? null,
+          item.description,
+          item.quantity,
+          item.unitPrice,
+          item.taxRate ?? 19,
+          item.discount ?? 0,
+          item.total,
+          index + 1,
+        );
+      }
+    });
+
+    return {
+      id: orderId,
+      number,
+      status: 'OPEN',
+      customerId: source.customerId,
+      quoteId: dto.quoteId ?? null,
+      posSaleId: dto.posSaleId ?? null,
+      subtotal: totals.subtotal,
+      taxAmount: totals.taxAmount,
+      discountAmount: totals.discountAmount,
+      total: totals.total,
+      currency: dto.currency ?? source.currency ?? 'COP',
+      itemsCount: normalizedItems.length,
+    };
+  }
+
+  async createDeliveryNote(companyId: string, branchId: string | null, dto: CreateDeliveryNoteDto) {
+    const source = await this.resolveDeliverySource(companyId, dto);
+    if (!source.items.length) throw new BadRequestException('La remisión no tiene líneas pendientes');
+    if (!source.inventoryManagedExternally) {
+      await this.validateInventoryAvailability(
+        companyId,
+        source.items.map((item: any) => ({
+          productId: item.productId ?? null,
+          quantity: Number(item.quantity),
+          description: item.description,
+        })),
+        'remisionar',
+      );
+    }
+    const noteId = randomUUID();
+    const number = await this.getNextCommercialNumber('delivery_notes', companyId, 'REM');
+    const issueDate = dto.issueDate ? new Date(dto.issueDate) : new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `INSERT INTO "delivery_notes"
+          ("id","companyId","branchId","customerId","salesOrderId","posSaleId","number","status","inventoryStatus","inventoryAppliedAt","issueDate","notes","createdAt","updatedAt")
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'POSTED',$8,$9,$10,$11,NOW(),NOW())`,
+        noteId,
+        companyId,
+        branchId,
+        source.customerId,
+        dto.salesOrderId ?? null,
+        dto.posSaleId ?? null,
+        number,
+        source.inventoryManagedExternally ? 'EXTERNAL' : 'POSTED',
+        source.inventoryManagedExternally ? null : new Date(),
+        issueDate,
+        dto.notes ?? null,
+      );
+
+      for (let index = 0; index < source.items.length; index += 1) {
+        const item = source.items[index] as any;
+        await tx.$executeRawUnsafe(
+          `INSERT INTO "delivery_note_items"
+            ("id","deliveryNoteId","salesOrderItemId","productId","description","quantity","unitPrice","taxRate","discount","total","position")
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          randomUUID(),
+          noteId,
+          item.salesOrderItemId ?? null,
+          item.productId ?? null,
+          item.description,
+          item.quantity,
+          item.unitPrice,
+          item.taxRate ?? 19,
+          item.discount ?? 0,
+          item.total,
+          index + 1,
+        );
+
+        if (item.salesOrderItemId) {
+          await tx.$executeRawUnsafe(
+            `UPDATE "sales_order_items"
+             SET "deliveredQuantity" = COALESCE("deliveredQuantity", 0) + $2
+             WHERE "id" = $1`,
+            item.salesOrderItemId,
+            item.quantity,
+          );
+        }
+      }
+
+      if (!source.inventoryManagedExternally) {
+        await this.applyInventoryMovements(tx, {
+          companyId,
+          branchId,
+          deliveryNoteId: noteId,
+          movementType: 'DELIVERY_OUT',
+          direction: 'OUT',
+          notes: `Salida por remisión ${number}`,
+          items: source.items.map((item: any) => ({
+            productId: item.productId ?? null,
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice ?? 0),
+          })),
+        });
+      }
+    });
+
+    return {
+      id: noteId,
+      number,
+      status: 'POSTED',
+      customerId: source.customerId,
+      salesOrderId: dto.salesOrderId ?? null,
+      posSaleId: dto.posSaleId ?? null,
+      itemsCount: source.items.length,
+    };
+  }
+
+  async createInvoiceFromSource(companyId: string, branchId: string | null, dto: CreateSourceInvoiceDto) {
+    const source = await this.resolveInvoiceSource(companyId, branchId, dto);
+    if (!source.items.length) throw new BadRequestException('No hay líneas disponibles para facturar');
+    if (source.inventoryAction === 'ON_INVOICE') {
+      await this.validateInventoryAvailability(
+        companyId,
+        source.items.map((item: any) => ({
+          productId: item.productId ?? null,
+          quantity: Number(item.quantity),
+          description: item.description,
+        })),
+        'facturar desde origen',
+      );
+    }
+
+    const invoice = await this.create(companyId, branchId, {
+      customerId: source.customerId,
+      type: 'VENTA' as any,
+      issueDate: dto.issueDate,
+      dueDate: dto.dueDate,
+      notes: source.notes,
+      currency: dto.currency ?? source.currency ?? 'COP',
+      sourceChannel: source.sourceChannel,
+      sourceTerminalId: source.sourceTerminalId,
+      inventoryMode: 'DEFER',
+      items: source.items.map((item: any, index: number) => ({
+        productId: item.productId ?? undefined,
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        taxRate: item.taxRate ?? 19,
+        discount: item.discount ?? 0,
+        position: index + 1,
+      })),
+    } as any);
+
+    const appliedAdvanceAmount = dto.applyAdvance ? Number(source.appliedAdvanceAmount ?? 0) : 0;
+    const billingMode = source.billingMode;
+
+    await this.prisma.$transaction(async (tx) => {
+      let appliedInventoryAt: Date | null = null;
+      let inventoryStatus = source.inventoryAction === 'ON_INVOICE' ? 'PENDING' : source.inventoryManagedExternally ? 'EXTERNAL' : 'DELIVERED';
+      let deliveryStatus = source.deliveryStatus ?? (source.inventoryAction === 'NONE' ? 'DELIVERED' : 'PENDING');
+
+      await tx.$executeRawUnsafe(
+        `UPDATE "invoices"
+         SET "salesOrderId" = $2,
+             "deliveryNoteId" = $3,
+             "sourceQuoteId" = $4,
+             "sourcePosSaleId" = $5,
+             "billingMode" = $6,
+             "appliedAdvanceAmount" = $7,
+             "notes" = $8,
+             "inventoryStatus" = $9,
+             "inventoryAppliedAt" = $10,
+             "deliveryStatus" = $11
+         WHERE "id" = $1`,
+        invoice.id,
+        dto.salesOrderId ?? null,
+        dto.deliveryNoteId ?? null,
+        dto.quoteId ?? null,
+        source.sourcePosSaleId ?? dto.posSaleId ?? null,
+        billingMode,
+        appliedAdvanceAmount,
+        source.notes,
+        inventoryStatus,
+        appliedInventoryAt,
+        deliveryStatus,
+      );
+
+      const createdItems = await tx.$queryRawUnsafe<Array<{ id: string }>>(
+        `SELECT "id" FROM "invoice_items" WHERE "invoiceId" = $1 ORDER BY "position" ASC`,
+        invoice.id,
+      );
+
+      for (let index = 0; index < source.items.length; index += 1) {
+        const sourceItem = source.items[index] as any;
+        const createdItem = createdItems[index];
+        if (!createdItem) continue;
+
+        await tx.$executeRawUnsafe(
+          `UPDATE "invoice_items"
+           SET "salesOrderItemId" = $2,
+               "deliveryNoteItemId" = $3,
+               "sourceQuoteItemId" = $4,
+               "sourcePosSaleItemId" = $5,
+               "sourceQuantity" = $6
+           WHERE "id" = $1`,
+          createdItem.id,
+          sourceItem.salesOrderItemId ?? null,
+          sourceItem.deliveryNoteItemId ?? null,
+          sourceItem.quoteItemId ?? null,
+          sourceItem.posSaleItemId ?? null,
+          sourceItem.quantity,
+        );
+
+        if (sourceItem.salesOrderItemId) {
+          await tx.$executeRawUnsafe(
+            `UPDATE "sales_order_items"
+             SET "invoicedQuantity" = COALESCE("invoicedQuantity", 0) + $2
+             WHERE "id" = $1`,
+            sourceItem.salesOrderItemId,
+            sourceItem.quantity,
+          );
+        }
+        if (sourceItem.deliveryNoteItemId) {
+          await tx.$executeRawUnsafe(
+            `UPDATE "delivery_note_items"
+             SET "invoicedQuantity" = COALESCE("invoicedQuantity", 0) + $2
+             WHERE "id" = $1`,
+            sourceItem.deliveryNoteItemId,
+            sourceItem.quantity,
+          );
+        }
+      }
+
+      if (source.inventoryAction === 'ON_INVOICE') {
+        const applied = await this.applyInventoryMovements(tx, {
+          companyId,
+          branchId,
+          invoiceId: invoice.id,
+          movementType: 'INVOICE_OUT',
+          direction: 'OUT',
+          notes: `Salida por factura ${invoice.invoiceNumber}`,
+          items: source.items.map((item: any) => ({
+            productId: item.productId ?? null,
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice ?? 0),
+          })),
+        });
+        if (applied > 0) {
+          inventoryStatus = 'POSTED';
+          appliedInventoryAt = new Date();
+          deliveryStatus = 'DELIVERED';
+          await tx.$executeRawUnsafe(
+            `UPDATE "invoices"
+             SET "inventoryStatus" = $2,
+                 "inventoryAppliedAt" = $3,
+                 "deliveryStatus" = $4
+             WHERE "id" = $1`,
+            invoice.id,
+            inventoryStatus,
+            appliedInventoryAt,
+            deliveryStatus,
+          );
+        }
+      }
+
+      if (dto.quoteId && billingMode === 'FULL') {
+        await tx.quote.updateMany({
+          where: { id: dto.quoteId, companyId, invoiceId: null },
+          data: { invoiceId: invoice.id, status: 'CONVERTED' as any },
+        });
+      }
+      if (dto.posSaleId) {
+        await tx.posSale.updateMany({
+          where: { id: dto.posSaleId, companyId, invoiceId: null },
+          data: { invoiceId: invoice.id },
+        });
+      }
+    });
+
+    return {
+      ...invoice,
+      salesOrderId: dto.salesOrderId ?? null,
+      deliveryNoteId: dto.deliveryNoteId ?? null,
+      sourceQuoteId: dto.quoteId ?? null,
+      sourcePosSaleId: source.sourcePosSaleId ?? dto.posSaleId ?? null,
+      billingMode,
+      appliedAdvanceAmount,
+    };
+  }
+
+  private calculateCommercialTotals(items: any[]) {
+    let subtotal = 0;
+    let taxAmount = 0;
+    let discountAmount = 0;
+    const normalizedItems = items.map((item) => {
+      const lineSubtotal = Number(item.quantity) * Number(item.unitPrice);
+      const lineDiscount = lineSubtotal * (Number(item.discount ?? 0) / 100);
+      const taxable = lineSubtotal - lineDiscount;
+      const lineTax = taxable * (Number(item.taxRate ?? 19) / 100);
+      const lineTotal = taxable + lineTax;
+      subtotal += taxable;
+      taxAmount += lineTax;
+      discountAmount += lineDiscount;
+      return { ...item, taxRate: Number(item.taxRate ?? 19), discount: Number(item.discount ?? 0), total: lineTotal };
+    });
+    return {
+      items: normalizedItems,
+      subtotal,
+      taxAmount,
+      discountAmount,
+      total: subtotal + taxAmount,
+    };
+  }
+
+  private async getNextCommercialNumber(table: 'sales_orders' | 'delivery_notes', companyId: string, prefix: string) {
+    const last = await this.prisma.$queryRawUnsafe<Array<{ number: string }>>(
+      `SELECT "number" FROM "${table}" WHERE "companyId" = $1 ORDER BY "createdAt" DESC LIMIT 1`,
+      companyId,
+    );
+    if (!last[0]?.number) return `${prefix}-0001`;
+    const num = parseInt(String(last[0].number).split('-').pop() ?? '0', 10) + 1;
+    return `${prefix}-${String(num).padStart(4, '0')}`;
+  }
+
+  private async resolveCommercialSource(companyId: string, branchId: string | null, dto: {
+    customerId?: string;
+    quoteId?: string;
+    posSaleId?: string;
+    items?: any[];
+  }) {
+    if (dto.quoteId) {
+      const quote = await this.prisma.quote.findFirst({
+        where: { id: dto.quoteId, companyId, deletedAt: null },
+        include: { items: true, customer: true },
+      });
+      if (!quote) throw new NotFoundException('Cotización no encontrada');
+      return {
+        customerId: quote.customerId,
+        currency: quote.currency,
+        notes: `Pedido generado desde cotización ${quote.number}`,
+        items: (dto.items?.length ? dto.items : quote.items).map((item: any) => ({
+          productId: item.productId ?? null,
+          quoteItemId: item.id ?? null,
+          description: item.description,
+          quantity: Number(item.quantity),
+          unitPrice: Number(item.unitPrice),
+          taxRate: Number(item.taxRate ?? 19),
+          discount: Number(item.discount ?? 0),
+        })),
+      };
+    }
+
+    if (dto.posSaleId) {
+      const sale = await this.prisma.posSale.findFirst({
+        where: { id: dto.posSaleId, companyId },
+        include: { items: true },
+      });
+      if (!sale) throw new NotFoundException('Venta POS no encontrada');
+      return {
+        customerId: sale.customerId,
+        currency: 'COP',
+        notes: `Pedido generado desde POS ${sale.saleNumber}`,
+        items: (dto.items?.length ? dto.items : sale.items).map((item: any) => ({
+          productId: item.productId ?? null,
+          posSaleItemId: item.id ?? null,
+          description: item.description,
+          quantity: Number(item.quantity),
+          unitPrice: Number(item.unitPrice),
+          taxRate: Number(item.taxRate ?? 19),
+          discount: Number(item.discount ?? 0),
+        })),
+      };
+    }
+
+    if (!dto.customerId) throw new BadRequestException('Debes indicar cliente, cotización o venta POS');
+    if (!dto.items?.length) throw new BadRequestException('Debes indicar líneas para crear el pedido');
+    return {
+      customerId: dto.customerId,
+      currency: 'COP',
+      notes: null,
+      items: dto.items,
+    };
+  }
+
+  private async resolveDeliverySource(companyId: string, dto: CreateDeliveryNoteDto) {
+    if (dto.salesOrderId) {
+      const order = await this.prisma.$queryRawUnsafe<Array<any>>(
+        `SELECT "customerId","posSaleId" FROM "sales_orders" WHERE "id" = $1 AND "companyId" = $2 AND "deletedAt" IS NULL LIMIT 1`,
+        dto.salesOrderId,
+        companyId,
+      );
+      if (!order[0]) throw new NotFoundException('Pedido comercial no encontrado');
+      const rawItems = dto.items?.length
+        ? dto.items
+        : await this.prisma.$queryRawUnsafe<Array<any>>(
+            `SELECT
+              soi."id" AS "salesOrderItemId",
+              soi."productId",
+              soi."description",
+              (soi."orderedQuantity" - COALESCE(soi."deliveredQuantity", 0)) AS "quantity",
+              soi."unitPrice",
+              soi."taxRate",
+              soi."discount",
+              soi."total"
+             FROM "sales_order_items" soi
+             WHERE soi."orderId" = $1
+               AND (soi."orderedQuantity" - COALESCE(soi."deliveredQuantity", 0)) > 0`,
+            dto.salesOrderId,
+          );
+      const normalized = this.calculateCommercialTotals(rawItems.filter((item: any) => Number(item.quantity) > 0));
+      return {
+        customerId: order[0].customerId,
+        items: normalized.items,
+        inventoryManagedExternally: !!order[0].posSaleId,
+      };
+    }
+
+    if (dto.posSaleId) {
+      const sale = await this.prisma.posSale.findFirst({
+        where: { id: dto.posSaleId, companyId },
+        include: { items: true },
+      });
+      if (!sale) throw new NotFoundException('Venta POS no encontrada');
+      const normalized = this.calculateCommercialTotals((dto.items?.length ? dto.items : sale.items).map((item: any) => ({
+        productId: item.productId ?? null,
+        description: item.description,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        taxRate: Number(item.taxRate ?? 19),
+        discount: Number(item.discount ?? 0),
+        total: Number(item.total ?? 0),
+      })));
+      return {
+        customerId: sale.customerId,
+        items: normalized.items,
+        inventoryManagedExternally: true,
+      };
+    }
+
+    throw new BadRequestException('Debes indicar un pedido comercial o una venta POS para generar la remisión');
+  }
+
+  private async resolveInvoiceSource(companyId: string, branchId: string | null, dto: CreateSourceInvoiceDto) {
+    if (dto.deliveryNoteId) {
+      const note = await this.prisma.$queryRawUnsafe<Array<any>>(
+        `SELECT "customerId","posSaleId","number","inventoryStatus" FROM "delivery_notes" WHERE "id" = $1 AND "companyId" = $2 AND "deletedAt" IS NULL LIMIT 1`,
+        dto.deliveryNoteId,
+        companyId,
+      );
+      if (!note[0]) throw new NotFoundException('Remisión no encontrada');
+      const items = dto.items?.length
+        ? dto.items
+        : await this.prisma.$queryRawUnsafe<Array<any>>(
+            `SELECT
+              dni."id" AS "deliveryNoteItemId",
+              dni."salesOrderItemId",
+              dni."productId",
+              dni."description",
+              (dni."quantity" - COALESCE(dni."invoicedQuantity", 0)) AS "quantity",
+              dni."unitPrice",
+              dni."taxRate",
+              dni."discount"
+             FROM "delivery_note_items" dni
+             WHERE dni."deliveryNoteId" = $1
+               AND (dni."quantity" - COALESCE(dni."invoicedQuantity", 0)) > 0`,
+            dto.deliveryNoteId,
+          );
+      return {
+        customerId: note[0].customerId,
+        currency: dto.currency ?? 'COP',
+        sourceChannel: note[0].posSaleId ? 'POS' : 'DIRECT',
+        sourceTerminalId: undefined,
+        sourcePosSaleId: note[0].posSaleId ?? null,
+        appliedAdvanceAmount: 0,
+        billingMode: 'PARTIAL',
+        inventoryAction: 'NONE',
+        inventoryManagedExternally: !!note[0].posSaleId,
+        deliveryStatus: 'DELIVERED',
+        notes: dto.notes || `Factura generada desde remisión`,
+        items: items.filter((item: any) => Number(item.quantity) > 0),
+      };
+    }
+
+    if (dto.salesOrderId) {
+      const order = await this.prisma.$queryRawUnsafe<Array<any>>(
+        `SELECT "customerId","quoteId","posSaleId","currency","number" FROM "sales_orders" WHERE "id" = $1 AND "companyId" = $2 AND "deletedAt" IS NULL LIMIT 1`,
+        dto.salesOrderId,
+        companyId,
+      );
+      if (!order[0]) throw new NotFoundException('Pedido comercial no encontrado');
+      const items = dto.items?.length
+        ? dto.items
+        : await this.prisma.$queryRawUnsafe<Array<any>>(
+            `SELECT
+              soi."id" AS "salesOrderItemId",
+              soi."productId",
+              soi."description",
+              (soi."orderedQuantity" - COALESCE(soi."invoicedQuantity", 0)) AS "quantity",
+              soi."unitPrice",
+              soi."taxRate",
+              soi."discount"
+             FROM "sales_order_items" soi
+             WHERE soi."orderId" = $1
+               AND (soi."orderedQuantity" - COALESCE(soi."invoicedQuantity", 0)) > 0`,
+            dto.salesOrderId,
+          );
+      const totals = this.calculateCommercialTotals(items);
+      return {
+        customerId: order[0].customerId,
+        currency: order[0].currency ?? 'COP',
+        sourceChannel: order[0].posSaleId ? 'POS' : 'DIRECT',
+        sourceTerminalId: undefined,
+        sourcePosSaleId: order[0].posSaleId ?? null,
+        appliedAdvanceAmount: 0,
+        billingMode: items.some((item: any) => Number(item.quantity) <= 0) ? 'PARTIAL' : 'FULL',
+        inventoryAction: order[0].posSaleId ? 'NONE' : 'ON_INVOICE',
+        inventoryManagedExternally: !!order[0].posSaleId,
+        deliveryStatus: order[0].posSaleId ? 'EXTERNAL' : 'PENDING',
+        notes: dto.notes || `Factura generada desde pedido ${order[0].number}`,
+        items: totals.items,
+      };
+    }
+
+    if (dto.quoteId) {
+      const quote = await this.prisma.quote.findFirst({
+        where: { id: dto.quoteId, companyId, deletedAt: null },
+        include: { items: true },
+      });
+      if (!quote) throw new NotFoundException('Cotización no encontrada');
+      const items = (dto.items?.length ? dto.items : quote.items).map((item: any) => ({
+        productId: item.productId ?? null,
+        quoteItemId: item.id ?? null,
+        description: item.description,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        taxRate: Number(item.taxRate ?? 19),
+        discount: Number(item.discount ?? 0),
+      }));
+      const totals = this.calculateCommercialTotals(items);
+      const fullQuoted = quote.items.reduce((sum, item) => sum + Number(item.quantity), 0);
+      const requested = items.reduce((sum, item) => sum + Number(item.quantity), 0);
+      return {
+        customerId: quote.customerId,
+        currency: quote.currency ?? 'COP',
+        sourceChannel: 'DIRECT',
+        sourceTerminalId: undefined,
+        sourcePosSaleId: null,
+        appliedAdvanceAmount: 0,
+        billingMode: requested < fullQuoted ? 'PARTIAL' : 'FULL',
+        inventoryAction: 'ON_INVOICE',
+        inventoryManagedExternally: false,
+        deliveryStatus: 'PENDING',
+        notes: dto.notes || `Factura generada desde cotización ${quote.number}`,
+        items: totals.items,
+      };
+    }
+
+    if (dto.posSaleId) {
+      const sale = await this.prisma.posSale.findFirst({
+        where: { id: dto.posSaleId, companyId },
+        include: { items: true },
+      });
+      if (!sale) throw new NotFoundException('Venta POS no encontrada');
+      const items = (dto.items?.length ? dto.items : sale.items).map((item: any) => ({
+        productId: item.productId ?? null,
+        posSaleItemId: item.id ?? null,
+        description: item.description,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        taxRate: Number(item.taxRate ?? 19),
+        discount: Number(item.discount ?? 0),
+      }));
+      const totals = this.calculateCommercialTotals(items);
+      const appliedAdvanceAmount = dto.applyAdvance
+        ? Math.min(Number(sale.advanceAmount ?? 0), Number(sale.amountPaid ?? 0), totals.total)
+        : 0;
+      return {
+        customerId: sale.customerId,
+        currency: 'COP',
+        sourceChannel: 'POS',
+        sourceTerminalId: sale.sessionId ? undefined : undefined,
+        sourcePosSaleId: sale.id,
+        appliedAdvanceAmount,
+        billingMode: appliedAdvanceAmount > 0 ? 'ADVANCE_SETTLEMENT' : 'FULL',
+        inventoryAction: 'NONE',
+        inventoryManagedExternally: true,
+        deliveryStatus: 'EXTERNAL',
+        notes: dto.notes || `Factura generada desde POS ${sale.saleNumber}${appliedAdvanceAmount > 0 ? ` aplicando anticipo por ${appliedAdvanceAmount}` : ''}`,
+        items: totals.items,
+      };
+    }
+
+    throw new BadRequestException('Debes indicar un origen comercial válido para facturar');
+  }
+
   // ══════════════════════════════════════════════════════════════════════════
   // DIAN INTEGRATION — sendToDian (replaces the mock)
   // ══════════════════════════════════════════════════════════════════════════
 
-  async sendToDian(companyId: string, source: string, invoiceId: string) {
-    const isPos = source && source.toLowerCase() === 'pos';
+  async sendToDian(
+    companyId: string,
+    source: string,
+    invoiceId: string,
+    options?: {
+      skipJobRegistration?: boolean;
+      triggeredById?: string | null;
+      branchId?: string | null;
+    },
+  ) {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id: invoiceId, companyId, deletedAt: null },
       include: {
         customer: true,
         company: true,
+        documentConfig: true,
         items: {
           include: { product: { select: { id: true, sku: true, unit: true, unspscCode: true } } },
           orderBy: { position: 'asc' },
@@ -422,23 +2981,84 @@ export class InvoicesService {
     });
     if (!invoice) throw new NotFoundException('Factura no encontrada');
     if (invoice.status !== 'DRAFT') throw new BadRequestException('Solo se pueden enviar facturas en estado DRAFT');
+    const approvedRequest = await this.ensureActionApprovalState(companyId, invoiceId, 'ISSUE');
+    const branchId = options?.branchId ?? invoice.branchId ?? null;
+    const dianJob = options?.skipJobRegistration
+      ? null
+      : await this.createDianJob({
+          companyId,
+          invoiceId,
+          branchId,
+          actionType: 'SEND_DIAN',
+          sourceChannel: invoice.sourceChannel ?? source ?? null,
+          triggeredById: options?.triggeredById ?? null,
+          payload: {
+            mode: 'direct',
+          },
+          status: 'PROCESSING',
+        });
 
     const inv = invoice as any;
     const company = inv.company;
     const customer = inv.customer;
     const items = inv.items;
+    const documentConfig = inv.documentConfig as any;
+    const sourceChannel = this.normalizeInvoiceChannel(inv.sourceChannel || source || 'DIRECT');
+    const isPos = sourceChannel === 'POS';
+    const fiscalValidation = this.buildFiscalValidationResult({
+      customer,
+      issueDate: invoice.issueDate,
+      invoiceType: invoice.type,
+      subtotal: Number(invoice.subtotal ?? 0),
+      taxAmount: Number(invoice.taxAmount ?? 0),
+      withholdingAmount: Number((invoice as any).withholdingAmount ?? 0),
+      icaAmount: Number((invoice as any).icaAmount ?? 0),
+      sourceChannel,
+      documentConfig,
+    });
+    if (
+      fiscalValidation.status !== invoice.fiscalValidationStatus ||
+      fiscalValidation.notes !== invoice.fiscalValidationNotes
+    ) {
+      await this.prisma.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          fiscalValidationStatus: fiscalValidation.status,
+          fiscalValidationNotes: fiscalValidation.notes,
+        },
+      });
+      (invoice as any).fiscalValidationStatus = fiscalValidation.status;
+      (invoice as any).fiscalValidationNotes = fiscalValidation.notes;
+    }
+    if (fiscalValidation.status === 'REVIEW_REQUIRED') {
+      if (dianJob) {
+        await this.completeDianJob(dianJob.id, {
+          status: 'FAILED',
+          responseCode: 'FISCAL_REVIEW_REQUIRED',
+          responseMessage: fiscalValidation.notes ?? 'Validación fiscal previa pendiente',
+          result: { invoiceId, fiscalValidationStatus: fiscalValidation.status },
+        });
+      }
+      throw new BadRequestException(
+        `La factura no supera la validación fiscal previa para DIAN: ${fiscalValidation.notes}`,
+      );
+    }
 
     // ── Determine environment ─────────────────────────────────────────────
     const isTestMode = company.dianTestMode !== false;
     const softwareId = company.dianSoftwareId || DIAN_SOFTWARE_ID;
     const softwarePin = company.dianSoftwarePin || DIAN_SOFTWARE_PIN;
     const testSetId = company.dianTestSetId || DIAN_TEST_SET_ID;
-    const claveTecnica = company.dianClaveTecnica || DIAN_TECH_KEY_HAB;
+    const claveTecnica =
+      documentConfig?.technicalKey ||
+      (inv.fiscalRulesSnapshot as any)?.technicalKey ||
+      company.dianClaveTecnica ||
+      DIAN_TECH_KEY_HAB;
 
     // ── Full invoice number for DIAN ──────────────────────────────────────
     // En HABILITACIÓN la DIAN exige prefijo SETP y numeración 990000001-995000000
     // En PRODUCCIÓN se usa el prefijo y número real de la factura
-    const dbPrefix = invoice.prefix || 'FV';
+    const dbPrefix = invoice.prefix || documentConfig?.prefix || 'FV';
     const rawNum = invoice.invoiceNumber || '0001';
 
     let prefix: string;
@@ -446,11 +3066,16 @@ export class InvoicesService {
 
     if (isTestMode) {
       // Ambiente habilitación: prefijo SETP, número en rango 990000001+
-      prefix = company.dianPrefijo || 'SETP';
+      prefix = invoice.prefix || documentConfig?.prefix || company.dianPrefijo || 'SETP';
       // Extraer solo dígitos del invoiceNumber
       const digits = rawNum.replace(/\D/g, '') || '1';
       // Mapear al rango 990000000: 990000000 + número de factura
-      const rangeBase = Number(isPos ? company.dianPosRangoDesde : (company.dianRangoDesde || 990000000));
+      const rangeBase = Number(
+        invoice.numberingRangeFrom ??
+          documentConfig?.rangeFrom ??
+          (isPos ? company.dianPosRangoDesde : company.dianRangoDesde) ??
+          990000000,
+      );
       numericPart = String(rangeBase + parseInt(digits, 10));
     } else {
       // Producción: prefijo y número reales
@@ -541,24 +3166,35 @@ export class InvoicesService {
     // toColombiaDate restaría 5h → 2019-01-18. Para fechas de autorización usamos
     // directamente el valor ISO sin corrección de zona (son fechas de calendario, no timestamps).
 
-    const { resolucion, dianPrefix, rangoDesde, rangoHasta, fechaDesde, fechaHasta } = isPos
+    const companyDefaults = isPos
       ? {
-        resolucion: company.dianPosResolucion || defaults.resolucion,
-        dianPrefix: company.dianPosPrefijo || prefix,
-        rangoDesde: company.dianPosRangoDesde || defaults.desde,
-        rangoHasta: company.dianPosRangoHasta || defaults.hasta,
-        fechaDesde: company.dianPosFechaDesde ? toDateOnly(new Date(company.dianPosFechaDesde)) : defaults.fechaDesde,
-        fechaHasta: company.dianPosFechaHasta ? toDateOnly(new Date(company.dianPosFechaHasta)) : defaults.fechaHasta
-
-      }
+          resolucion: company.dianPosResolucion || defaults.resolucion,
+          dianPrefix: company.dianPosPrefijo || prefix,
+          rangoDesde: company.dianPosRangoDesde || defaults.desde,
+          rangoHasta: company.dianPosRangoHasta || defaults.hasta,
+          fechaDesde: company.dianPosFechaDesde ? toDateOnly(new Date(company.dianPosFechaDesde)) : defaults.fechaDesde,
+          fechaHasta: company.dianPosFechaHasta ? toDateOnly(new Date(company.dianPosFechaHasta)) : defaults.fechaHasta,
+        }
       : {
-        resolucion: company.dianResolucion || defaults.resolucion,
-        dianPrefix: company.dianPrefijo || prefix,
-        rangoDesde: company.dianRangoDesde || defaults.desde,
-        rangoHasta: company.dianRangoHasta || defaults.hasta,
-        fechaDesde: company.dianFechaDesde ? toDateOnly(new Date(company.dianFechaDesde)) : defaults.fechaDesde,
-        fechaHasta: company.dianFechaHasta ? toDateOnly(new Date(company.dianFechaHasta)) : defaults.fechaHasta
-      };
+          resolucion: company.dianResolucion || defaults.resolucion,
+          dianPrefix: company.dianPrefijo || prefix,
+          rangoDesde: company.dianRangoDesde || defaults.desde,
+          rangoHasta: company.dianRangoHasta || defaults.hasta,
+          fechaDesde: company.dianFechaDesde ? toDateOnly(new Date(company.dianFechaDesde)) : defaults.fechaDesde,
+          fechaHasta: company.dianFechaHasta ? toDateOnly(new Date(company.dianFechaHasta)) : defaults.fechaHasta,
+        };
+
+    const { resolucion, dianPrefix, rangoDesde, rangoHasta, fechaDesde, fechaHasta } =
+      documentConfig || invoice.documentConfigId || invoice.resolutionNumber || invoice.numberingRangeFrom
+        ? {
+            resolucion: invoice.resolutionNumber || documentConfig?.resolutionNumber || companyDefaults.resolucion,
+            dianPrefix: invoice.prefix || documentConfig?.prefix || companyDefaults.dianPrefix,
+            rangoDesde: invoice.numberingRangeFrom || documentConfig?.rangeFrom || companyDefaults.rangoDesde,
+            rangoHasta: invoice.numberingRangeTo || documentConfig?.rangeTo || companyDefaults.rangoHasta,
+            fechaDesde: invoice.resolutionValidFrom || documentConfig?.validFrom || companyDefaults.fechaDesde,
+            fechaHasta: invoice.resolutionValidTo || documentConfig?.validTo || companyDefaults.fechaHasta,
+          }
+        : companyDefaults;
 
     // ── Build UBL 2.1 XML ────────────────────────────────────────────────
     this.logger.log(`[DIAN] Generating XML for ${fullNumber} CUFE=${cufe.slice(0, 16)}…`);
@@ -668,6 +3304,13 @@ export class InvoicesService {
         where: { id: invoiceId },
         data: { dianStatus: 'ERROR', dianStatusMsg: err.message, dianErrors: null } as any,
       });
+      if (dianJob) {
+        await this.completeDianJob(dianJob.id, {
+          status: 'FAILED',
+          responseMessage: err.message,
+          result: { invoiceId, phase: 'SOAP_SEND' },
+        });
+      }
       throw new BadRequestException(`Error de comunicación con DIAN: ${err.message}`);
     }
 
@@ -688,6 +3331,28 @@ export class InvoicesService {
     });
 
     const accountingSync = await this.accountingService.syncInvoiceEntry(companyId, invoiceId);
+    if (approvedRequest?.id) await this.consumeApprovalRequest(approvedRequest.id);
+    await this.logInvoiceAudit(companyId, null, 'INVOICE_ISSUED_TO_DIAN', invoiceId, { status: invoice.status }, {
+      status: updated.status,
+      dianStatus: updated.dianStatus,
+      dianZipKey: updated.dianZipKey,
+      approvalId: approvedRequest?.id ?? null,
+    });
+    if (dianJob) {
+      await this.completeDianJob(dianJob.id, {
+        status: updated.dianStatus === 'SENT' ? 'SUCCESS' : 'FAILED',
+        responseMessage:
+          updated.dianStatusMsg ??
+          (sendErrors.length > 0 ? sendErrors.join('; ') : null) ??
+          (updated.dianStatus === 'SENT' ? 'Factura enviada a DIAN' : 'No fue posible enviar la factura'),
+        result: {
+          invoiceId,
+          status: updated.status,
+          dianStatus: updated.dianStatus,
+          dianZipKey: updated.dianZipKey,
+        },
+      });
+    }
 
     return {
       ...updated,
@@ -697,16 +3362,51 @@ export class InvoicesService {
   }
 
   // ── Query DIAN status by ZipKey ───────────────────────────────────────────
-  async queryDianStatus(companyId: string, invoiceId: string) {
+  async queryDianStatus(
+    companyId: string,
+    invoiceId: string,
+    options?: {
+      skipJobRegistration?: boolean;
+      triggeredById?: string | null;
+      branchId?: string | null;
+    },
+  ) {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id: invoiceId, companyId, deletedAt: null },
       include: { company: true },
     }) as any;
     if (!invoice) throw new NotFoundException('Factura no encontrada');
+    const branchId = options?.branchId ?? invoice.branchId ?? null;
+    const dianJob = options?.skipJobRegistration
+      ? null
+      : await this.createDianJob({
+          companyId,
+          invoiceId,
+          branchId,
+          actionType: 'QUERY_DIAN_STATUS',
+          sourceChannel: invoice.sourceChannel ?? null,
+          triggeredById: options?.triggeredById ?? null,
+          payload: {
+            mode: 'direct',
+            hasZipKey: !!invoice.dianZipKey,
+            hasCufe: !!invoice.dianCufe,
+          },
+          status: 'PROCESSING',
+        });
 
     const zipKey = invoice.dianZipKey;
     const cufe = invoice.dianCufe;
-    if (!zipKey && !cufe) throw new BadRequestException('La factura no tiene un ZipKey o CUFE para consultar');
+    if (!zipKey && !cufe) {
+      if (dianJob) {
+        await this.completeDianJob(dianJob.id, {
+          status: 'FAILED',
+          responseCode: 'MISSING_TRACKING',
+          responseMessage: 'La factura no tiene un ZipKey o CUFE para consultar',
+          result: { invoiceId },
+        });
+      }
+      throw new BadRequestException('La factura no tiene un ZipKey o CUFE para consultar');
+    }
 
     const isTestMode = invoice.company?.dianTestMode !== false;
     const wsUrl = isTestMode ? DIAN_WS_HAB : DIAN_WS_PROD;
@@ -714,10 +3414,21 @@ export class InvoicesService {
     const keyPem = invoice.company?.dianCertificateKey;
 
     let result: DianStatusResult;
-    if (zipKey) {
-      result = await this.soapGetStatusZip({ trackId: zipKey, wsUrl, certPem, keyPem });
-    } else {
-      result = await this.soapGetStatus({ trackId: cufe!, wsUrl, certPem, keyPem });
+    try {
+      if (zipKey) {
+        result = await this.soapGetStatusZip({ trackId: zipKey, wsUrl, certPem, keyPem });
+      } else {
+        result = await this.soapGetStatus({ trackId: cufe!, wsUrl, certPem, keyPem });
+      }
+    } catch (error: any) {
+      if (dianJob) {
+        await this.completeDianJob(dianJob.id, {
+          status: 'FAILED',
+          responseMessage: error?.message ?? 'No fue posible consultar el estado DIAN',
+          result: { invoiceId, phase: 'SOAP_QUERY' },
+        });
+      }
+      throw error;
     }
 
     // Map DIAN status to invoice status
@@ -746,6 +3457,25 @@ export class InvoicesService {
     const accountingSync = ['ACCEPTED_DIAN', 'PAID', 'OVERDUE', 'SENT_DIAN'].includes(newInvoiceStatus)
       ? await this.accountingService.syncInvoiceEntry(companyId, invoiceId)
       : null;
+
+    await this.logInvoiceAudit(companyId, null, 'INVOICE_DIAN_STATUS_QUERIED', invoiceId, null, {
+      status: updated.status,
+      dianStatusCode: updated.dianStatusCode,
+      dianStatusMsg: updated.dianStatusMsg,
+    });
+    if (dianJob) {
+      await this.completeDianJob(dianJob.id, {
+        status: 'SUCCESS',
+        responseCode: updated.dianStatusCode ?? null,
+        responseMessage: updated.dianStatusMsg ?? result.statusDescription ?? 'Estado DIAN consultado',
+        result: {
+          invoiceId,
+          status: updated.status,
+          dianStatus: updated.dianStatus,
+          dianStatusCode: updated.dianStatusCode,
+        },
+      });
+    }
 
     return {
       ...updated,
@@ -1494,6 +4224,10 @@ ${itemsXml}
       .trim();                 // Quita espacios al inicio y final
   }
 
+  private roundMoney(value: number) {
+    return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  }
+
   private signXmlPlaceholder(xml: string, certPem: string, keyPem: string, issueDateTime?: string): string {
     // ── Limpiar Bag Attributes que genera openssl pkcs12 ─────────────────────
     // Los certs de GSE/Andes vienen con "Bag Attributes\n  friendlyName:..." antes del PEM
@@ -2063,16 +4797,21 @@ ${keyInfoXml}
   }
 
   // ── Invoice number ────────────────────────────────────────────────────────
-  private async getNextInvoiceNumber(companyId: string, prefix: string): Promise<string> {
+  private async getNextInvoiceNumber(companyId: string, prefix: string, rangeFrom?: number): Promise<string> {
     const last = await this.prisma.invoice.findFirst({
       where: { companyId, prefix, deletedAt: null },
       orderBy: { createdAt: 'desc' },
       select: { invoiceNumber: true },
     });
-    if (!last) return `${prefix}-0001`;
+    const start = Number(rangeFrom ?? 1);
+    const startWidth = Math.max(4, String(start).length);
+    if (!last) {
+      return `${prefix}-${String(start).padStart(startWidth, '0')}`;
+    }
     const parts = last.invoiceNumber.split('-');
     const num = parseInt(parts[parts.length - 1] ?? '0') + 1;
-    return `${prefix}-${String(num).padStart(4, '0')}`;
+    const width = Math.max(4, String(num).length, startWidth);
+    return `${prefix}-${String(num).padStart(width, '0')}`;
   }
 
 

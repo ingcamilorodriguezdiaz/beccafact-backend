@@ -32,6 +32,23 @@ export class CreateInvoiceDto {
   @ApiPropertyOptional({ default: 'COP' }) @IsOptional() @IsString() currency?: string;
   @ApiPropertyOptional({ default: false }) @IsOptional() @IsBoolean() isDraft?: boolean;
   @ApiPropertyOptional({ default: false }) @IsOptional() @IsBoolean() sendToDian?: boolean;
+  @ApiPropertyOptional({ description: 'Configuración documental a aplicar' })
+  @IsOptional()
+  @IsUUID()
+  documentConfigId?: string;
+  @ApiPropertyOptional({ description: 'Canal origen: DIRECT, POS, ECOMMERCE, MARKETPLACE, etc.' })
+  @IsOptional()
+  @IsString()
+  sourceChannel?: string;
+  @ApiPropertyOptional({ description: 'Terminal POS origen, si aplica' })
+  @IsOptional()
+  @IsUUID()
+  sourceTerminalId?: string;
+
+  @ApiPropertyOptional({ description: 'Uso interno para controlar el momento del impacto operativo de inventario' })
+  @IsOptional()
+  @IsString()
+  inventoryMode?: string;
 
   @ApiPropertyOptional({ description: 'ID de la factura original (obligatorio para NOTA_CREDITO y NOTA_DEBITO)' })
   @IsOptional()

@@ -1264,6 +1264,7 @@ export class PosService {
       governanceRules,
       recentOverrides,
       recentAudit,
+      fiscalConfig,
     ] = await Promise.all([
       this.prisma.company.findUnique({
         where: { id: companyId },
@@ -1308,6 +1309,19 @@ export class PosService {
         },
       }),
       this.getGovernanceAudit(companyId, branchId, 20),
+      this.prisma.invoiceDocumentConfig.findFirst({
+        where: {
+          companyId,
+          isActive: true,
+          type: 'VENTA' as any,
+          channel: 'POS',
+          OR: [
+            ...(branchId ? [{ branchId, posTerminalId: null }] : []),
+            { branchId: null, posTerminalId: null },
+          ],
+        },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      }),
     ]);
 
     return {
@@ -1338,12 +1352,14 @@ export class PosService {
           null,
       },
       fiscal: {
-        resolutionNumber: company?.dianPosResolucion ?? null,
-        prefix: company?.dianPosPrefijo ?? null,
-        rangeFrom: company?.dianPosRangoDesde ?? null,
-        rangeTo: company?.dianPosRangoHasta ?? null,
-        validFrom: company?.dianPosFechaDesde ?? null,
-        validTo: company?.dianPosFechaHasta ?? null,
+        resolutionNumber: fiscalConfig?.resolutionNumber ?? company?.dianPosResolucion ?? null,
+        prefix: fiscalConfig?.prefix ?? company?.dianPosPrefijo ?? null,
+        rangeFrom: fiscalConfig?.rangeFrom ?? company?.dianPosRangoDesde ?? null,
+        rangeTo: fiscalConfig?.rangeTo ?? company?.dianPosRangoHasta ?? null,
+        validFrom: fiscalConfig?.validFrom ?? company?.dianPosFechaDesde ?? null,
+        validTo: fiscalConfig?.validTo ?? company?.dianPosFechaHasta ?? null,
+        channel: fiscalConfig?.channel ?? 'POS',
+        documentConfigId: fiscalConfig?.id ?? null,
       },
       governance: {
         rules: governanceRules,
@@ -4546,7 +4562,9 @@ export class PosService {
         invoice = await this.invoicesService.create(companyId,branchId, {
           customerId: dto.customerId,
           type: 'VENTA' as any,
-          prefix: session.terminal?.invoicePrefix || 'POS',
+          prefix: session.terminal?.invoicePrefix || undefined,
+          sourceChannel: 'POS',
+          sourceTerminalId: session.terminalId ?? session.terminal?.id ?? undefined,
           issueDate: new Date().toISOString(),
 	          items: itemsData.map((item) => ({
 	            productId: item.productId,
@@ -4614,7 +4632,9 @@ export class PosService {
     const invoice = await this.invoicesService.create(companyId,branchId, {
       customerId: sale.customerId,
       type: 'VENTA' as any,
-      prefix: sale.session?.terminal?.invoicePrefix || 'POS',
+      prefix: sale.session?.terminal?.invoicePrefix || undefined,
+      sourceChannel: 'POS',
+      sourceTerminalId: sale.session?.terminal?.id ?? sale.session?.terminalId ?? undefined,
       issueDate: sale.createdAt.toISOString(),
       items: sale.items.map((item) => ({
         productId: item.productId ?? undefined,
@@ -5532,7 +5552,9 @@ ${barcode128}
         invoice = await this.invoicesService.create(companyId, branchId, {
           customerId: sale.customerId,
           type: 'VENTA' as any,
-          prefix: sale.session?.terminal?.invoicePrefix || 'POS',
+          prefix: sale.session?.terminal?.invoicePrefix || undefined,
+          sourceChannel: 'POS',
+          sourceTerminalId: sale.session?.terminal?.id ?? sale.session?.terminalId ?? undefined,
           issueDate: new Date().toISOString(),
           items: (sale as any).items.map((item: any) => ({
             productId: item.productId ?? undefined,
