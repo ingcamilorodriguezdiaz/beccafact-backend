@@ -3002,8 +3002,59 @@ export class InvoicesService {
     const company = inv.company;
     const customer = inv.customer;
     const items = inv.items;
-    const documentConfig = inv.documentConfig as any;
     const sourceChannel = this.normalizeInvoiceChannel(inv.sourceChannel || source || 'DIRECT');
+    let documentConfig = inv.documentConfig as any;
+
+    if (!documentConfig?.resolutionNumber) {
+      const resolvedConfig = await this.resolveInvoiceDocumentConfig({
+        companyId,
+        branchId,
+        type: invoice.type,
+        documentConfigId: invoice.documentConfigId ?? null,
+        sourceChannel,
+        sourceTerminalId: invoice.sourceTerminalId ?? null,
+        preferredPrefix: invoice.prefix ?? null,
+      });
+
+      if (resolvedConfig) {
+        documentConfig = resolvedConfig;
+        await this.prisma.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            documentConfigId: resolvedConfig.id ?? invoice.documentConfigId ?? null,
+            prefix: invoice.prefix ?? resolvedConfig.prefix ?? null,
+            resolutionNumber: invoice.resolutionNumber ?? resolvedConfig.resolutionNumber ?? null,
+            resolutionLabel: invoice.resolutionLabel ?? resolvedConfig.resolutionLabel ?? null,
+            numberingRangeFrom: invoice.numberingRangeFrom ?? resolvedConfig.rangeFrom ?? null,
+            numberingRangeTo: invoice.numberingRangeTo ?? resolvedConfig.rangeTo ?? null,
+            resolutionValidFrom: invoice.resolutionValidFrom ?? resolvedConfig.validFrom ?? null,
+            resolutionValidTo: invoice.resolutionValidTo ?? resolvedConfig.validTo ?? null,
+            fiscalRulesSnapshot:
+              invoice.fiscalRulesSnapshot ??
+              resolvedConfig.fiscalRules ??
+              undefined,
+          },
+        });
+
+        (invoice as any).documentConfigId = resolvedConfig.id ?? invoice.documentConfigId ?? null;
+        (invoice as any).prefix = invoice.prefix ?? resolvedConfig.prefix ?? null;
+        (invoice as any).resolutionNumber =
+          invoice.resolutionNumber ?? resolvedConfig.resolutionNumber ?? null;
+        (invoice as any).resolutionLabel =
+          invoice.resolutionLabel ?? resolvedConfig.resolutionLabel ?? null;
+        (invoice as any).numberingRangeFrom =
+          invoice.numberingRangeFrom ?? resolvedConfig.rangeFrom ?? null;
+        (invoice as any).numberingRangeTo =
+          invoice.numberingRangeTo ?? resolvedConfig.rangeTo ?? null;
+        (invoice as any).resolutionValidFrom =
+          invoice.resolutionValidFrom ?? resolvedConfig.validFrom ?? null;
+        (invoice as any).resolutionValidTo =
+          invoice.resolutionValidTo ?? resolvedConfig.validTo ?? null;
+        (invoice as any).fiscalRulesSnapshot =
+          invoice.fiscalRulesSnapshot ?? resolvedConfig.fiscalRules ?? null;
+      }
+    }
+
     const isPos = sourceChannel === 'POS';
     const fiscalValidation = this.buildFiscalValidationResult({
       customer,
@@ -3323,7 +3374,7 @@ export class InvoicesService {
         status: newStatus,
         dianStatus: soapResult.zipKey ? 'SENT' : 'ERROR',
         dianZipKey: soapResult.zipKey || null,
-        dianQrCode: cufe ? `https://catalogo-vpfe-hab.dian.gov.co/document/searchqr?documentkey=${cufe}` : null,
+        dianQrCode: cufe ? (isTestMode ? `https://catalogo-vpfe-hab.dian.gov.co/document/searchqr?documentkey=${cufe}` : `https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=${cufe}`) : null,
         dianSentAt: new Date(),
         dianStatusMsg: sendErrors.length > 0 ? sendErrors.join('; ') : null,
         dianErrors: sendErrors.length > 0 ? JSON.stringify(sendErrors) : null,
@@ -3414,11 +3465,20 @@ export class InvoicesService {
     const keyPem = invoice.company?.dianCertificateKey;
 
     let result: DianStatusResult;
+    let queriedBy: 'ZIP' | 'CUFE' = zipKey ? 'ZIP' : 'CUFE';
     try {
       if (zipKey) {
         result = await this.soapGetStatusZip({ trackId: zipKey, wsUrl, certPem, keyPem });
+        if (result.statusCode === '66' && cufe) {
+          this.logger.warn(
+            `[DIAN] GetStatusZip devolvió código 66 para ${invoiceId}. Reintentando por CUFE.`,
+          );
+          result = await this.soapGetStatus({ trackId: cufe, wsUrl, certPem, keyPem });
+          queriedBy = 'CUFE';
+        }
       } else {
         result = await this.soapGetStatus({ trackId: cufe!, wsUrl, certPem, keyPem });
+        queriedBy = 'CUFE';
       }
     } catch (error: any) {
       if (dianJob) {
@@ -3462,6 +3522,7 @@ export class InvoicesService {
       status: updated.status,
       dianStatusCode: updated.dianStatusCode,
       dianStatusMsg: updated.dianStatusMsg,
+      queriedBy,
     });
     if (dianJob) {
       await this.completeDianJob(dianJob.id, {
@@ -3473,6 +3534,7 @@ export class InvoicesService {
           status: updated.status,
           dianStatus: updated.dianStatus,
           dianStatusCode: updated.dianStatusCode,
+          queriedBy,
         },
       });
     }
@@ -3480,7 +3542,25 @@ export class InvoicesService {
     return {
       ...updated,
       accountingSync,
+      dianQuerySource: queriedBy,
     };
+  }
+
+  private getInvoiceDisplayNumber(invoice: any) {
+    const prefix = String(invoice?.prefix ?? '').trim();
+    const raw = String(invoice?.invoiceNumber ?? '').trim();
+    if (!raw) return prefix || '-';
+    if (!prefix) return raw;
+    const upperRaw = raw.toUpperCase();
+    const upperPrefix = prefix.toUpperCase();
+    if (upperRaw === upperPrefix || upperRaw.startsWith(`${upperPrefix}-`)) {
+      return raw;
+    }
+    return `${prefix}-${raw}`;
+  }
+
+  private getInvoiceFileBaseName(invoice: any) {
+    return this.getInvoiceDisplayNumber(invoice).replace(/[^\w.-]+/g, '_');
   }
 
   // ── Download signed XML ───────────────────────────────────────────────────
@@ -3492,7 +3572,7 @@ export class InvoicesService {
     if (!invoice.xmlSigned) throw new BadRequestException('XML aún no generado para esta factura');
     return {
       xml: invoice.xmlSigned,
-      filename: `${invoice.prefix}${invoice.invoiceNumber}.xml`,
+      filename: `${this.getInvoiceFileBaseName(invoice)}.xml`,
     };
   }
 
@@ -3501,7 +3581,7 @@ export class InvoicesService {
     const buffer = await this.buildInvoicePdfBuffer(invoice, company);
     return {
       buffer,
-      filename: `${invoice.prefix}${invoice.invoiceNumber}.pdf`,
+      filename: `${this.getInvoiceFileBaseName(invoice)}.pdf`,
     };
   }
 
@@ -3511,7 +3591,7 @@ export class InvoicesService {
       throw new BadRequestException('El XML de la factura aún no está disponible');
     }
 
-    const baseName = `${invoice.prefix}${invoice.invoiceNumber}`;
+    const baseName = this.getInvoiceFileBaseName(invoice);
     const pdfBuffer = await this.buildInvoicePdfBuffer(invoice, company);
     const zipBuffer = await this.createArchive([
       { name: `${baseName}.pdf`, content: pdfBuffer },
@@ -5085,6 +5165,7 @@ ${isDraft ? '<div class="watermark">BORRADOR</div>' : ''}
       new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(Number(v ?? 0));
     const fmtDate = (d: any) =>
       d ? new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-';
+    const displayNumber = this.getInvoiceDisplayNumber(invoice);
     const typeLabel = (t: string) =>
       ({ VENTA: 'FACTURA DE VENTA', NOTA_CREDITO: 'NOTA CREDITO', NOTA_DEBITO: 'NOTA DEBITO' }[t] ?? t ?? 'FACTURA');
     const statusLabel = (s: string) =>
@@ -5202,12 +5283,24 @@ ${isDraft ? '<div class="watermark">BORRADOR</div>' : ''}
     const drawTextBlock = (lines: string[], x: number, topY: number, lineHeight: number, options?: { size?: number; font?: 'F1' | 'F2'; color?: [number, number, number] }) => {
       lines.forEach((line, idx) => addText(line, x, topY + idx * lineHeight, options));
     };
-    const drawLabelValueRows = (rows: Array<{ label: string; value: string[] }>, x: number, topY: number, width: number) => {
+    const drawLabelValueRows = (
+      rows: Array<{ label: string; value: string[] }>,
+      x: number,
+      topY: number,
+      width: number,
+      options?: { valueAlign?: 'left' | 'right'; labelWidth?: number },
+    ) => {
       let cursorY = topY;
+      const valueAlign = options?.valueAlign ?? 'right';
+      const labelWidth = options?.labelWidth ?? 70;
       for (const row of rows) {
         addText(row.label, x, cursorY, { size: 9, font: 'F2', color: colors.muted });
         row.value.forEach((line, idx) => {
-          addRightText(line, x + width, cursorY + idx * 11, { size: 10, color: colors.text });
+          if (valueAlign === 'left') {
+            addText(line, x + labelWidth, cursorY + idx * 11, { size: 10, color: colors.text });
+          } else {
+            addRightText(line, x + width, cursorY + idx * 11, { size: 10, color: colors.text });
+          }
         });
         cursorY += Math.max(16, row.value.length * 11 + 4);
       }
@@ -5254,34 +5347,35 @@ ${isDraft ? '<div class="watermark">BORRADOR</div>' : ''}
     ].filter(Boolean);
     drawTextBlock(companyMeta.map(normalizeText), marginX, 72, 13, { size: 10, color: [226, 232, 240] });
 
-    const metaX = pageWidth - marginX - 188;
+    const metaWidth = 202;
+    const metaX = pageWidth - marginX - metaWidth;
     const metaY = 34;
     setFill(colors.white);
-    addRect(metaX, metaY, 188, 74, 'f');
+    addRect(metaX, metaY, metaWidth, 74, 'f');
     setStroke([214, 223, 233]);
     setLineWidth(0.8);
-    addRect(metaX, metaY, 188, 74, 'S');
+    addRect(metaX, metaY, metaWidth, 74, 'S');
     addText(typeLabel(invoice.type), metaX + 14, metaY + 18, { size: 12, font: 'F2', color: colors.navy });
-    addText(invoice.invoiceNumber ?? '-', metaX + 14, metaY + 40, { size: 22, font: 'F2', color: colors.text });
+    addText(displayNumber, metaX + 14, metaY + 40, { size: 21, font: 'F2', color: colors.text });
     addText(`Emision ${fmtDate(invoice.issueDate)}`, metaX + 14, metaY + 56, { size: 9, color: colors.muted });
-    if (invoice.dueDate) addText(`Vence ${fmtDate(invoice.dueDate)}`, metaX + 104, metaY + 56, { size: 9, color: colors.muted });
+    if (invoice.dueDate) addText(`Vence ${fmtDate(invoice.dueDate)}`, metaX + 108, metaY + 56, { size: 9, color: colors.muted });
 
     const badge = statusStyle(invoice.status);
     const badgeWidth = Math.max(70, estimateTextWidth(statusLabel(invoice.status), 9) + 20);
     setFill(badge.bg);
-    addRect(metaX + 188 - badgeWidth - 14, metaY + 12, badgeWidth, 18, 'f');
-    addText(statusLabel(invoice.status), metaX + 188 - badgeWidth - 4, metaY + 24, { size: 9, font: 'F2', color: badge.text });
+    addRect(metaX + metaWidth - badgeWidth, metaY + 82, badgeWidth, 18, 'f');
+    addText(statusLabel(invoice.status), metaX + metaWidth - badgeWidth + 10, metaY + 94, { size: 9, font: 'F2', color: badge.text });
 
-    y = 132;
+    y = 140;
 
     const cardGap = 14;
     const cardWidth = (contentWidth - cardGap) / 2;
     const customerRows = [
-      { label: 'Cliente', value: wrapText(invoice.customer?.name ?? '-', 160, 10) },
-      { label: 'Documento', value: wrapText(invoice.customer?.documentNumber ?? '-', 160, 10) },
-      ...(invoice.customer?.email ? [{ label: 'Email', value: wrapText(invoice.customer.email, 160, 10) }] : []),
-      ...(invoice.customer?.phone ? [{ label: 'Telefono', value: wrapText(invoice.customer.phone, 160, 10) }] : []),
-      ...(invoice.customer?.address ? [{ label: 'Direccion', value: wrapText(invoice.customer.address, 160, 10) }] : []),
+      { label: 'Cliente', value: wrapText(invoice.customer?.name ?? '-', 150, 10) },
+      { label: 'Documento', value: wrapText(invoice.customer?.documentNumber ?? '-', 150, 10) },
+      ...(invoice.customer?.email ? [{ label: 'Email', value: wrapText(invoice.customer.email, 150, 10) }] : []),
+      ...(invoice.customer?.phone ? [{ label: 'Telefono', value: wrapText(invoice.customer.phone, 150, 10) }] : []),
+      ...(invoice.customer?.address ? [{ label: 'Direccion', value: wrapText(invoice.customer.address, 150, 10) }] : []),
     ];
     const summaryRows = [
       { label: 'Moneda', value: [normalizeText(invoice.currency ?? 'COP')] },
@@ -5305,8 +5399,8 @@ ${isDraft ? '<div class="watermark">BORRADOR</div>' : ''}
     addRect(marginX + cardWidth + cardGap, y, cardWidth, 28, 'f');
     addText('Cliente / Receptor', marginX + 14, y + 18, { size: 11, font: 'F2', color: colors.navy });
     addText('Resumen financiero', marginX + cardWidth + cardGap + 14, y + 18, { size: 11, font: 'F2', color: colors.navy });
-    drawLabelValueRows(customerRows, marginX + 14, y + 44, cardWidth - 28);
-    drawLabelValueRows(summaryRows, marginX + cardWidth + cardGap + 14, y + 44, cardWidth - 28);
+    drawLabelValueRows(customerRows, marginX + 14, y + 44, cardWidth - 28, { valueAlign: 'left', labelWidth: 70 });
+    drawLabelValueRows(summaryRows, marginX + cardWidth + cardGap + 14, y + 44, cardWidth - 28, { valueAlign: 'right' });
     y += infoCardHeight + 18;
 
     sectionTitle(`Detalle de productos / servicios (${Array.isArray(invoice.items) ? invoice.items.length : 0})`, colors.blue);
