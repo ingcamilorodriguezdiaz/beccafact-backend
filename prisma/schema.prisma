@@ -118,7 +118,24 @@ model Company {
   journalEntries               JournalEntry[]
   journalEntryApprovalRequests JournalEntryApprovalRequest[]
   journalEntryAttachments      JournalEntryAttachment[]
+  payrollCalendars             PayrollCalendar[]
+  payrollBatches               PayrollBatch[]
+  payrollConcepts              PayrollConcept[]
+  payrollContractHistory       PayrollContractHistory[]
+  payrollEmploymentEvents      PayrollEmploymentEvent[]
+  payrollDianProcessingJobs    PayrollDianProcessingJob[]
+  payrollEnterpriseRules       PayrollEnterpriseRule[]
+  payrollNovelties             PayrollNovelty[]
+  payrollAccountingProfiles    PayrollAccountingProfile[]
+  payrollPeriodControls        PayrollPeriodControl[]
+  payrollPolicies              PayrollPolicy[]
+  payrollProvisionRuns         PayrollProvisionRun[]
+  payrollAccrualBalances       PayrollAccrualBalance[]
+  payrollApprovalRequests      PayrollApprovalRequest[]
+  payrollAttachments           PayrollAttachment[]
+  payrollRecordConcepts        PayrollRecordConcept[]
   payroll_records              payroll_records[]
+  payrollTypeConfigs           PayrollTypeConfig[]
   posBankReconciliationBatches PosBankReconciliationBatch[]
   posCashMovements             PosCashMovement[]
   posCombos                    PosCombo[]
@@ -207,7 +224,21 @@ model Branch {
   invoiceExternalIntakes       InvoiceExternalIntake[]
   invoices                     Invoice[]
   journalEntryLines            JournalEntryLine[]
+  payrollCalendars             PayrollCalendar[]
+  payrollBatches               PayrollBatch[]
+  payrollConcepts              PayrollConcept[]
+  payrollContractHistory       PayrollContractHistory[]
+  payrollEmploymentEvents      PayrollEmploymentEvent[]
+  payrollDianProcessingJobs    PayrollDianProcessingJob[]
+  payrollEnterpriseRules       PayrollEnterpriseRule[]
+  payrollNovelties             PayrollNovelty[]
+  payrollAccountingProfiles    PayrollAccountingProfile[]
+  payrollPeriodControls        PayrollPeriodControl[]
+  payrollPolicies              PayrollPolicy[]
+  payrollProvisionRuns         PayrollProvisionRun[]
+  payrollAccrualBalances       PayrollAccrualBalance[]
   payroll_records              payroll_records[]            @relation("PayrollBranch")
+  payrollTypeConfigs           PayrollTypeConfig[]
   posBankReconciliationBatches PosBankReconciliationBatch[]
   posCombos                    PosCombo[]
   posConfigDeployments         PosConfigDeployment[]
@@ -311,6 +342,10 @@ model User {
   approvedJournalEntryApprovalRequests  JournalEntryApprovalRequest[] @relation("JournalEntryApprovalApprovedBy")
   requestedJournalEntryApprovalRequests JournalEntryApprovalRequest[] @relation("JournalEntryApprovalRequestedBy")
   journalEntryAttachments               JournalEntryAttachment[]
+  approvedPayrollApprovalRequests       PayrollApprovalRequest[]      @relation("PayrollApprovalApprovedBy")
+  requestedPayrollApprovalRequests      PayrollApprovalRequest[]      @relation("PayrollApprovalRequestedBy")
+  payrollAttachments                    PayrollAttachment[]
+  payrollDianProcessingJobs             PayrollDianProcessingJob[]
   createdPosBankReconciliationBatches   PosBankReconciliationBatch[]  @relation("PosBankReconciliationBatchCreatedBy")
   posCashMovements                      PosCashMovement[]
   createdPosConfigDeployments           PosConfigDeployment[]         @relation("PosConfigDeploymentCreatedBy")
@@ -1264,107 +1299,615 @@ model Bank {
 }
 
 model employees {
-  id              String            @id @default(uuid())
-  companyId       String
-  documentType    String            @default("CC")
-  documentNumber  String
-  firstName       String
-  lastName        String
-  email           String?
-  phone           String?
-  position        String
-  baseSalary      Decimal           @db.Decimal(12, 2)
-  contractType    String            @default("INDEFINITE")
-  hireDate        DateTime
-  city            String?
-  bankAccount     String?
-  bankName        String?
-  isActive        Boolean           @default(true)
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  deletedAt       DateTime?
-  bankCode        String?
-  cityCode        String?
-  country         String            @default("CO")
-  departmentCode  String?
-  branchId        String?
-  bank            Bank?             @relation(fields: [bankCode], references: [code])
-  branch          Branch?           @relation("EmployeeBranch", fields: [branchId], references: [id])
-  companies       Company           @relation(fields: [companyId], references: [id])
-  payroll_records payroll_records[]
+  id                  String             @id @default(uuid())
+  companyId           String
+  documentType        String             @default("CC")
+  documentNumber      String
+  firstName           String
+  lastName            String
+  email               String?
+  phone               String?
+  position            String
+  baseSalary          Decimal            @db.Decimal(12, 2)
+  contractType        String             @default("INDEFINITE")
+  hireDate            DateTime
+  city                String?
+  bankAccount         String?
+  bankName            String?
+  isActive            Boolean            @default(true)
+  terminationDate     DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  deletedAt           DateTime?
+  bankCode            String?
+  cityCode            String?
+  country             String             @default("CO")
+  departmentCode      String?
+  branchId            String?
+  payrollPolicyId     String?
+  payrollTypeConfigId String?
+  bank                Bank?              @relation(fields: [bankCode], references: [code])
+  branch              Branch?            @relation("EmployeeBranch", fields: [branchId], references: [id])
+  companies           Company            @relation(fields: [companyId], references: [id])
+  payrollPolicy       PayrollPolicy?     @relation(fields: [payrollPolicyId], references: [id])
+  payrollContracts    PayrollContractHistory[]
+  payrollAccrualBalances PayrollAccrualBalance[]
+  employmentEvents    PayrollEmploymentEvent[]
+  payrollNovelties    PayrollNovelty[]
+  payrollTypeConfig   PayrollTypeConfig? @relation(fields: [payrollTypeConfigId], references: [id])
+  payroll_records     payroll_records[]
 
   @@unique([companyId, documentNumber])
   @@index([companyId])
   @@index([branchId])
+  @@index([payrollPolicyId])
+  @@index([payrollTypeConfigId])
+}
+
+model PayrollContractHistory {
+  id                  String             @id @default(uuid())
+  companyId           String
+  employeeId          String
+  branchId            String?
+  payrollPolicyId     String?
+  payrollTypeConfigId String?
+  version             Int                @default(1)
+  contractType        String
+  position            String
+  baseSalary          Decimal            @db.Decimal(12, 2)
+  startDate           DateTime
+  endDate             DateTime?
+  status              String             @default("ACTIVE")
+  changeReason        String?
+  notes               String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  branch              Branch?            @relation(fields: [branchId], references: [id])
+  company             Company            @relation(fields: [companyId], references: [id])
+  employee            employees          @relation(fields: [employeeId], references: [id])
+  payrollPolicy       PayrollPolicy?     @relation(fields: [payrollPolicyId], references: [id])
+  payrollTypeConfig   PayrollTypeConfig? @relation(fields: [payrollTypeConfigId], references: [id])
+
+  @@index([companyId, employeeId, status])
+  @@index([branchId])
+  @@index([payrollPolicyId])
+  @@index([payrollTypeConfigId])
+  @@map("payroll_contract_history")
+}
+
+model PayrollEmploymentEvent {
+  id              String      @id @default(uuid())
+  companyId       String
+  employeeId      String
+  branchId        String?
+  payrollRecordId String?
+  eventType       String
+  effectiveDate   DateTime
+  description     String?
+  payload         Json?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  branch          Branch?     @relation(fields: [branchId], references: [id])
+  company         Company     @relation(fields: [companyId], references: [id])
+  employee        employees   @relation(fields: [employeeId], references: [id])
+  payrollRecord   payroll_records? @relation(fields: [payrollRecordId], references: [id])
+
+  @@index([companyId, employeeId, effectiveDate])
+  @@index([payrollRecordId])
+  @@map("payroll_employment_events")
 }
 
 model payroll_records {
-  id                 String            @id @default(uuid())
-  companyId          String
-  employeeId         String
-  period             String
-  payDate            DateTime
-  status             String            @default("DRAFT")
-  cune               String?           @unique
-  cuneHash           String?
-  cuneInput          String?
-  payrollType        PayrollType       @default(NOMINA_ELECTRONICA)
-  payrollNumber      String?
-  xmlSigned          String?
-  xmlUrl             String?
-  pdfUrl             String?
-  dianZipKey         String?
-  dianStatus         String?
-  dianStatusCode     String?
-  dianStatusMsg      String?
-  dianErrors         String?
-  dianAttempts       Int               @default(0)
-  cuneRef            String?
-  payrollNumberRef   String?
-  fechaGenRef        String?
-  tipoAjuste         String?
-  originalNieId      String?
-  predecessorId      String?
-  isAnulado          Boolean           @default(false)
-  submittedAt        DateTime?
-  baseSalary         Decimal           @db.Decimal(12, 2)
-  daysWorked         Int               @default(30)
-  overtimeHours      Decimal           @default(0) @db.Decimal(8, 2)
-  bonuses            Decimal           @default(0) @db.Decimal(12, 2)
-  commissions        Decimal           @default(0) @db.Decimal(12, 2)
-  transportAllowance Decimal           @default(0) @db.Decimal(12, 2)
-  vacationPay        Decimal           @default(0) @db.Decimal(12, 2)
-  healthEmployee     Decimal           @default(0) @db.Decimal(12, 2)
-  pensionEmployee    Decimal           @default(0) @db.Decimal(12, 2)
-  sickLeave          Decimal           @default(0) @db.Decimal(12, 2)
-  loans              Decimal           @default(0) @db.Decimal(12, 2)
-  otherDeductions    Decimal           @default(0) @db.Decimal(12, 2)
-  healthEmployer     Decimal           @default(0) @db.Decimal(12, 2)
-  pensionEmployer    Decimal           @default(0) @db.Decimal(12, 2)
-  arl                Decimal           @default(0) @db.Decimal(12, 2)
-  compensationFund   Decimal           @default(0) @db.Decimal(12, 2)
-  totalEarnings      Decimal           @db.Decimal(12, 2)
-  totalDeductions    Decimal           @db.Decimal(12, 2)
-  netPay             Decimal           @db.Decimal(12, 2)
-  totalEmployerCost  Decimal           @db.Decimal(12, 2)
-  notes              String?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  branchId           String?
-  invoiceId          String?           @unique
-  branch             Branch?           @relation("PayrollBranch", fields: [branchId], references: [id])
-  companies          Company           @relation(fields: [companyId], references: [id])
-  employees          employees         @relation(fields: [employeeId], references: [id])
-  invoice            Invoice?          @relation("PayrollInvoice", fields: [invoiceId], references: [id])
-  originalNie        payroll_records?  @relation("NieChain", fields: [originalNieId], references: [id])
-  adjustments        payroll_records[] @relation("NieChain")
-  predecessor        payroll_records?  @relation("NiaeChain", fields: [predecessorId], references: [id])
-  successors         payroll_records[] @relation("NiaeChain")
+  id                  String                 @id @default(uuid())
+  companyId           String
+  employeeId          String
+  period              String
+  payDate             DateTime
+  status              String                 @default("DRAFT")
+  cune                String?                @unique
+  cuneHash            String?
+  cuneInput           String?
+  payrollType         PayrollType            @default(NOMINA_ELECTRONICA)
+  payrollNumber       String?
+  xmlSigned           String?
+  xmlUrl              String?
+  pdfUrl              String?
+  dianZipKey          String?
+  dianStatus          String?
+  dianStatusCode      String?
+  dianStatusMsg       String?
+  dianErrors          String?
+  dianAttempts        Int                    @default(0)
+  cuneRef             String?
+  payrollNumberRef    String?
+  fechaGenRef         String?
+  tipoAjuste          String?
+  originalNieId       String?
+  predecessorId       String?
+  isAnulado           Boolean                @default(false)
+  submittedAt         DateTime?
+  baseSalary          Decimal                @db.Decimal(12, 2)
+  daysWorked          Int                    @default(30)
+  overtimeHours       Decimal                @default(0) @db.Decimal(8, 2)
+  bonuses             Decimal                @default(0) @db.Decimal(12, 2)
+  commissions         Decimal                @default(0) @db.Decimal(12, 2)
+  transportAllowance  Decimal                @default(0) @db.Decimal(12, 2)
+  vacationPay         Decimal                @default(0) @db.Decimal(12, 2)
+  healthEmployee      Decimal                @default(0) @db.Decimal(12, 2)
+  pensionEmployee     Decimal                @default(0) @db.Decimal(12, 2)
+  sickLeave           Decimal                @default(0) @db.Decimal(12, 2)
+  loans               Decimal                @default(0) @db.Decimal(12, 2)
+  otherDeductions     Decimal                @default(0) @db.Decimal(12, 2)
+  healthEmployer      Decimal                @default(0) @db.Decimal(12, 2)
+  pensionEmployer     Decimal                @default(0) @db.Decimal(12, 2)
+  arl                 Decimal                @default(0) @db.Decimal(12, 2)
+  compensationFund    Decimal                @default(0) @db.Decimal(12, 2)
+  senaEmployer        Decimal                @default(0) @db.Decimal(12, 2)
+  icbfEmployer        Decimal                @default(0) @db.Decimal(12, 2)
+  healthBase          Decimal                @default(0) @db.Decimal(12, 2)
+  pensionBase         Decimal                @default(0) @db.Decimal(12, 2)
+  arlBase             Decimal                @default(0) @db.Decimal(12, 2)
+  compensationBase    Decimal                @default(0) @db.Decimal(12, 2)
+  senaBase            Decimal                @default(0) @db.Decimal(12, 2)
+  icbfBase            Decimal                @default(0) @db.Decimal(12, 2)
+  totalEarnings       Decimal                @db.Decimal(12, 2)
+  totalDeductions     Decimal                @db.Decimal(12, 2)
+  netPay              Decimal                @db.Decimal(12, 2)
+  totalEmployerCost   Decimal                @db.Decimal(12, 2)
+  socialSecuritySnapshot Json?
+  notes               String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  branchId            String?
+  invoiceId           String?                @unique
+  payrollBatchId      String?
+  payrollCalendarId   String?
+  payrollPolicyId     String?
+  payrollTypeConfigId String?
+  payrollCategory     String?                @default("ORDINARIA")
+  configSnapshot      Json?
+  conceptLines        PayrollRecordConcept[]
+  branch              Branch?                @relation("PayrollBranch", fields: [branchId], references: [id])
+  companies           Company                @relation(fields: [companyId], references: [id])
+  employees           employees              @relation(fields: [employeeId], references: [id])
+  invoice             Invoice?               @relation("PayrollInvoice", fields: [invoiceId], references: [id])
+  payrollBatch        PayrollBatch?          @relation(fields: [payrollBatchId], references: [id])
+  novelties           PayrollNovelty[]
+  originalNie         payroll_records?       @relation("NieChain", fields: [originalNieId], references: [id])
+  adjustments         payroll_records[]      @relation("NieChain")
+  payrollCalendar     PayrollCalendar?       @relation(fields: [payrollCalendarId], references: [id])
+  payrollPolicy       PayrollPolicy?         @relation(fields: [payrollPolicyId], references: [id])
+  payrollTypeConfig   PayrollTypeConfig?     @relation(fields: [payrollTypeConfigId], references: [id])
+  predecessor         payroll_records?       @relation("NiaeChain", fields: [predecessorId], references: [id])
+  employmentEvents    PayrollEmploymentEvent[]
+  approvalRequests    PayrollApprovalRequest[]
+  attachments         PayrollAttachment[]
+  dianProcessingJobs  PayrollDianProcessingJob[]
+  successors          payroll_records[]      @relation("NiaeChain")
 
   @@index([companyId, employeeId, period, payrollType])
   @@index([companyId, employeeId, payrollType])
   @@index([companyId, employeeId, originalNieId])
   @@index([branchId])
+  @@index([payrollBatchId])
+  @@index([payrollCalendarId])
+  @@index([payrollPolicyId])
+  @@index([payrollTypeConfigId])
+}
+
+model PayrollAccrualBalance {
+  id                    String    @id @default(uuid())
+  companyId             String
+  employeeId            String
+  branchId              String?
+  period                String
+  primaAccrued          Decimal   @default(0) @db.Decimal(12, 2)
+  cesantiasAccrued      Decimal   @default(0) @db.Decimal(12, 2)
+  interestsAccrued      Decimal   @default(0) @db.Decimal(12, 2)
+  vacationAccrued       Decimal   @default(0) @db.Decimal(12, 2)
+  totalAccrued          Decimal   @default(0) @db.Decimal(12, 2)
+  lastPayrollRecordId   String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  branch                Branch?   @relation(fields: [branchId], references: [id])
+  company               Company   @relation(fields: [companyId], references: [id])
+  employee              employees @relation(fields: [employeeId], references: [id])
+
+  @@unique([companyId, employeeId, period])
+  @@index([branchId])
+  @@index([companyId, period])
+  @@map("payroll_accrual_balances")
+}
+
+model PayrollProvisionRun {
+  id                    String       @id @default(uuid())
+  companyId             String
+  branchId              String?
+  period                String
+  status                String       @default("POSTED")
+  totalPrima            Decimal      @default(0) @db.Decimal(12, 2)
+  totalCesantias        Decimal      @default(0) @db.Decimal(12, 2)
+  totalInterests        Decimal      @default(0) @db.Decimal(12, 2)
+  totalVacations        Decimal      @default(0) @db.Decimal(12, 2)
+  totalAmount           Decimal      @default(0) @db.Decimal(12, 2)
+  journalEntryId        String?
+  notes                 String?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  branch                Branch?      @relation(fields: [branchId], references: [id])
+  company               Company      @relation(fields: [companyId], references: [id])
+  journalEntry          JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  @@unique([companyId, branchId, period])
+  @@index([journalEntryId])
+  @@index([companyId, period])
+  @@map("payroll_provision_runs")
+}
+
+model PayrollConcept {
+  id                    String                    @id @default(uuid())
+  companyId             String
+  branchId              String?
+  code                  String
+  name                  String
+  description           String?
+  nature                PayrollConceptNature
+  formulaType           PayrollConceptFormulaType @default(MANUAL)
+  formulaExpression     String?
+  defaultAmount         Decimal?                  @db.Decimal(12, 2)
+  defaultRate           Decimal?                  @db.Decimal(8, 4)
+  quantityDefault       Decimal?                  @db.Decimal(12, 2)
+  accountingAccountId   String?
+  costCenter            String?
+  projectCode           String?
+  affectsSocialSecurity Boolean                   @default(false)
+  affectsParafiscals    Boolean                   @default(false)
+  appliesByDefault      Boolean                   @default(false)
+  displayOrder          Int                       @default(0)
+  isActive              Boolean                   @default(true)
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @default(now()) @updatedAt
+  accountingAccount     AccountingAccount?        @relation(fields: [accountingAccountId], references: [id])
+  branch                Branch?                   @relation(fields: [branchId], references: [id])
+  company               Company                   @relation(fields: [companyId], references: [id])
+  payrollRecordConcepts PayrollRecordConcept[]
+
+  @@unique([companyId, code])
+  @@index([accountingAccountId])
+  @@index([companyId, branchId, isActive])
+  @@map("payroll_concepts")
+}
+
+model PayrollCalendar {
+  id             String                   @id @default(uuid())
+  companyId      String
+  branchId       String?
+  code           String
+  name           String
+  frequency      PayrollCalendarFrequency @default(MONTHLY)
+  cutoffDay      Int?
+  paymentDay     Int?
+  startDay       Int?
+  endDay         Int?
+  isDefault      Boolean                  @default(false)
+  isActive       Boolean                  @default(true)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @default(now()) @updatedAt
+  branch         Branch?                  @relation(fields: [branchId], references: [id])
+  company        Company                  @relation(fields: [companyId], references: [id])
+  payrollRecords payroll_records[]
+  payrollTypes   PayrollTypeConfig[]
+
+  @@unique([companyId, code])
+  @@index([companyId, branchId, isActive])
+  @@map("payroll_calendars")
+}
+
+model PayrollPolicy {
+  id                       String              @id @default(uuid())
+  companyId                String
+  branchId                 String?
+  name                     String
+  description              String?
+  applyAutoTransport       Boolean             @default(true)
+  transportAllowanceAmount Decimal             @default(162000) @db.Decimal(12, 2)
+  transportCapMultiplier   Decimal             @default(2) @db.Decimal(8, 2)
+  minimumWageValue         Decimal             @default(1300000) @db.Decimal(12, 2)
+  healthEmployeeRate       Decimal             @default(0.04) @db.Decimal(8, 4)
+  pensionEmployeeRate      Decimal             @default(0.04) @db.Decimal(8, 4)
+  healthEmployerRate       Decimal             @default(0.085) @db.Decimal(8, 4)
+  pensionEmployerRate      Decimal             @default(0.12) @db.Decimal(8, 4)
+  arlRate                  Decimal             @default(0.00522) @db.Decimal(8, 5)
+  compensationFundRate     Decimal             @default(0.04) @db.Decimal(8, 4)
+  senaRate                 Decimal             @default(0.02) @db.Decimal(8, 4)
+  icbfRate                 Decimal             @default(0.03) @db.Decimal(8, 4)
+  healthCapSmmlv           Decimal             @default(25) @db.Decimal(8, 2)
+  pensionCapSmmlv          Decimal             @default(25) @db.Decimal(8, 2)
+  parafiscalCapSmmlv       Decimal             @default(25) @db.Decimal(8, 2)
+  applySena                Boolean             @default(true)
+  applyIcbf                Boolean             @default(true)
+  overtimeFactor           Decimal             @default(1.25) @db.Decimal(8, 4)
+  isDefault                Boolean             @default(false)
+  isActive                 Boolean             @default(true)
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @default(now()) @updatedAt
+  employees                employees[]
+  branch                   Branch?             @relation(fields: [branchId], references: [id])
+  company                  Company             @relation(fields: [companyId], references: [id])
+  contractHistory          PayrollContractHistory[]
+  payrollRecords           payroll_records[]
+  payrollTypes             PayrollTypeConfig[]
+
+  @@index([companyId, branchId, isActive])
+  @@map("payroll_policies")
+}
+
+model PayrollTypeConfig {
+  id             String            @id @default(uuid())
+  companyId      String
+  branchId       String?
+  code           String
+  name           String
+  category       String            @default("ORDINARIA")
+  description    String?
+  calendarId     String?
+  policyId       String?
+  isDefault      Boolean           @default(false)
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @default(now()) @updatedAt
+  employees      employees[]
+  accountingProfiles PayrollAccountingProfile[]
+  payrollRecords payroll_records[]
+  branch         Branch?           @relation(fields: [branchId], references: [id])
+  calendar       PayrollCalendar?  @relation(fields: [calendarId], references: [id])
+  company        Company           @relation(fields: [companyId], references: [id])
+  contractHistory PayrollContractHistory[]
+  payrollPolicy  PayrollPolicy?    @relation(fields: [policyId], references: [id])
+
+  @@unique([companyId, code])
+  @@index([companyId, branchId, isActive])
+  @@index([calendarId])
+  @@index([policyId])
+  @@map("payroll_type_configs")
+}
+
+model PayrollAccountingProfile {
+  id                             String            @id @default(uuid())
+  companyId                      String
+  branchId                       String?
+  payrollTypeConfigId            String?
+  profileName                    String
+  expenseAccountId               String
+  netPayableAccountId            String
+  employeeDeductionsAccountId    String
+  employerExpenseAccountId       String
+  employerContributionsAccountId String
+  costCenter                     String?
+  projectCode                    String?
+  isActive                       Boolean           @default(true)
+  createdAt                      DateTime          @default(now())
+  updatedAt                      DateTime          @updatedAt
+  branch                         Branch?           @relation(fields: [branchId], references: [id])
+  company                        Company           @relation(fields: [companyId], references: [id])
+  employeeDeductionsAccount      AccountingAccount @relation("payroll_accounting_profiles_employeeDeductionsAccountIdToaccounting_accounts", fields: [employeeDeductionsAccountId], references: [id])
+  employerContributionsAccount   AccountingAccount @relation("payroll_accounting_profiles_employerContributionsAccountIdToaccounting_accounts", fields: [employerContributionsAccountId], references: [id])
+  employerExpenseAccount         AccountingAccount @relation("payroll_accounting_profiles_employerExpenseAccountIdToaccounting_accounts", fields: [employerExpenseAccountId], references: [id])
+  expenseAccount                 AccountingAccount @relation("payroll_accounting_profiles_expenseAccountIdToaccounting_accounts", fields: [expenseAccountId], references: [id])
+  netPayableAccount              AccountingAccount @relation("payroll_accounting_profiles_netPayableAccountIdToaccounting_accounts", fields: [netPayableAccountId], references: [id])
+  payrollTypeConfig              PayrollTypeConfig? @relation(fields: [payrollTypeConfigId], references: [id])
+
+  @@index([branchId])
+  @@index([companyId, isActive])
+  @@index([payrollTypeConfigId])
+  @@map("payroll_accounting_profiles")
+}
+
+model PayrollApprovalRequest {
+  id              String           @id @default(uuid())
+  companyId       String
+  payrollRecordId String?
+  payrollBatchId  String?
+  actionType      String
+  status          String           @default("PENDING")
+  reason          String?
+  requestedById   String?
+  approvedById    String?
+  requestedAt     DateTime         @default(now())
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  rejectedReason  String?
+  consumedAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  approvedBy      User?            @relation("PayrollApprovalApprovedBy", fields: [approvedById], references: [id])
+  company         Company          @relation(fields: [companyId], references: [id])
+  payrollBatch    PayrollBatch?    @relation(fields: [payrollBatchId], references: [id])
+  payrollRecord   payroll_records? @relation(fields: [payrollRecordId], references: [id])
+  requestedBy     User?            @relation("PayrollApprovalRequestedBy", fields: [requestedById], references: [id])
+
+  @@index([companyId, payrollRecordId, actionType, status])
+  @@index([companyId, payrollBatchId, actionType, status])
+  @@map("payroll_approval_requests")
+}
+
+model PayrollAttachment {
+  id              String           @id @default(uuid())
+  companyId       String
+  payrollRecordId String
+  fileName        String
+  fileUrl         String
+  mimeType        String?
+  category        String?
+  notes           String?
+  sizeBytes       Int?
+  uploadedById    String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  company         Company          @relation(fields: [companyId], references: [id])
+  payrollRecord   payroll_records  @relation(fields: [payrollRecordId], references: [id], onDelete: Cascade)
+  uploadedBy      User?            @relation(fields: [uploadedById], references: [id])
+
+  @@index([companyId, payrollRecordId])
+  @@map("payroll_attachments")
+}
+
+model PayrollRecordConcept {
+  id              String                    @id @default(uuid())
+  companyId       String
+  payrollRecordId String
+  conceptId       String?
+  code            String
+  name            String
+  nature          PayrollConceptNature
+  formulaType     PayrollConceptFormulaType @default(MANUAL)
+  quantity        Decimal?                  @db.Decimal(12, 2)
+  rate            Decimal?                  @db.Decimal(12, 4)
+  amount          Decimal                   @db.Decimal(12, 2)
+  source          String?                   @default("MANUAL")
+  createdAt       DateTime                  @default(now())
+  company         Company                   @relation(fields: [companyId], references: [id])
+  concept         PayrollConcept?           @relation(fields: [conceptId], references: [id])
+  payrollRecord   payroll_records           @relation(fields: [payrollRecordId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, payrollRecordId])
+  @@index([conceptId])
+  @@map("payroll_record_concepts")
+}
+
+model PayrollNovelty {
+  id              String               @id @default(uuid())
+  companyId       String
+  employeeId      String
+  branchId        String?
+  payrollRecordId String?
+  type            PayrollNoveltyType
+  status          PayrollNoveltyStatus @default(PENDING)
+  period          String?
+  effectiveDate   DateTime
+  startDate       DateTime?
+  endDate         DateTime?
+  hours           Decimal?             @db.Decimal(8, 2)
+  days            Decimal?             @db.Decimal(8, 2)
+  quantity        Decimal?             @db.Decimal(12, 2)
+  rate            Decimal?             @db.Decimal(12, 4)
+  amount          Decimal?             @db.Decimal(12, 2)
+  description     String?
+  notes           String?
+  salaryFrom      Decimal?             @db.Decimal(12, 2)
+  salaryTo        Decimal?             @db.Decimal(12, 2)
+  metadata        Json?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @default(now()) @updatedAt
+  branch          Branch?              @relation(fields: [branchId], references: [id])
+  company         Company              @relation(fields: [companyId], references: [id])
+  employee        employees            @relation(fields: [employeeId], references: [id])
+  payrollRecord   payroll_records?     @relation(fields: [payrollRecordId], references: [id])
+
+  @@index([companyId, employeeId, status])
+  @@index([companyId, period, type])
+  @@index([payrollRecordId])
+  @@map("payroll_novelties")
+}
+
+model PayrollBatch {
+  id               String             @id @default(uuid())
+  companyId        String
+  branchId         String?
+  period           String
+  name             String
+  status           PayrollBatchStatus @default(DRAFT)
+  totalEmployees   Int                @default(0)
+  generatedRecords Int                @default(0)
+  totalNetPay      Decimal            @default(0) @db.Decimal(12, 2)
+  totalEmployerCost Decimal           @default(0) @db.Decimal(12, 2)
+  notes            String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @default(now()) @updatedAt
+  branch           Branch?            @relation(fields: [branchId], references: [id])
+  company          Company            @relation(fields: [companyId], references: [id])
+  approvalRequests PayrollApprovalRequest[]
+  dianProcessingJobs PayrollDianProcessingJob[]
+  payrollRecords   payroll_records[]
+
+  @@index([companyId, period, status])
+  @@index([branchId])
+  @@map("payroll_batches")
+}
+
+model PayrollDianProcessingJob {
+  id              String            @id @default(uuid())
+  companyId       String
+  payrollRecordId String?
+  payrollBatchId  String?
+  branchId        String?
+  actionType      String
+  status          String            @default("PENDING")
+  triggeredById   String?
+  attempts        Int               @default(0)
+  lastAttemptAt   DateTime?
+  nextRetryAt     DateTime?
+  processedAt     DateTime?
+  responseCode    String?
+  responseMessage String?
+  payload         Json?
+  result          Json?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @default(now()) @updatedAt
+  branch          Branch?           @relation(fields: [branchId], references: [id])
+  company         Company           @relation(fields: [companyId], references: [id])
+  payrollBatch    PayrollBatch?     @relation(fields: [payrollBatchId], references: [id])
+  payrollRecord   payroll_records?  @relation(fields: [payrollRecordId], references: [id])
+  triggeredBy     User?             @relation(fields: [triggeredById], references: [id])
+
+  @@index([companyId, status, createdAt])
+  @@index([payrollRecordId])
+  @@index([payrollBatchId])
+  @@index([branchId])
+  @@map("payroll_dian_processing_jobs")
+}
+
+model PayrollEnterpriseRule {
+  id                           String   @id @default(uuid())
+  companyId                    String
+  branchId                     String?
+  processArea                  String
+  actionType                   String
+  policyName                   String
+  allowedRoles                 Json?
+  requireDifferentActors       Boolean  @default(false)
+  requireBranchScope           Boolean  @default(false)
+  requireAccountingReview      Boolean  @default(false)
+  sharedWithAreas              Json?
+  isActive                     Boolean  @default(true)
+  notes                        String?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @default(now()) @updatedAt
+  branch                       Branch?  @relation(fields: [branchId], references: [id])
+  company                      Company  @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, processArea, actionType, isActive])
+  @@index([branchId])
+  @@map("payroll_enterprise_rules")
+}
+
+model PayrollPeriodControl {
+  id         String              @id @default(uuid())
+  companyId  String
+  branchId   String?
+  period     String
+  status     PayrollPeriodStatus @default(OPEN)
+  notes      String?
+  closedAt   DateTime?
+  reopenedAt DateTime?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @default(now()) @updatedAt
+  branch     Branch?             @relation(fields: [branchId], references: [id])
+  company    Company             @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, branchId, period])
+  @@index([companyId, period, status])
+  @@map("payroll_period_controls")
 }
 
 model DianXmlTemplate {
@@ -2295,6 +2838,12 @@ model AccountingAccount {
   invoice_accounting_profiles_invoice_accounting_profiles_revenueAccountIdToaccounting_accounts               InvoiceAccountingProfile[]    @relation("invoice_accounting_profiles_revenueAccountIdToaccounting_accounts")
   invoice_accounting_profiles_invoice_accounting_profiles_taxAccountIdToaccounting_accounts                   InvoiceAccountingProfile[]    @relation("invoice_accounting_profiles_taxAccountIdToaccounting_accounts")
   invoice_accounting_profiles_invoice_accounting_profiles_withholdingReceivableAccountIdToaccounting_accounts InvoiceAccountingProfile[]    @relation("invoice_accounting_profiles_withholdingReceivableAccountIdToaccounting_accounts")
+  payrollConcepts                                                                                             PayrollConcept[]
+  payroll_accounting_profiles_payroll_accounting_profiles_employeeDeductionsAccountIdToaccounting_accounts    PayrollAccountingProfile[]    @relation("payroll_accounting_profiles_employeeDeductionsAccountIdToaccounting_accounts")
+  payroll_accounting_profiles_payroll_accounting_profiles_employerContributionsAccountIdToaccounting_accounts PayrollAccountingProfile[]    @relation("payroll_accounting_profiles_employerContributionsAccountIdToaccounting_accounts")
+  payroll_accounting_profiles_payroll_accounting_profiles_employerExpenseAccountIdToaccounting_accounts       PayrollAccountingProfile[]    @relation("payroll_accounting_profiles_employerExpenseAccountIdToaccounting_accounts")
+  payroll_accounting_profiles_payroll_accounting_profiles_expenseAccountIdToaccounting_accounts               PayrollAccountingProfile[]    @relation("payroll_accounting_profiles_expenseAccountIdToaccounting_accounts")
+  payroll_accounting_profiles_payroll_accounting_profiles_netPayableAccountIdToaccounting_accounts            PayrollAccountingProfile[]    @relation("payroll_accounting_profiles_netPayableAccountIdToaccounting_accounts")
   lines                                                                                                       JournalEntryLine[]
 
   @@unique([companyId, code])
@@ -2526,6 +3075,7 @@ model JournalEntry {
   approvalRequests JournalEntryApprovalRequest[]
   attachments      JournalEntryAttachment[]
   lines            JournalEntryLine[]
+  payrollProvisionRuns PayrollProvisionRun[]
 
   @@unique([companyId, number])
   @@index([companyId])
@@ -3620,6 +4170,58 @@ enum ImportStatus {
 enum PayrollType {
   NOMINA_ELECTRONICA
   NOMINA_AJUSTE
+}
+
+enum PayrollConceptNature {
+  EARNING
+  DEDUCTION
+}
+
+enum PayrollConceptFormulaType {
+  MANUAL
+  FIXED_AMOUNT
+  BASE_SALARY_PERCENT
+  PROPORTIONAL_SALARY_PERCENT
+  OVERTIME_FACTOR
+}
+
+enum PayrollCalendarFrequency {
+  MONTHLY
+  BIWEEKLY
+  WEEKLY
+  SPECIAL
+}
+
+enum PayrollNoveltyType {
+  OVERTIME
+  SURCHARGE
+  SICK_LEAVE
+  LICENSE
+  VACATION
+  LOAN
+  GARNISHMENT
+  ADMISSION
+  TERMINATION
+  SALARY_CHANGE
+  OTHER_EARNING
+  OTHER_DEDUCTION
+}
+
+enum PayrollNoveltyStatus {
+  PENDING
+  APPLIED
+  CANCELLED
+}
+
+enum PayrollBatchStatus {
+  DRAFT
+  GENERATED
+  CLOSED
+}
+
+enum PayrollPeriodStatus {
+  OPEN
+  CLOSED
 }
 
 enum DianDocumentType {

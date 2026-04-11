@@ -58,6 +58,10 @@ export class CreateEmployeeDto {
   hireDate: string;
 
   @IsOptional()
+  @IsISO8601({}, { message: 'La fecha fin debe tener formato YYYY-MM-DD' })
+  contractEndDate?: string;
+
+  @IsOptional()
   @IsString()
   city?: string;
 
@@ -86,6 +90,14 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsString()
   bankCode?: string;
+
+  @IsOptional()
+  @IsString()
+  payrollPolicyId?: string;
+
+  @IsOptional()
+  @IsString()
+  payrollTypeConfigId?: string;
 }
 
 export class UpdateEmployeeDto extends PartialType(CreateEmployeeDto) {}

@@ -26,6 +26,7 @@ import { ImportAccountingBankStatementDto } from './dto/import-accounting-bank-s
 import { ReconcileAccountingBankMovementDto } from './dto/reconcile-accounting-bank-movement.dto';
 import { UpsertAccountingTaxConfigDto } from './dto/accounting-tax-config.dto';
 import { UpsertInvoiceAccountingProfileDto } from './dto/invoice-accounting-profile.dto';
+import { UpsertPayrollAccountingProfileDto } from './dto/payroll-accounting-profile.dto';
 import {
   AmortizeAccountingDeferredChargeDto,
   CreateAccountingDeferredChargeDto,
@@ -547,6 +548,23 @@ export class AccountingController {
     @Body() dto: UpsertInvoiceAccountingProfileDto,
   ) {
     return this.accountingService.upsertInvoiceAccountingProfile(companyId, dto);
+  }
+
+  @Get('payroll-accounting-profiles')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Listar perfiles contables para nómina' })
+  getPayrollAccountingProfiles(@CurrentUser('companyId') companyId: string) {
+    return this.accountingService.getPayrollAccountingProfiles(companyId);
+  }
+
+  @Post('payroll-accounting-profiles')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Crear o actualizar perfil contable de nómina' })
+  upsertPayrollAccountingProfile(
+    @CurrentUser('companyId') companyId: string,
+    @Body() dto: UpsertPayrollAccountingProfileDto,
+  ) {
+    return this.accountingService.upsertPayrollAccountingProfile(companyId, dto);
   }
 
   @Get('reports/fiscal-summary')

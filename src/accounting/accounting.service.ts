@@ -17,6 +17,7 @@ import { ImportAccountingBankStatementDto } from './dto/import-accounting-bank-s
 import { ReconcileAccountingBankMovementDto } from './dto/reconcile-accounting-bank-movement.dto';
 import { UpsertAccountingTaxConfigDto } from './dto/accounting-tax-config.dto';
 import { UpsertInvoiceAccountingProfileDto } from './dto/invoice-accounting-profile.dto';
+import { UpsertPayrollAccountingProfileDto } from './dto/payroll-accounting-profile.dto';
 import {
   AmortizeAccountingDeferredChargeDto,
   CreateAccountingDeferredChargeDto,
@@ -276,6 +277,36 @@ type InvoiceAccountingProfileRow = {
   icaReceivableAccountCode: string | null;
   icaReceivableAccountName: string | null;
   icaRate: Prisma.Decimal | number | string | null;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type PayrollAccountingProfileRow = {
+  id: string;
+  companyId: string;
+  profileName: string;
+  branchId: string | null;
+  payrollTypeConfigId: string | null;
+  payrollTypeConfigCode: string | null;
+  payrollTypeConfigName: string | null;
+  expenseAccountId: string;
+  expenseAccountCode: string;
+  expenseAccountName: string;
+  netPayableAccountId: string;
+  netPayableAccountCode: string;
+  netPayableAccountName: string;
+  employeeDeductionsAccountId: string;
+  employeeDeductionsAccountCode: string;
+  employeeDeductionsAccountName: string;
+  employerExpenseAccountId: string;
+  employerExpenseAccountCode: string;
+  employerExpenseAccountName: string;
+  employerContributionsAccountId: string;
+  employerContributionsAccountCode: string;
+  employerContributionsAccountName: string;
+  costCenter: string | null;
+  projectCode: string | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -1858,16 +1889,23 @@ export class AccountingService {
     try {
       const payroll = await (this.prisma.payroll_records as any).findFirst({
         where: { id: payrollId, companyId },
-        select: {
-          id: true,
-          payrollNumber: true,
-          payDate: true,
-          status: true,
-          isAnulado: true,
-          totalEarnings: true,
-          totalDeductions: true,
-          netPay: true,
-          totalEmployerCost: true,
+        include: {
+          employees: { select: { id: true, branchId: true } },
+          conceptLines: {
+            include: {
+              concept: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                  nature: true,
+                  accountingAccountId: true,
+                  costCenter: true,
+                  projectCode: true,
+                },
+              },
+            },
+          },
         },
       });
       if (!payroll) throw new NotFoundException('Registro de nómina no encontrado');
@@ -1883,27 +1921,112 @@ export class AccountingService {
       }
 
       const employerBurden = Math.max(0, Number(payroll.totalEmployerCost) - Number(payroll.totalEarnings));
-      const contributionLiability = Number(payroll.totalDeductions) + employerBurden;
-      const accounts = await this.resolvePayrollAccounts(companyId);
+      const accounts = await this.resolvePayrollAccounts(companyId, {
+        branchId: payroll.branchId ?? payroll.employees?.branchId ?? null,
+        payrollTypeConfigId: payroll.payrollTypeConfigId ?? null,
+      });
+      const lines: Array<any> = [];
+      let position = 1;
 
-      const lines = [
-        { accountId: accounts.expense.id, description: `Gasto nómina ${payroll.payrollNumber ?? payroll.id}`, debit: Number(payroll.totalEmployerCost), credit: 0, position: 1 },
-        { accountId: accounts.payable.id, description: `Nómina por pagar ${payroll.payrollNumber ?? payroll.id}`, debit: 0, credit: Number(payroll.netPay), position: 2 },
-      ];
-      if (contributionLiability > 0) {
+      const addLine = (line: {
+        accountId: string;
+        description: string;
+        debit: number;
+        credit: number;
+        branchId?: string | null;
+        costCenter?: string | null;
+        projectCode?: string | null;
+      }) => {
+        const debit = this.roundMoney(line.debit);
+        const credit = this.roundMoney(line.credit);
+        if (debit <= 0 && credit <= 0) return;
         lines.push({
-          accountId: accounts.contributions.id,
-          description: `Aportes y deducciones ${payroll.payrollNumber ?? payroll.id}`,
+          accountId: line.accountId,
+          description: line.description,
+          branchId: line.branchId ?? payroll.branchId ?? payroll.employees?.branchId ?? null,
+          costCenter: line.costCenter ?? accounts.costCenter ?? null,
+          projectCode: line.projectCode ?? accounts.projectCode ?? null,
+          debit,
+          credit,
+          position: position++,
+        });
+      };
+
+      const conceptEarnings = (payroll.conceptLines ?? []).filter((item: any) => item.nature === 'EARNING');
+      const conceptDeductions = (payroll.conceptLines ?? []).filter((item: any) => item.nature === 'DEDUCTION');
+      const payrollNumber = payroll.payrollNumber ?? payroll.id;
+      const conceptEarningTotal = conceptEarnings.reduce((sum: number, item: any) => sum + Number(item.amount ?? 0), 0);
+      const conceptDeductionTotal = conceptDeductions.reduce((sum: number, item: any) => sum + Number(item.amount ?? 0), 0);
+      const baseExpenseAmount = Math.max(0, Number(payroll.totalEarnings) - conceptEarningTotal);
+      const baseDeductionAmount = Math.max(0, Number(payroll.totalDeductions) - conceptDeductionTotal);
+
+      addLine({
+        accountId: accounts.expense.id,
+        description: `Gasto base nómina ${payrollNumber}`,
+        debit: baseExpenseAmount,
+        credit: 0,
+      });
+
+      for (const line of conceptEarnings) {
+        addLine({
+          accountId: line.concept?.accountingAccountId ?? accounts.expense.id,
+          description: `${line.name} ${payrollNumber}`,
+          debit: Number(line.amount ?? 0),
+          credit: 0,
+          costCenter: line.concept?.costCenter ?? accounts.costCenter ?? null,
+          projectCode: line.concept?.projectCode ?? accounts.projectCode ?? null,
+        });
+      }
+
+      if (employerBurden > 0) {
+        addLine({
+          accountId: accounts.employerExpense.id,
+          description: `Carga prestacional ${payrollNumber}`,
+          debit: employerBurden,
+          credit: 0,
+        });
+      }
+
+      addLine({
+        accountId: accounts.payable.id,
+        description: `Nómina por pagar ${payrollNumber}`,
+        debit: 0,
+        credit: Number(payroll.netPay),
+      });
+
+      if (baseDeductionAmount > 0) {
+        addLine({
+          accountId: accounts.deductions.id,
+          description: `Deducciones empleado ${payrollNumber}`,
           debit: 0,
-          credit: contributionLiability,
-          position: 3,
+          credit: baseDeductionAmount,
+        });
+      }
+
+      for (const line of conceptDeductions) {
+        addLine({
+          accountId: line.concept?.accountingAccountId ?? accounts.deductions.id,
+          description: `${line.name} ${payrollNumber}`,
+          debit: 0,
+          credit: Number(line.amount ?? 0),
+          costCenter: line.concept?.costCenter ?? accounts.costCenter ?? null,
+          projectCode: line.concept?.projectCode ?? accounts.projectCode ?? null,
+        });
+      }
+
+      if (employerBurden > 0) {
+        addLine({
+          accountId: accounts.contributions.id,
+          description: `Aportes patronales ${payrollNumber}`,
+          debit: 0,
+          credit: employerBurden,
         });
       }
 
       const entry = await this.createAutoPostedEntry(companyId, {
         date: new Date(payroll.payDate).toISOString(),
-        description: `Contabilización automática nómina ${payroll.payrollNumber ?? payroll.id}`,
-        reference: payroll.payrollNumber ?? payroll.id,
+        description: `Contabilización automática nómina ${payrollNumber}`,
+        reference: payrollNumber,
         sourceType: JournalSourceType.PAYROLL,
         sourceId,
         lines,
@@ -1916,7 +2039,21 @@ export class AccountingService {
         sourceId,
         entryId: entry.id,
         status: 'SUCCESS',
-        message: `Nómina ${payroll.payrollNumber ?? payroll.id} integrada correctamente`,
+        message: `Nómina ${payrollNumber} integrada correctamente`,
+        context: {
+          payrollNumber,
+          branchId: payroll.branchId ?? payroll.employees?.branchId ?? null,
+          payrollTypeConfigId: payroll.payrollTypeConfigId ?? null,
+          profileId: accounts.profileId ?? null,
+          conceptBreakdown: {
+            earnings: conceptEarnings.length,
+            deductions: conceptDeductions.length,
+          },
+          dimensions: {
+            costCenter: accounts.costCenter ?? null,
+            projectCode: accounts.projectCode ?? null,
+          },
+        },
       });
     } catch (error: any) {
       return this.recordIntegration(companyId, {
@@ -4588,6 +4725,166 @@ export class AccountingService {
     }));
   }
 
+  async getPayrollAccountingProfiles(companyId: string) {
+    const rows = await this.prisma.$queryRawUnsafe<PayrollAccountingProfileRow[]>(
+      `
+        SELECT
+          pap."id",
+          pap."companyId",
+          pap."profileName",
+          pap."branchId",
+          pap."payrollTypeConfigId",
+          ptc."code" AS "payrollTypeConfigCode",
+          ptc."name" AS "payrollTypeConfigName",
+          pap."expenseAccountId",
+          ae."code" AS "expenseAccountCode",
+          ae."name" AS "expenseAccountName",
+          pap."netPayableAccountId",
+          anp."code" AS "netPayableAccountCode",
+          anp."name" AS "netPayableAccountName",
+          pap."employeeDeductionsAccountId",
+          aed."code" AS "employeeDeductionsAccountCode",
+          aed."name" AS "employeeDeductionsAccountName",
+          pap."employerExpenseAccountId",
+          aee."code" AS "employerExpenseAccountCode",
+          aee."name" AS "employerExpenseAccountName",
+          pap."employerContributionsAccountId",
+          aec."code" AS "employerContributionsAccountCode",
+          aec."name" AS "employerContributionsAccountName",
+          pap."costCenter",
+          pap."projectCode",
+          pap."isActive",
+          pap."createdAt",
+          pap."updatedAt"
+        FROM "payroll_accounting_profiles" pap
+        INNER JOIN "accounting_accounts" ae ON ae."id" = pap."expenseAccountId"
+        INNER JOIN "accounting_accounts" anp ON anp."id" = pap."netPayableAccountId"
+        INNER JOIN "accounting_accounts" aed ON aed."id" = pap."employeeDeductionsAccountId"
+        INNER JOIN "accounting_accounts" aee ON aee."id" = pap."employerExpenseAccountId"
+        INNER JOIN "accounting_accounts" aec ON aec."id" = pap."employerContributionsAccountId"
+        LEFT JOIN "payroll_type_configs" ptc ON ptc."id" = pap."payrollTypeConfigId"
+        WHERE pap."companyId" = $1
+        ORDER BY pap."profileName" ASC
+      `,
+      companyId,
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      profileName: row.profileName,
+      branchId: row.branchId,
+      payrollTypeConfigId: row.payrollTypeConfigId,
+      payrollTypeConfig: row.payrollTypeConfigId
+        ? { id: row.payrollTypeConfigId, code: row.payrollTypeConfigCode, name: row.payrollTypeConfigName }
+        : null,
+      expenseAccount: { id: row.expenseAccountId, code: row.expenseAccountCode, name: row.expenseAccountName },
+      netPayableAccount: { id: row.netPayableAccountId, code: row.netPayableAccountCode, name: row.netPayableAccountName },
+      employeeDeductionsAccount: { id: row.employeeDeductionsAccountId, code: row.employeeDeductionsAccountCode, name: row.employeeDeductionsAccountName },
+      employerExpenseAccount: { id: row.employerExpenseAccountId, code: row.employerExpenseAccountCode, name: row.employerExpenseAccountName },
+      employerContributionsAccount: { id: row.employerContributionsAccountId, code: row.employerContributionsAccountCode, name: row.employerContributionsAccountName },
+      costCenter: row.costCenter,
+      projectCode: row.projectCode,
+      isActive: row.isActive,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    }));
+  }
+
+  async upsertPayrollAccountingProfile(companyId: string, dto: UpsertPayrollAccountingProfileDto) {
+    await this.validateAccountsExist(companyId, [
+      dto.expenseAccountId,
+      dto.netPayableAccountId,
+      dto.employeeDeductionsAccountId,
+      dto.employerExpenseAccountId,
+      dto.employerContributionsAccountId,
+    ]);
+
+    if (dto.branchId) {
+      const branch = await this.prisma.branch.findFirst({
+        where: { id: dto.branchId, companyId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!branch) throw new BadRequestException('La sucursal indicada no pertenece a la empresa');
+    }
+
+    if (dto.payrollTypeConfigId) {
+      const payrollType = await (this.prisma as any).payrollTypeConfig.findFirst({
+        where: { id: dto.payrollTypeConfigId, companyId, isActive: true },
+        select: { id: true },
+      });
+      if (!payrollType) throw new BadRequestException('El tipo de nómina indicado no pertenece a la empresa');
+    }
+
+    const id = dto.id ?? randomUUID();
+    const exists = dto.id
+      ? await this.prisma.$queryRawUnsafe<Array<{ id: string }>>(
+          `SELECT "id" FROM "payroll_accounting_profiles" WHERE "companyId" = $1 AND "id" = $2 LIMIT 1`,
+          companyId,
+          dto.id,
+        )
+      : [];
+
+    if (exists[0]) {
+      await this.prisma.$executeRawUnsafe(
+        `
+          UPDATE "payroll_accounting_profiles"
+          SET
+            "profileName" = $3,
+            "branchId" = $4,
+            "payrollTypeConfigId" = $5,
+            "expenseAccountId" = $6,
+            "netPayableAccountId" = $7,
+            "employeeDeductionsAccountId" = $8,
+            "employerExpenseAccountId" = $9,
+            "employerContributionsAccountId" = $10,
+            "costCenter" = $11,
+            "projectCode" = $12,
+            "isActive" = $13,
+            "updatedAt" = NOW()
+          WHERE "companyId" = $1 AND "id" = $2
+        `,
+        companyId,
+        id,
+        dto.profileName.trim(),
+        dto.branchId ?? null,
+        dto.payrollTypeConfigId ?? null,
+        dto.expenseAccountId,
+        dto.netPayableAccountId,
+        dto.employeeDeductionsAccountId,
+        dto.employerExpenseAccountId,
+        dto.employerContributionsAccountId,
+        dto.costCenter?.trim() || null,
+        dto.projectCode?.trim() || null,
+        dto.isActive ?? true,
+      );
+    } else {
+      await this.prisma.$executeRawUnsafe(
+        `
+          INSERT INTO "payroll_accounting_profiles" (
+            "id","companyId","profileName","branchId","payrollTypeConfigId","expenseAccountId",
+            "netPayableAccountId","employeeDeductionsAccountId","employerExpenseAccountId",
+            "employerContributionsAccountId","costCenter","projectCode","isActive","createdAt","updatedAt"
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
+        `,
+        id,
+        companyId,
+        dto.profileName.trim(),
+        dto.branchId ?? null,
+        dto.payrollTypeConfigId ?? null,
+        dto.expenseAccountId,
+        dto.netPayableAccountId,
+        dto.employeeDeductionsAccountId,
+        dto.employerExpenseAccountId,
+        dto.employerContributionsAccountId,
+        dto.costCenter?.trim() || null,
+        dto.projectCode?.trim() || null,
+        dto.isActive ?? true,
+      );
+    }
+
+    return (await this.getPayrollAccountingProfiles(companyId)).find((item) => item.id === id);
+  }
+
   async upsertInvoiceAccountingProfile(companyId: string, dto: UpsertInvoiceAccountingProfileDto) {
     await this.validateAccountsExist(companyId, [
       dto.receivableAccountId,
@@ -4722,19 +5019,37 @@ export class AccountingService {
     };
   }
 
-  private async resolvePayrollAccounts(companyId: string) {
+  private async resolvePayrollAccounts(companyId: string, params?: { branchId?: string | null; payrollTypeConfigId?: string | null }) {
     const accounts = await this.prisma.accountingAccount.findMany({
       where: { companyId, isActive: true },
       select: { id: true, code: true, name: true },
     });
+    const profiles = await this.getPayrollAccountingProfiles(companyId);
+    const profile =
+      profiles.find((item: any) => item.isActive && item.branchId === params?.branchId && item.payrollTypeConfigId === params?.payrollTypeConfigId) ||
+      profiles.find((item: any) => item.isActive && !item.branchId && item.payrollTypeConfigId === params?.payrollTypeConfigId) ||
+      profiles.find((item: any) => item.isActive && item.branchId === params?.branchId && !item.payrollTypeConfigId) ||
+      profiles.find((item: any) => item.isActive && !item.branchId && !item.payrollTypeConfigId) ||
+      null;
     const expense = this.findAccountByPrefixes(accounts, '5105', '51');
     const payable = this.findAccountByPrefixes(accounts, '2505', '25');
+    const deductions = this.findAccountByPrefixes(accounts, '2370', '2380', '23', '24');
+    const employerExpense = this.findAccountByPrefixes(accounts, '5105', '51');
     const contributions = this.findAccountByPrefixes(accounts, '2370', '2380', '23', '24');
 
-    if (!expense || !payable || !contributions) {
+    if (!expense || !payable || !deductions || !employerExpense || !contributions) {
       throw new BadRequestException('No se encontraron cuentas contables base para integrar nómina');
     }
-    return { expense, payable, contributions };
+    return {
+      profileId: profile?.id ?? null,
+      costCenter: profile?.costCenter ?? null,
+      projectCode: profile?.projectCode ?? null,
+      expense: profile?.expenseAccount ?? expense,
+      payable: profile?.netPayableAccount ?? payable,
+      deductions: profile?.employeeDeductionsAccount ?? deductions,
+      employerExpense: profile?.employerExpenseAccount ?? employerExpense,
+      contributions: profile?.employerContributionsAccount ?? contributions,
+    };
   }
 
   private async resolveInventoryAccounts(companyId: string) {

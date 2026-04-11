@@ -254,16 +254,6 @@ export class InvoicesController {
     return this.invoicesService.updateDocumentConfig(companyId, id, dto);
   }
 
-  @Get(':id')
-  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
-  findOne(
-    @CurrentUser('companyId') companyId: string,
-    @CurrentBranchId() branchId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.invoicesService.findOne(companyId,branchId, id);
-  }
-
   @Post()
   @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
   @ApiOperation({ summary: 'Crear factura' })
@@ -326,6 +316,16 @@ export class InvoicesController {
     @Body() dto: CreateSourceInvoiceDto,
   ) {
     return this.invoicesService.createInvoiceFromSource(companyId, branchId, dto);
+  }
+
+  @Get(':id')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR')
+  findOne(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentBranchId() branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invoicesService.findOne(companyId,branchId, id);
   }
 
   // ── DIAN: Enviar factura ────────────────────────────────────────────────
