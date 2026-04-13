@@ -3097,14 +3097,83 @@ export class InvoicesService {
 
     // ── Determine environment ─────────────────────────────────────────────
     const isTestMode = company.dianTestMode !== false;
+
+    if (!isTestMode) {
+      const productionConfigIssues: string[] = [];
+      if (!documentConfig?.id) {
+        productionConfigIssues.push('La factura no tiene una configuración documental activa asociada');
+      }
+      if (!documentConfig?.resolutionNumber) {
+        productionConfigIssues.push('La configuración documental no tiene resolución DIAN');
+      }
+      if (!documentConfig?.prefix) {
+        productionConfigIssues.push('La configuración documental no tiene prefijo');
+      }
+      if (!documentConfig?.technicalKey) {
+        productionConfigIssues.push('La configuración documental no tiene clave técnica');
+      }
+      if (productionConfigIssues.length > 0) {
+        const productionConfigMessage =
+          `No se puede emitir en producción: ${productionConfigIssues.join('. ')}. ` +
+          `Configura una resolución documental activa para este canal antes de enviar a DIAN.`;
+        if (dianJob) {
+          await this.completeDianJob(dianJob.id, {
+            status: 'FAILED',
+            responseCode: 'MISSING_PRODUCTION_DOCUMENT_CONFIG',
+            responseMessage: productionConfigMessage,
+            result: { invoiceId, sourceChannel, documentConfigId: documentConfig?.id ?? null },
+          });
+        }
+        throw new BadRequestException(productionConfigMessage);
+      }
+    }
+
     const softwareId = company.dianSoftwareId || DIAN_SOFTWARE_ID;
     const softwarePin = company.dianSoftwarePin || DIAN_SOFTWARE_PIN;
     const testSetId = company.dianTestSetId || DIAN_TEST_SET_ID;
-    const claveTecnica =
+    // Determinar fuente de claveTecnica (para logging de diagnóstico FAD06)
+    const rawClaveTecnica =
       documentConfig?.technicalKey ||
       (inv.fiscalRulesSnapshot as any)?.technicalKey ||
       company.dianClaveTecnica ||
       DIAN_TECH_KEY_HAB;
+    const claveTecnicaSource =
+      documentConfig?.technicalKey ? 'documentConfig.technicalKey' :
+      (inv.fiscalRulesSnapshot as any)?.technicalKey ? 'fiscalRulesSnapshot.technicalKey' :
+      company.dianClaveTecnica ? 'company.dianClaveTecnica' : 'DIAN_TECH_KEY_HAB (fallback)';
+    // Limpiar TODOS los caracteres de espacio/control: espacios, tabs, newlines, no-break-spaces, etc.
+    // Las claves técnicas DIAN son siempre alfanuméricas sin espacios.
+    const claveTecnica = rawClaveTecnica.replace(/[\s\u00A0\uFEFF]/g, '');
+    this.logger.log(
+      `[CUFE] claveTecnica fuente="${claveTecnicaSource}" len=${claveTecnica.length} ` +
+      `primeros8="${claveTecnica.slice(0, 8)}" últimos4="${claveTecnica.slice(-4)}"`,
+    );
+
+    if (!isTestMode && !/^[A-Fa-f0-9]{38,40}$/.test(claveTecnica)) {
+      const invalidTechnicalKeyMessage =
+        `La Clave Técnica DIAN de producción es inválida. ` +
+        `Valor actual: "${claveTecnica}" (longitud ${claveTecnica.length}). ` +
+        `Debe ser hexadecimal y coincidir exactamente con la resolución activa en DIAN.`;
+      if (dianJob) {
+        await this.completeDianJob(dianJob.id, {
+          status: 'FAILED',
+          responseCode: 'INVALID_PRODUCTION_TECHNICAL_KEY',
+          responseMessage: invalidTechnicalKeyMessage,
+          result: { invoiceId, sourceChannel, documentConfigId: documentConfig?.id ?? null },
+        });
+      }
+      throw new BadRequestException(invalidTechnicalKeyMessage);
+    }
+
+    // Advertencia crítica: en producción, sin claveTecnica propia el CUFE es inválido.
+    // La clave de habilitación (DIAN_TECH_KEY_HAB) no es reconocida por DIAN en producción.
+    if (!isTestMode && claveTecnica === DIAN_TECH_KEY_HAB.replace(/[\s\u00A0\uFEFF]/g, '')) {
+      this.logger.error(
+        `[DIAN] PRODUCCIÓN — Empresa ${company.nit} no tiene "Clave Técnica DIAN" configurada. ` +
+        `Se usará la clave de habilitación por defecto, pero el CUFE generado no será válido para producción. ` +
+        `Configure dianClaveTecnica en el panel de la empresa.`,
+      );
+    }
 
     // ── Full invoice number for DIAN ──────────────────────────────────────
     // En HABILITACIÓN la DIAN exige prefijo SETP y numeración 990000001-995000000
@@ -3131,7 +3200,17 @@ export class InvoicesService {
     } else {
       // Producción: prefijo y número reales
       prefix = dbPrefix;
-      numericPart = rawNum.replace(new RegExp(`^${dbPrefix}-?`), '').replace(/^0+/, '') || rawNum.replace(/\D/g, '') || '1';
+      const rawSuffix =
+        rawNum.replace(new RegExp(`^${dbPrefix}-?`), '').trim() ||
+        rawNum.replace(/\D/g, '') ||
+        '1';
+      const rawSuffixDigits = rawSuffix.replace(/\D/g, '');
+      // DIAN calcula NumFac con el consecutivo documental real, no con padding visual
+      // interno tipo "0001". Conservamos el número bonito en BD/PDF, pero para XML/CUFE
+      // emitimos el consecutivo sin ceros a la izquierda: FEJC255, BEFA1, etc.
+      numericPart = rawSuffixDigits
+        ? String(parseInt(rawSuffixDigits, 10) || 1)
+        : rawSuffix;
     }
 
     const fullNumber = `${prefix}${numericPart}`;
@@ -3160,9 +3239,17 @@ export class InvoicesService {
     const issueTime = this.toColombiaTime(nowForIssue);       // hora actual Colombia == SigningTime
 
     // ── Tax breakdown ─────────────────────────────────────────────────────
-    const taxIva = Number(invoice.taxAmount);   // code 01 IVA
-    const taxInc = 0;                           // code 04 INC (not used here)
-    const taxIca = 0;                           // code 03 ICA (not used here)
+    // FAD06 fix: el CUFE ValImp1 DEBE coincidir exactamente con cac:TaxTotal/cbc:TaxAmount del XML.
+    // El XML TaxTotal se calcula sumando el taxAmount de cada línea, NO desde invoice.taxAmount.
+    // Si hay diferencia de redondeo entre ambas fuentes → DIAN recalcula CUFE diferente → FAD06.
+    // Solución: usar la misma fuente para ambos (suma de items).
+    const taxIvaFromItems = items.reduce(
+      (sum: number, it: any) => sum + Number(it.taxAmount || 0),
+      0,
+    );
+    const taxIva = taxIvaFromItems;            // code 01 IVA — sincronizado con XML TaxTotal
+    const taxInc = 0;                          // code 04 INC
+    const taxIca = 0;                          // code 03 ICA (no emitido en XML, DIAN usa 0.00)
     const subtotal = Number(invoice.subtotal);
     const total = Number(invoice.total);
 
@@ -3175,20 +3262,54 @@ export class InvoicesService {
       where: { category: "DOCUMENT_TYPES" }
     });
     // ── Customer ID type (DIAN codes) ────────────────────────────────────
-    const idTypeMap: Record<string, string> = JSON.parse(
-      documentTypes?.value || '{"CC":"13"}'
-    );
-    const custIdType = idTypeMap[customer.documentType || 'CC'] || '13';
-    // custId: quitar DV si viene como "900108281-1" o "900108281-1" — usar solo NIT base
+    // No depender solo del parámetro en BD. Si falta o viene incompleto,
+    // un NIT podría degradarse a CC (13), provocando FAK61 y CUFE inválido.
+    const defaultIdTypeMap: Record<string, string> = {
+      NIT: '31',
+      CC: '13',
+      CE: '22',
+      TI: '12',
+      RC: '11',
+      PASSPORT: '41',
+      PEP: '47',
+      PPT: '48',
+      DIE: '31',
+    };
+    const parameterIdTypeMap: Record<string, string> = documentTypes?.value
+      ? JSON.parse(documentTypes.value)
+      : {};
+    const idTypeMap: Record<string, string> = {
+      ...defaultIdTypeMap,
+      ...parameterIdTypeMap,
+    };
+    const rawCustomerDocumentType = String(customer.documentType || '').trim().toUpperCase();
     const custIdRaw = customer.documentNumber || customer.taxId || '222222222222';
-    // Strip hyphen-and-digit suffix (DV) for NIT: "900108281-1" → "900108281"
-    const custIdBase = custIdType === '31' ? custIdRaw.replace(/-\d$/, '').replace(/\D/g, '').slice(0, 9) : custIdRaw.replace(/-\d$/, '');
+    const custIdDigits = custIdRaw.replace(/\D/g, '');
+    const inferredAsNit =
+      rawCustomerDocumentType === 'NIT' ||
+      rawCustomerDocumentType === '31' ||
+      (!!customer.taxId && String(customer.taxId).replace(/\D/g, '').length >= 9) ||
+      (/^\d{9,}$/.test(custIdDigits) && rawCustomerDocumentType === '');
+    const custIdType =
+      idTypeMap[rawCustomerDocumentType] ||
+      (inferredAsNit ? '31' : '13');
+    // custId debe quedar exactamente igual en XML y CUFE.
+    // Para evitar FAD06, normalizamos el documento del adquiriente al mismo valor
+    // que se envía en CompanyID / numAdq.
+    const custIdBase = custIdType === '31'
+      ? custIdDigits.slice(0, 9)
+      : (custIdDigits || custIdRaw.replace(/-\d$/, '').trim());
     const custId = custIdBase;
     // FAK24: DV obligatorio cuando schemeName=31. Calcular siempre desde el NIT limpio.
     const custDv = custIdType === '31' ? this.calcDv(custIdBase.replace(/[^0-9]/g, '').slice(0, 9)) : '';
-    const nitCustomerClean = custIdBase.replace(/[^0-9]/g, '');
+    const nitCustomerClean = custId;
 
     // ── CUFE — SHA-384 per Anexo Técnico DIAN v1.9 §11.2 ─────────────────
+    this.logger.log(
+      `[CUFE] Calculando con claveTecnica="${claveTecnica}" (len=${claveTecnica.length}) ` +
+      `tipoAmbiente="${isTestMode ? '2' : '1'}" issueDate="${issueDate}" issueTime="${issueTime}" ` +
+      `subtotal=${subtotal} taxIva=${taxIva} total=${total} nitOFE="${supplierNitClean}" numAdq="${nitCustomerClean}"`,
+    );
     const { cufe, cufeInput } = this.calcCufeWithInput({
       invoiceNumber: fullNumber, issueDate, issueTime,
       subtotal, taxIva, taxInc, taxIca, total,
@@ -3197,6 +3318,8 @@ export class InvoicesService {
       claveTecnica,
       tipoAmbiente: isTestMode ? '2' : '1',
     });
+    this.logger.log(`[CUFE] Input: "${cufeInput}"`);
+    this.logger.log(`[CUFE] Hash:  "${cufe}"`);
 
     // ── Software Security Code ────────────────────────────────────────────
     const ssc = this.calcSoftwareSecurityCode(softwareId, softwarePin, fullNumber);
@@ -3310,6 +3433,51 @@ export class InvoicesService {
         unspscCode: it.product?.unspscCode ?? (it as any).unspscCode ?? null,
       })),
     });
+    await this.logInvoiceAudit(companyId, null, 'INVOICE_CUFE_TRACE', invoiceId, null, {
+      environment: isTestMode ? 'HABILITACION' : 'PRODUCCION',
+      sourceChannel,
+      invoiceId,
+      invoiceNumberDb: invoice.invoiceNumber,
+      prefixDb: invoice.prefix,
+      fullNumber,
+      issueDate,
+      issueTime,
+      subtotal,
+      taxIva,
+      taxInc,
+      taxIca,
+      total,
+      supplier: {
+        nit: supplierNitClean,
+        dv: supplierDv,
+        razonSocial: company.razonSocial,
+      },
+      customer: {
+        name: customer.name,
+        documentTypeRaw: customer.documentType,
+        documentTypeDian: custIdType,
+        documentNumberRaw: custIdRaw,
+        documentNumberNormalized: custId,
+      },
+      documentConfig: {
+        id: documentConfig?.id ?? null,
+        prefix: documentConfig?.prefix ?? null,
+        resolutionNumber: documentConfig?.resolutionNumber ?? null,
+        rangeFrom: documentConfig?.rangeFrom ?? null,
+        rangeTo: documentConfig?.rangeTo ?? null,
+        validFrom: documentConfig?.validFrom ?? null,
+        validTo: documentConfig?.validTo ?? null,
+        technicalKey: claveTecnica,
+        technicalKeySource: claveTecnicaSource,
+        technicalKeyLength: claveTecnica.length,
+      },
+      cufe,
+      cufeInput,
+      xml: {
+        invoiceIdTag: fullNumber,
+        uuid: cufe,
+      },
+    });
     const certPem = this.normalizePem(company.dianCertificate);
     const keyPem = this.normalizePem(company.dianCertificateKey);
     // ── Sign XML (XAdES-BES placeholder — real cert needed for production) ─
@@ -3318,12 +3486,66 @@ export class InvoicesService {
     const xmlSigned = this.signXmlPlaceholder(xmlUnsigned, certPem, keyPem, issueDateTimeForSig);
 
     // ── Compress to ZIP → Base64 ──────────────────────────────────────────
-    // Anexo Técnico §15: fileName = {NitOFE}{CUFE}.zip
-    const xmlFileName = `${supplierNitClean}${fullNumber}.xml`;
-    const zipFileName = `${supplierNitClean}${fullNumber}.zip`;
+    // Anexo Técnico §15: fileName = {NitOFE}{CUFE}.zip  (CUFE = hash SHA384, NO el número de factura)
+    const xmlFileName = `${supplierNitClean}${cufe}.xml`;
+    const zipFileName = `${supplierNitClean}${cufe}.zip`;
     this.logger.log(`[DIAN] Compressing ${xmlFileName} → ${zipFileName}`);
     const zipBuffer = await this.createZip(xmlFileName, xmlSigned);
     const zipBase64 = zipBuffer.toString('base64');
+
+    await this.logInvoiceAudit(companyId, null, 'INVOICE_DIAN_DISPATCH_TRACE', invoiceId, null, {
+      environment: isTestMode ? 'HABILITACION' : 'PRODUCCION',
+      invoiceId,
+      invoiceNumberDb: invoice.invoiceNumber,
+      fullNumber,
+      wsUrl: isTestMode ? DIAN_WS_HAB : DIAN_WS_PROD,
+      soapActions: isTestMode ? ['SendTestSetAsync'] : ['SendBillSync', 'SendBillAsync'],
+      software: {
+        softwareId,
+        softwarePinLength: softwarePin.length,
+        providerId: supplierNitClean,
+        providerDv: supplierDv,
+      },
+      documentAuthorization: {
+        documentConfigId: documentConfig?.id ?? null,
+        resolutionNumber: resolucion,
+        prefix: dianPrefix,
+        rangeFrom: rangoDesde,
+        rangeTo: rangoHasta,
+        validFrom: fechaDesde,
+        validTo: fechaHasta,
+        technicalKey: claveTecnica,
+        technicalKeyLength: claveTecnica.length,
+      },
+      customer: {
+        documentTypeDian: custIdType,
+        documentNumber: custId,
+        name: customer.name,
+      },
+      files: {
+        xmlFileName,
+        zipFileName,
+        xmlBytes: Buffer.byteLength(xmlSigned, 'utf8'),
+        zipBytes: zipBuffer.length,
+        zipBase64Length: zipBase64.length,
+      },
+      soapPreview: isTestMode
+        ? {
+            action: 'SendTestSetAsync',
+            body: `<wcf:SendTestSetAsync><wcf:fileName>${zipFileName}</wcf:fileName><wcf:contentFile>[BASE64_ZIP_${zipBase64.length}]</wcf:contentFile><wcf:testSetId>${testSetId}</wcf:testSetId></wcf:SendTestSetAsync>`,
+          }
+        : {
+            sync: `<wcf:SendBillSync><wcf:fileName>${zipFileName}</wcf:fileName><wcf:contentFile>[BASE64_ZIP_${zipBase64.length}]</wcf:contentFile></wcf:SendBillSync>`,
+            async: `<wcf:SendBillAsync><wcf:fileName>${zipFileName}</wcf:fileName><wcf:contentFile>[BASE64_ZIP_${zipBase64.length}]</wcf:contentFile></wcf:SendBillAsync>`,
+          },
+      xmlHeader: {
+        profileExecutionId: isTestMode ? '2' : '1',
+        customizationId,
+        invoiceAuthorization: resolucion,
+        supplierCompanyId: supplierNitClean,
+        customerCompanyId: custId,
+      },
+    });
 
     // ── Save XML before network call ──────────────────────────────────────
     await this.prisma.invoice.update({
@@ -3340,17 +3562,157 @@ export class InvoicesService {
     // ── Call DIAN WebService ──────────────────────────────────────────────
     // WS-Security X.509 Certificate Token Profile 1.1 (Anexo Técnico §7.5)
 
-    this.logger.log(`[DIAN] Calling ${isTestMode ? 'SendTestSetAsync' : 'SendBillAsync'} → ${isTestMode ? DIAN_WS_HAB : DIAN_WS_PROD}`);
+    this.logger.log(`[DIAN] Calling ${isTestMode ? 'SendTestSetAsync' : 'SendBillSync (con fallback a SendBillAsync)'} → ${isTestMode ? DIAN_WS_HAB : DIAN_WS_PROD}`);
 
+    // ── Habilitación: SendTestSetAsync (sin cambios) ──────────────────────
+    if (isTestMode) {
+      let soapResult: DianSoapResult;
+      try {
+        soapResult = await this.soapSendTestSetAsync({ zipFileName, zipBase64, testSetId, wsUrl: DIAN_WS_HAB, certPem, keyPem });
+      } catch (err: any) {
+        this.logger.error(`[DIAN] SOAP call failed: ${err.message}`);
+        await this.prisma.invoice.update({
+          where: { id: invoiceId },
+          data: { dianStatus: 'ERROR', dianStatusMsg: err.message, dianErrors: null } as any,
+        });
+        if (dianJob) {
+          await this.completeDianJob(dianJob.id, {
+            status: 'FAILED',
+            responseMessage: err.message,
+            result: { invoiceId, phase: 'SOAP_SEND' },
+          });
+        }
+        throw new BadRequestException(`Error de comunicación con DIAN: ${err.message}`);
+      }
+
+      // ── Persist result (habilitación) ───────────────────────────────────
+      const newStatus = soapResult.zipKey ? 'SENT_DIAN' : 'DRAFT';
+      const sendErrors: string[] = soapResult.errorMessages ?? [];
+      const updated = await this.prisma.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          status: newStatus,
+          dianStatus: soapResult.zipKey ? 'SENT' : 'ERROR',
+          dianZipKey: soapResult.zipKey || null,
+          dianQrCode: cufe ? `https://catalogo-vpfe-hab.dian.gov.co/document/searchqr?documentkey=${cufe}` : null,
+          dianSentAt: new Date(),
+          dianStatusMsg: sendErrors.length > 0 ? sendErrors.join('; ') : null,
+          dianErrors: sendErrors.length > 0 ? JSON.stringify(sendErrors) : null,
+        } as any,
+      });
+
+      const accountingSync = await this.accountingService.syncInvoiceEntry(companyId, invoiceId);
+      if (approvedRequest?.id) await this.consumeApprovalRequest(approvedRequest.id);
+      await this.logInvoiceAudit(companyId, null, 'INVOICE_ISSUED_TO_DIAN', invoiceId, { status: invoice.status }, {
+        status: updated.status,
+        dianStatus: updated.dianStatus,
+        dianZipKey: updated.dianZipKey,
+        approvalId: approvedRequest?.id ?? null,
+      });
+      if (dianJob) {
+        await this.completeDianJob(dianJob.id, {
+          status: updated.dianStatus === 'SENT' ? 'SUCCESS' : 'FAILED',
+          responseMessage:
+            updated.dianStatusMsg ??
+            (sendErrors.length > 0 ? sendErrors.join('; ') : null) ??
+            (updated.dianStatus === 'SENT' ? 'Factura enviada a DIAN' : 'No fue posible enviar la factura'),
+          result: {
+            invoiceId,
+            status: updated.status,
+            dianStatus: updated.dianStatus,
+            dianZipKey: updated.dianZipKey,
+            sendMode: 'ASYNC',
+          },
+        });
+      }
+
+      return {
+        ...updated,
+        dianResult: soapResult,
+        accountingSync,
+      };
+    }
+
+    // ── Producción: SendBillSync primero, fallback a SendBillAsync ────────
+    // SendBillSync también recibe el ZIP comprimido (igual que SendBillAsync).
+    // La única diferencia es que retorna la validación sincrónica en vez de un ZipKey.
+    let syncResult: DianStatusResult | null = null;
+    let usedSendMode: 'SYNC' | 'ASYNC' = 'SYNC';
+
+    try {
+      this.logger.log(`[DIAN] Intentando SendBillSync para ${zipFileName}`);
+      syncResult = await this.soapSendBillSync({ zipFileName, zipBase64, wsUrl: DIAN_WS_PROD, certPem, keyPem });
+      this.logger.log(`[DIAN] SendBillSync isValid=${syncResult.isValid} statusCode=${syncResult.statusCode}`);
+    } catch (syncErr: any) {
+      this.logger.warn(`[DIAN] SendBillSync falló (${syncErr.message}), haciendo fallback a SendBillAsync`);
+      syncResult = null;
+    }
+
+    // Si SendBillSync funcionó → persistir resultado directo
+    if (syncResult !== null) {
+      const syncErrors: string[] = syncResult.errorMessages ?? [];
+      const syncStatus = syncResult.isValid ? 'ACCEPTED_DIAN' : 'REJECTED_DIAN';
+      const syncDianStatus = syncResult.isValid ? '00' : (syncResult.statusCode || 'ERROR');
+
+      const updated = await this.prisma.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          status: syncStatus,
+          dianStatus: syncDianStatus,
+          dianStatusCode: syncResult.statusCode || null,
+          dianStatusMsg: syncResult.statusDescription || syncResult.statusMessage || (syncErrors.length > 0 ? syncErrors.join('; ') : null),
+          dianZipKey: null,
+          dianCufe: cufe,
+          dianErrors: syncErrors.length > 0 ? JSON.stringify(syncErrors) : null,
+          dianXmlBase64: syncResult.xmlBase64 || null,
+          dianQrCode: cufe ? `https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=${cufe}` : null,
+          dianSentAt: new Date(),
+          dianResponseAt: new Date(),
+        } as any,
+      });
+
+      const accountingSync = await this.accountingService.syncInvoiceEntry(companyId, invoiceId);
+      if (approvedRequest?.id) await this.consumeApprovalRequest(approvedRequest.id);
+      await this.logInvoiceAudit(companyId, null, 'INVOICE_ISSUED_TO_DIAN', invoiceId, { status: invoice.status }, {
+        status: updated.status,
+        dianStatus: updated.dianStatus,
+        dianZipKey: null,
+        approvalId: approvedRequest?.id ?? null,
+        sendMode: 'SYNC',
+      });
+      if (dianJob) {
+        await this.completeDianJob(dianJob.id, {
+          status: syncResult.isValid ? 'SUCCESS' : 'FAILED',
+          responseMessage:
+            syncResult.statusDescription ||
+            syncResult.statusMessage ||
+            (syncErrors.length > 0 ? syncErrors.join('; ') : null) ||
+            (syncResult.isValid ? 'Factura aceptada por DIAN (SendBillSync)' : 'Factura rechazada por DIAN (SendBillSync)'),
+          result: {
+            invoiceId,
+            status: updated.status,
+            dianStatus: updated.dianStatus,
+            dianZipKey: null,
+            sendMode: 'SYNC',
+          },
+        });
+      }
+
+      return {
+        ...updated,
+        dianResult: { success: syncResult.isValid, zipKey: undefined, errorMessages: syncErrors, raw: syncResult.raw } as DianSoapResult,
+        accountingSync,
+      };
+    }
+
+    // Fallback: SendBillAsync (ZIP)
+    usedSendMode = 'ASYNC';
     let soapResult: DianSoapResult;
     try {
-      if (isTestMode) {
-        soapResult = await this.soapSendTestSetAsync({ zipFileName, zipBase64, testSetId, wsUrl: DIAN_WS_HAB, certPem, keyPem });
-      } else {
-        soapResult = await this.soapSendBillAsync({ zipFileName, zipBase64, wsUrl: DIAN_WS_PROD, certPem, keyPem });
-      }
+      this.logger.log(`[DIAN] Fallback SendBillAsync para ${zipFileName}`);
+      soapResult = await this.soapSendBillAsync({ zipFileName, zipBase64, wsUrl: DIAN_WS_PROD, certPem, keyPem });
     } catch (err: any) {
-      this.logger.error(`[DIAN] SOAP call failed: ${err.message}`);
+      this.logger.error(`[DIAN] SOAP call failed (SendBillAsync fallback): ${err.message}`);
       await this.prisma.invoice.update({
         where: { id: invoiceId },
         data: { dianStatus: 'ERROR', dianStatusMsg: err.message, dianErrors: null } as any,
@@ -3359,13 +3721,13 @@ export class InvoicesService {
         await this.completeDianJob(dianJob.id, {
           status: 'FAILED',
           responseMessage: err.message,
-          result: { invoiceId, phase: 'SOAP_SEND' },
+          result: { invoiceId, phase: 'SOAP_SEND', sendMode: 'ASYNC' },
         });
       }
       throw new BadRequestException(`Error de comunicación con DIAN: ${err.message}`);
     }
 
-    // ── Persist result ────────────────────────────────────────────────────
+    // ── Persist result (fallback async) ──────────────────────────────────
     const newStatus = soapResult.zipKey ? 'SENT_DIAN' : 'DRAFT';
     const sendErrors: string[] = soapResult.errorMessages ?? [];
     const updated = await this.prisma.invoice.update({
@@ -3374,7 +3736,7 @@ export class InvoicesService {
         status: newStatus,
         dianStatus: soapResult.zipKey ? 'SENT' : 'ERROR',
         dianZipKey: soapResult.zipKey || null,
-        dianQrCode: cufe ? (isTestMode ? `https://catalogo-vpfe-hab.dian.gov.co/document/searchqr?documentkey=${cufe}` : `https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=${cufe}`) : null,
+        dianQrCode: cufe ? `https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=${cufe}` : null,
         dianSentAt: new Date(),
         dianStatusMsg: sendErrors.length > 0 ? sendErrors.join('; ') : null,
         dianErrors: sendErrors.length > 0 ? JSON.stringify(sendErrors) : null,
@@ -3388,6 +3750,7 @@ export class InvoicesService {
       dianStatus: updated.dianStatus,
       dianZipKey: updated.dianZipKey,
       approvalId: approvedRequest?.id ?? null,
+      sendMode: usedSendMode,
     });
     if (dianJob) {
       await this.completeDianJob(dianJob.id, {
@@ -3401,6 +3764,7 @@ export class InvoicesService {
           status: updated.status,
           dianStatus: updated.dianStatus,
           dianZipKey: updated.dianZipKey,
+          sendMode: usedSendMode,
         },
       });
     }
@@ -3466,15 +3830,36 @@ export class InvoicesService {
 
     let result: DianStatusResult;
     let queriedBy: 'ZIP' | 'CUFE' = zipKey ? 'ZIP' : 'CUFE';
+    let fallbackAfterBatchUnauth = false; // true cuando GetStatusZip devolvió código 2 y se hizo fallback a GetStatus
     try {
       if (zipKey) {
         result = await this.soapGetStatusZip({ trackId: zipKey, wsUrl, certPem, keyPem });
-        if (result.statusCode === '66' && cufe) {
-          this.logger.warn(
-            `[DIAN] GetStatusZip devolvió código 66 para ${invoiceId}. Reintentando por CUFE.`,
+
+        if (result.statusCode === '66') {
+          // Código 66 de GetStatusZip = documento en procesamiento asíncrono (DIAN Anexo Técnico §7.11).
+          // Es comportamiento ESPERADO con SendBillAsync: DIAN aún no terminó de procesar el ZIP.
+          // NO hacer fallback a GetStatus+CUFE — también retornaría 66 porque el doc no está indexado aún.
+          // La factura queda como SENT_DIAN (pendiente de confirmación). El usuario debe reintentar en minutos.
+          this.logger.log(
+            `[DIAN] GetStatusZip código 66 para ${invoiceId} — en procesamiento asíncrono. ZipKey: ${zipKey}`,
           );
+        } else if (result.statusCode === '2' && cufe) {
+          // Código 2 = empresa no autorizada para envío por lotes (GetStatusZip).
+          // Intentar consulta individual por CUFE (GetStatus), que no requiere autorización de lotes.
+          // NOTA: Si el CUFE también falla (código 66), puede ser claveTecnica incorrecta en producción.
+          this.logger.warn(
+            `[DIAN] GetStatusZip código 2 (no autorizada para lotes) para ${invoiceId}. Reintentando con GetStatus por CUFE.`,
+          );
+          fallbackAfterBatchUnauth = true;
           result = await this.soapGetStatus({ trackId: cufe, wsUrl, certPem, keyPem });
           queriedBy = 'CUFE';
+          if (result.statusCode === '66') {
+            this.logger.error(
+              `[DIAN] GetStatus por CUFE también devolvió 66 para ${invoiceId}. ` +
+              `Posible causa: "Clave Técnica DIAN" de producción no configurada (dianClaveTecnica). ` +
+              `El CUFE calculado con la clave de habilitación no es reconocido por DIAN en producción.`,
+            );
+          }
         }
       } else {
         result = await this.soapGetStatus({ trackId: cufe!, wsUrl, certPem, keyPem });
@@ -3491,13 +3876,24 @@ export class InvoicesService {
       throw error;
     }
 
-    // Map DIAN status to invoice status
+    // Map DIAN status to invoice status.
+    // No sobreescribir campos DIAN cuando el estado es incierto/pendiente:
+    //   1. Código 66 de GetStatusZip (ZIP): DIAN aún procesando async — normal, esperar.
+    //   2. Código 66 de GetStatus(CUFE) después de fallback por código 2: el CUFE puede ser
+    //      inválido si dianClaveTecnica de producción no está configurada. No marcar como error
+    //      definitivo hasta que el usuario configure la clave técnica correcta.
+    const isPendingAsync = result.statusCode === '66' && queriedBy === 'ZIP';
+    const isCufeMismatch = result.statusCode === '66' && queriedBy === 'CUFE' && fallbackAfterBatchUnauth;
+    const skipStatusFields = isPendingAsync || isCufeMismatch;
+
     let newInvoiceStatus: string = invoice.status;
-    // DIAN returns '0' or '00' for success (PDF §7.11.3 shows '0', §7.12.3 shows '00')
-    if (result.isValid && (result.statusCode === '00' || result.statusCode === '0')) {
-      newInvoiceStatus = 'ACCEPTED_DIAN';
-    } else if (result.statusCode === '99') {
-      newInvoiceStatus = 'REJECTED_DIAN';
+    if (!skipStatusFields) {
+      // DIAN returns '0' or '00' for success (PDF §7.11.3 shows '0', §7.12.3 shows '00')
+      if (result.isValid && (result.statusCode === '00' || result.statusCode === '0')) {
+        newInvoiceStatus = 'ACCEPTED_DIAN';
+      } else if (result.statusCode === '99') {
+        newInvoiceStatus = 'REJECTED_DIAN';
+      }
     }
 
     const statusErrors: string[] = result.errorMessages ?? [];
@@ -3505,11 +3901,14 @@ export class InvoicesService {
       where: { id: invoiceId },
       data: {
         status: newInvoiceStatus,
-        dianStatus: result.statusCode,
-        dianStatusCode: result.statusCode,
-        dianStatusMsg: result.statusMessage || result.statusDescription || null,
-        dianErrors: statusErrors.length > 0 ? JSON.stringify(statusErrors) : null,
-        dianXmlBase64: result.xmlBase64 || null,
+        // skipStatusFields: no sobreescribir cuando el estado es ambiguo/pendiente
+        ...(skipStatusFields ? {} : {
+          dianStatus: result.statusCode,
+          dianStatusCode: result.statusCode,
+          dianStatusMsg: result.statusMessage || result.statusDescription || null,
+          dianErrors: statusErrors.length > 0 ? JSON.stringify(statusErrors) : null,
+          dianXmlBase64: result.xmlBase64 || null,
+        }),
         dianResponseAt: new Date(),
       } as any,
     });
@@ -3518,23 +3917,32 @@ export class InvoicesService {
       ? await this.accountingService.syncInvoiceEntry(companyId, invoiceId)
       : null;
 
+    const pendingMsg = isCufeMismatch
+      ? 'DIAN no encontró el CUFE — posible "Clave Técnica DIAN" de producción no configurada'
+      : 'DIAN procesando documento (async) — reintentar en unos minutos';
+
     await this.logInvoiceAudit(companyId, null, 'INVOICE_DIAN_STATUS_QUERIED', invoiceId, null, {
       status: updated.status,
       dianStatusCode: updated.dianStatusCode,
       dianStatusMsg: updated.dianStatusMsg,
       queriedBy,
+      skipStatusFields,
     });
     if (dianJob) {
       await this.completeDianJob(dianJob.id, {
         status: 'SUCCESS',
-        responseCode: updated.dianStatusCode ?? null,
-        responseMessage: updated.dianStatusMsg ?? result.statusDescription ?? 'Estado DIAN consultado',
+        responseCode: skipStatusFields ? result.statusCode : (updated.dianStatusCode ?? null),
+        responseMessage: skipStatusFields
+          ? pendingMsg
+          : (updated.dianStatusMsg ?? result.statusDescription ?? 'Estado DIAN consultado'),
         result: {
           invoiceId,
           status: updated.status,
           dianStatus: updated.dianStatus,
-          dianStatusCode: updated.dianStatusCode,
+          dianStatusCode: skipStatusFields ? result.statusCode : updated.dianStatusCode,
           queriedBy,
+          pendingAsync: skipStatusFields,
+          isCufeMismatch,
         },
       });
     }
@@ -3543,6 +3951,8 @@ export class InvoicesService {
       ...updated,
       accountingSync,
       dianQuerySource: queriedBy,
+      dianPendingAsync: skipStatusFields,
+      dianCufeMismatch: isCufeMismatch,
     };
   }
 
@@ -3956,6 +4366,134 @@ export class InvoicesService {
     // ── PaymentMeansCode ──────────────────────────────────────────────────
     const paymentMeansCode = d.paymentMeansCode || '10';
 
+    // ── cac:Person para personas naturales (FAK61 / ZB01) ────────────────
+    // Obligatorio cuando AdditionalAccountID="2" (custIdType !== '31').
+    // POSICIÓN: entre cac:PartyTaxScheme y cac:PartyLegalEntity (schema DIAN Colombia).
+    // Orden campos UBL 2.1: FirstName(1) → FamilyName(2) → MiddleName(4).
+    let custPersonXml = '';
+    if (d.custIdType !== '31') {
+      const _nameParts = (d.custName || '').trim().split(/\s+/).filter(Boolean);
+      const _firstName  = x(_nameParts[0] || '');
+      const _familyName = x(_nameParts.length > 1 ? _nameParts[_nameParts.length - 1] : _nameParts[0] || '');
+      const _middleName = _nameParts.length > 2 ? x(_nameParts.slice(1, -1).join(' ')) : '';
+      custPersonXml =
+        `<cac:Person>\n` +
+        `            <cbc:FirstName>${_firstName}</cbc:FirstName>\n` +
+        `            <cbc:FamilyName>${_familyName}</cbc:FamilyName>` +
+        (_middleName ? `\n            <cbc:MiddleName>${_middleName}</cbc:MiddleName>` : '') +
+        `\n         </cac:Person>`;
+    }
+
+    const customerPartyXml = d.custIdType === '31'
+      ? `<cac:AccountingCustomerParty>
+      <cbc:AdditionalAccountID>1</cbc:AdditionalAccountID>
+      <cac:Party>
+         <cac:PartyName>
+            <cbc:Name>${x(d.custName)}</cbc:Name>
+         </cac:PartyName>
+         <cac:PhysicalLocation>
+            <cac:Address>
+               <cbc:ID>${d.custCityCode || '11001'}</cbc:ID>
+               <cbc:CityName>${x(d.custCity)}</cbc:CityName>
+               <cbc:CountrySubentity>${x(d.custDepartment)}</cbc:CountrySubentity>
+               <cbc:CountrySubentityCode>${d.custDeptCode || '11'}</cbc:CountrySubentityCode>
+               <cac:AddressLine>
+                  <cbc:Line>${x(d.custAddress)}</cbc:Line>
+               </cac:AddressLine>
+               <cac:Country>
+                  <cbc:IdentificationCode>${d.custCountry}</cbc:IdentificationCode>
+                  <cbc:Name languageID="es">Colombia</cbc:Name>
+               </cac:Country>
+            </cac:Address>
+         </cac:PhysicalLocation>
+         <cac:PartyTaxScheme>
+            <cbc:RegistrationName>${x(d.custName)}</cbc:RegistrationName>
+            <cbc:CompanyID schemeAgencyID="195" schemeAgencyName="CO, DIAN (Dirección de Impuestos y Aduanas Nacionales)"${d.custDv ? ` schemeID="${d.custDv}"` : ''} schemeName="${d.custIdType}">${d.custId}</cbc:CompanyID>
+            <cbc:TaxLevelCode listName="48">${d.custTaxLevelCode && d.custTaxLevelCode !== 'ZZ' && d.custTaxLevelCode !== 'O-99' ? d.custTaxLevelCode : 'O-13'}</cbc:TaxLevelCode>
+            <cac:RegistrationAddress>
+               <cbc:ID>${d.custCityCode || '11001'}</cbc:ID>
+               <cbc:CityName>${x(d.custCity)}</cbc:CityName>
+               <cbc:CountrySubentity>${x(d.custDepartment)}</cbc:CountrySubentity>
+               <cbc:CountrySubentityCode>${d.custDeptCode || '11'}</cbc:CountrySubentityCode>
+               <cac:AddressLine>
+                  <cbc:Line>${x(d.custAddress)}</cbc:Line>
+               </cac:AddressLine>
+               <cac:Country>
+                  <cbc:IdentificationCode>${d.custCountry}</cbc:IdentificationCode>
+                  <cbc:Name languageID="es">Colombia</cbc:Name>
+               </cac:Country>
+            </cac:RegistrationAddress>
+            <cac:TaxScheme>
+               <cbc:ID>01</cbc:ID>
+               <cbc:Name>IVA</cbc:Name>
+            </cac:TaxScheme>
+         </cac:PartyTaxScheme>
+         <cac:PartyLegalEntity>
+            <cbc:RegistrationName>${x(d.custName)}</cbc:RegistrationName>
+            <cbc:CompanyID schemeAgencyID="195" schemeAgencyName="CO, DIAN (Dirección de Impuestos y Aduanas Nacionales)"${d.custDv ? ` schemeID="${d.custDv}"` : ''} schemeName="${d.custIdType}">${d.custId}</cbc:CompanyID>
+         </cac:PartyLegalEntity>
+         <cac:Contact>
+            <cbc:ElectronicMail>${d.custEmail}</cbc:ElectronicMail>
+         </cac:Contact>
+      </cac:Party>
+   </cac:AccountingCustomerParty>`
+      : `<cac:AccountingCustomerParty>
+      <cbc:AdditionalAccountID>2</cbc:AdditionalAccountID>
+      <cac:Party>
+         <cac:PartyIdentification>
+            <cbc:ID schemeName="${d.custIdType}">${d.custId}</cbc:ID>
+         </cac:PartyIdentification>
+         <cac:PartyName>
+            <cbc:Name>${x(d.custName)}</cbc:Name>
+         </cac:PartyName>
+         <cac:PhysicalLocation>
+            <cac:Address>
+               <cbc:ID>${d.custCityCode || '11001'}</cbc:ID>
+               <cbc:CityName>${x(d.custCity)}</cbc:CityName>
+               <cbc:CountrySubentity>${x(d.custDepartment)}</cbc:CountrySubentity>
+               <cbc:CountrySubentityCode>${d.custDeptCode || '11'}</cbc:CountrySubentityCode>
+               <cac:AddressLine>
+                  <cbc:Line>${x(d.custAddress)}</cbc:Line>
+               </cac:AddressLine>
+               <cac:Country>
+                  <cbc:IdentificationCode>${d.custCountry}</cbc:IdentificationCode>
+                  <cbc:Name languageID="es">Colombia</cbc:Name>
+               </cac:Country>
+            </cac:Address>
+         </cac:PhysicalLocation>
+         <cac:PartyTaxScheme>
+            <cbc:RegistrationName>${x(d.custName)}</cbc:RegistrationName>
+            <cbc:CompanyID schemeAgencyID="195" schemeAgencyName="CO, DIAN (Dirección de Impuestos y Aduanas Nacionales)" schemeName="${d.custIdType}">${d.custId}</cbc:CompanyID>
+            <cbc:TaxLevelCode listName="49">R-99-PN</cbc:TaxLevelCode>
+            <cac:RegistrationAddress>
+               <cbc:ID>${d.custCityCode || '11001'}</cbc:ID>
+               <cbc:CityName>${x(d.custCity)}</cbc:CityName>
+               <cbc:CountrySubentity>${x(d.custDepartment)}</cbc:CountrySubentity>
+               <cbc:CountrySubentityCode>${d.custDeptCode || '11'}</cbc:CountrySubentityCode>
+               <cac:AddressLine>
+                  <cbc:Line>${x(d.custAddress)}</cbc:Line>
+               </cac:AddressLine>
+               <cac:Country>
+                  <cbc:IdentificationCode>${d.custCountry}</cbc:IdentificationCode>
+                  <cbc:Name languageID="es">Colombia</cbc:Name>
+               </cac:Country>
+            </cac:RegistrationAddress>
+            <cac:TaxScheme>
+               <cbc:ID>ZZ</cbc:ID>
+               <cbc:Name>No aplica</cbc:Name>
+            </cac:TaxScheme>
+         </cac:PartyTaxScheme>
+         <cac:PartyLegalEntity>
+            <cbc:RegistrationName>${x(d.custName)}</cbc:RegistrationName>
+            <cbc:CompanyID schemeAgencyID="195" schemeAgencyName="CO, DIAN (Dirección de Impuestos y Aduanas Nacionales)" schemeName="${d.custIdType}">${d.custId}</cbc:CompanyID>
+         </cac:PartyLegalEntity>
+         <cac:Contact>
+            <cbc:ElectronicMail>${d.custEmail}</cbc:ElectronicMail>
+         </cac:Contact>
+         ${custPersonXml}
+      </cac:Party>
+   </cac:AccountingCustomerParty>`;
+
     // ── Base imponible y TaxTotals agrupados por tasa (FAS01a/FAS01b) ──────
     // La DIAN exige que haya exactamente un TaxTotal de cabecera por cada código
     // de tributo presente en las líneas, con el mismo ID, Name y Percent.
@@ -3978,6 +4516,36 @@ export class InvoicesService {
       ? Array.from(taxGroupsMap.values())
       : [{ taxId: '01', taxName: 'IVA', percent: 0, taxableAmt: 0, taxAmt: 0 }];
     const taxableBase = taxGroups.reduce((s, g) => s + g.taxableAmt, 0);
+    const headerTaxBlocks = [
+      ...taxGroups.map(g => `   <cac:TaxTotal>
+      <cbc:TaxAmount currencyID="${d.currency}">${g.taxAmt.toFixed(2)}</cbc:TaxAmount>
+      <cac:TaxSubtotal>
+         <cbc:TaxableAmount currencyID="${d.currency}">${g.taxableAmt.toFixed(2)}</cbc:TaxableAmount>
+         <cbc:TaxAmount currencyID="${d.currency}">${g.taxAmt.toFixed(2)}</cbc:TaxAmount>
+         <cac:TaxCategory>
+            <cbc:Percent>${g.percent.toFixed(2)}</cbc:Percent>
+            <cac:TaxScheme>
+               <cbc:ID>${g.taxId}</cbc:ID>
+               <cbc:Name>${g.taxName}</cbc:Name>
+            </cac:TaxScheme>
+         </cac:TaxCategory>
+      </cac:TaxSubtotal>
+   </cac:TaxTotal>`),
+      ...(d.taxIca > 0 ? [`   <cac:TaxTotal>
+      <cbc:TaxAmount currencyID="${d.currency}">${d.taxIca.toFixed(2)}</cbc:TaxAmount>
+      <cac:TaxSubtotal>
+         <cbc:TaxableAmount currencyID="${d.currency}">${(taxableBase > 0 ? taxableBase : d.subtotal).toFixed(2)}</cbc:TaxableAmount>
+         <cbc:TaxAmount currencyID="${d.currency}">${d.taxIca.toFixed(2)}</cbc:TaxAmount>
+         <cac:TaxCategory>
+            <cbc:Percent>0.00</cbc:Percent>
+            <cac:TaxScheme>
+               <cbc:ID>03</cbc:ID>
+               <cbc:Name>ICA</cbc:Name>
+            </cac:TaxScheme>
+         </cac:TaxCategory>
+      </cac:TaxSubtotal>
+   </cac:TaxTotal>`] : []),
+    ].join('\n');
 
     // ── Items XML — con AllowanceCharge cuando hay descuento ──────────────
     const itemsXml = d.items.map(item => {
@@ -4151,91 +4719,13 @@ URL=https://catalogo-vpfe${isHab ? '-hab' : ''}.dian.gov.co/Document/FindDocumen
          </cac:Contact>
       </cac:Party>
    </cac:AccountingSupplierParty>
-   <cac:AccountingCustomerParty>
-      <cbc:AdditionalAccountID>${d.custIdType === '31' ? '1' : '2'}</cbc:AdditionalAccountID>
-      <cac:Party>
-         <cac:PartyName>
-            <cbc:Name>${x(d.custName)}</cbc:Name>
-         </cac:PartyName>
-         <cac:PhysicalLocation>
-            <cac:Address>
-               <cbc:ID>${d.custCityCode || '11001'}</cbc:ID>
-               <cbc:CityName>${x(d.custCity)}</cbc:CityName>
-               <cbc:CountrySubentity>${x(d.custDepartment)}</cbc:CountrySubentity>
-               <cbc:CountrySubentityCode>${d.custDeptCode || '11'}</cbc:CountrySubentityCode>
-               <cac:AddressLine>
-                  <cbc:Line>${x(d.custAddress)}</cbc:Line>
-               </cac:AddressLine>
-               <cac:Country>
-                  <cbc:IdentificationCode>${d.custCountry}</cbc:IdentificationCode>
-                  <cbc:Name languageID="es">Colombia</cbc:Name>
-               </cac:Country>
-            </cac:Address>
-         </cac:PhysicalLocation>
-         <cac:PartyTaxScheme>
-            <cbc:RegistrationName>${x(d.custName)}</cbc:RegistrationName>
-            <cbc:CompanyID schemeAgencyID="195" schemeAgencyName="CO, DIAN (Dirección de Impuestos y Aduanas Nacionales)"${d.custDv ? ` schemeID="${d.custDv}"` : ''} schemeName="${d.custIdType}">${d.custId}</cbc:CompanyID>
-            ${d.custIdType !== '31'
-        ? `<cbc:TaxLevelCode listName="49">R-99-PN</cbc:TaxLevelCode>`
-        : `<cbc:TaxLevelCode listName="48">${d.custTaxLevelCode && d.custTaxLevelCode !== 'ZZ' && d.custTaxLevelCode !== 'O-99' ? d.custTaxLevelCode : 'O-13'}</cbc:TaxLevelCode>`}
-            <cac:RegistrationAddress>
-               <cbc:ID>${d.custCityCode || '11001'}</cbc:ID>
-               <cbc:CityName>${x(d.custCity)}</cbc:CityName>
-               <cbc:CountrySubentity>${x(d.custDepartment)}</cbc:CountrySubentity>
-               <cbc:CountrySubentityCode>${d.custDeptCode || '11'}</cbc:CountrySubentityCode>
-               <cac:AddressLine>
-                  <cbc:Line>${x(d.custAddress)}</cbc:Line>
-               </cac:AddressLine>
-               <cac:Country>
-                  <cbc:IdentificationCode>${d.custCountry}</cbc:IdentificationCode>
-                  <cbc:Name languageID="es">Colombia</cbc:Name>
-               </cac:Country>
-            </cac:RegistrationAddress>
-            ${d.custIdType !== '31'
-        ? `<cac:TaxScheme><cbc:ID>ZZ</cbc:ID><cbc:Name>No aplica</cbc:Name></cac:TaxScheme>`
-        : `<cac:TaxScheme><cbc:ID>01</cbc:ID><cbc:Name>IVA</cbc:Name></cac:TaxScheme>`}
-         </cac:PartyTaxScheme>
-         <cac:PartyLegalEntity>
-            <cbc:RegistrationName>${x(d.custName)}</cbc:RegistrationName>
-            <cbc:CompanyID schemeAgencyID="195" schemeAgencyName="CO, DIAN (Dirección de Impuestos y Aduanas Nacionales)"${d.custDv ? ` schemeID="${d.custDv}"` : ''} schemeName="${d.custIdType}">${d.custId}</cbc:CompanyID>
-            ${d.custIdType !== '31' ? (() => {
-        // FAK61: persona natural (CC/CE/TI/Pasaporte) → obligatorio <cac:Person>
-        // Descomponer "JUAN CARLOS PÉREZ MORALES" → FirstName [MiddleName] FamilyName
-        const parts = (d.custName || '').trim().split(/\s+/);
-        const fn = x(parts[0] || '');
-        const mn = parts.length > 2 ? x(parts.slice(1, -1).join(' ')) : '';
-        const ln = x(parts.length > 1 ? parts[parts.length - 1] : '');
-        return `<cac:Person>
-               <cbc:FirstName>${fn}</cbc:FirstName>${mn ? `
-               <cbc:MiddleName>${mn}</cbc:MiddleName>` : ''}
-               <cbc:FamilyName>${ln}</cbc:FamilyName>
-            </cac:Person>`;
-      })() : ''}
-         </cac:PartyLegalEntity>
-         <cac:Contact>
-            <cbc:ElectronicMail>${d.custEmail}</cbc:ElectronicMail>
-         </cac:Contact>
-      </cac:Party>
-   </cac:AccountingCustomerParty>
+${customerPartyXml}
    <cac:PaymentMeans>
       <cbc:ID>2</cbc:ID>
       <cbc:PaymentMeansCode>${paymentMeansCode}</cbc:PaymentMeansCode>
       <cbc:PaymentDueDate>${d.dueDate}</cbc:PaymentDueDate>
    </cac:PaymentMeans>
-${taxGroups.map(g => `   <cac:TaxTotal>
-      <cbc:TaxAmount currencyID="${d.currency}">${g.taxAmt.toFixed(2)}</cbc:TaxAmount>
-      <cac:TaxSubtotal>
-         <cbc:TaxableAmount currencyID="${d.currency}">${g.taxableAmt.toFixed(2)}</cbc:TaxableAmount>
-         <cbc:TaxAmount currencyID="${d.currency}">${g.taxAmt.toFixed(2)}</cbc:TaxAmount>
-         <cac:TaxCategory>
-            <cbc:Percent>${g.percent.toFixed(2)}</cbc:Percent>
-            <cac:TaxScheme>
-               <cbc:ID>${g.taxId}</cbc:ID>
-               <cbc:Name>${g.taxName}</cbc:Name>
-            </cac:TaxScheme>
-         </cac:TaxCategory>
-      </cac:TaxSubtotal>
-   </cac:TaxTotal>`).join('\n')}
+${headerTaxBlocks}
    <cac:LegalMonetaryTotal>
       <cbc:LineExtensionAmount currencyID="${d.currency}">${d.subtotal.toFixed(2)}</cbc:LineExtensionAmount>
       <cbc:TaxExclusiveAmount currencyID="${d.currency}">${(taxableBase > 0 ? taxableBase : d.subtotal).toFixed(2)}</cbc:TaxExclusiveAmount>
@@ -4480,9 +4970,17 @@ ${keyInfoXml}
   private async soapSendBillAsync(p: { zipFileName: string; zipBase64: string; wsUrl: string; certPem: string; keyPem: string }): Promise<DianSoapResult> {
     const body = `<wcf:SendBillAsync><wcf:fileName>${p.zipFileName}</wcf:fileName><wcf:contentFile>${p.zipBase64}</wcf:contentFile></wcf:SendBillAsync>`;
     const raw = await this.soapCall(p.wsUrl, body, 'SendBillAsync', p.certPem, p.keyPem);
-    const zipKey = this.extractTag(raw, 'b:zipKey') || this.extractTag(raw, 'ZipKey');
+    const zipKey = this.extractTag(raw, 'b:ZipKey') || this.extractTag(raw, 'ZipKey');
     const errors = this.extractAllTags(raw, 'b:processedMessage');
     return { success: !!zipKey && errors.length === 0, zipKey, errorMessages: errors, raw };
+  }
+
+  /** SendBillSync — producción, envío sincrónico con ZIP (retorna validación inmediata en vez de ZipKey) */
+  private async soapSendBillSync(p: { zipFileName: string; zipBase64: string; wsUrl: string; certPem: string; keyPem: string }): Promise<DianStatusResult> {
+    // Igual que SendBillAsync pero síncrono: DIAN recibe el mismo ZIP y devuelve IsValid+StatusCode directamente.
+    const body = `<wcf:SendBillSync><wcf:fileName>${p.zipFileName}</wcf:fileName><wcf:contentFile>${p.zipBase64}</wcf:contentFile></wcf:SendBillSync>`;
+    const raw = await this.soapCall(p.wsUrl, body, 'SendBillSync', p.certPem, p.keyPem);
+    return this.parseStatusResponse(raw);
   }
 
   /** GetStatus — query by CUFE */
