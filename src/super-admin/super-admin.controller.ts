@@ -165,6 +165,15 @@ export class SuperAdminController {
     return this.superAdminService.updateCompanyDianFacturacion(id, data);
   }
 
+  @Post('companies/:id/integrations/dian/numbering-range')
+  @ApiOperation({ summary: 'Consultar numeración DIAN productiva y clave técnica de una empresa' })
+  getCompanyDianNumberingRange(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() data: any,
+  ) {
+    return this.superAdminService.getCompanyDianNumberingRange(id, data);
+  }
+
   @Get('companies/:id/integrations/dian/nomina')
   @ApiOperation({ summary: 'Obtener configuración DIAN nómina de una empresa' })
   getCompanyDianNomina(@Param('id', ParseUUIDPipe) id: string) {

@@ -6,10 +6,14 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../config/prisma.service';
+import { InvoicesService } from '../invoices/invoices.service';
 
 @Injectable()
 export class SuperAdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private invoicesService: InvoicesService,
+  ) {}
 
   // ─── ROLES ───────────────────────────────────────────────────────────────────
 
@@ -739,6 +743,53 @@ export class SuperAdminService {
     });
     await this.saveCompanyDianPosResolution(companyId, pos);
     return this.getCompanyDianFacturacion(companyId);
+  }
+
+  async getCompanyDianNumberingRange(companyId: string, dto: any) {
+    const company = await this.getCompanyOrFail(companyId) as any;
+
+    if (company.dianTestMode) {
+      throw new BadRequestException('La consulta de numeración DIAN solo aplica para ambiente de producción');
+    }
+    if (!company.dianCertificate || !company.dianCertificateKey) {
+      throw new BadRequestException('La empresa no tiene certificado DIAN configurado');
+    }
+
+    const accountCode = String(dto?.accountCode || company.nit || '').replace(/\D/g, '');
+    const accountCodeT = String(dto?.accountCodeT || company.nit || '').replace(/\D/g, '');
+    const softwareCode = String(dto?.softwareCode || company.dianSoftwareId || '').trim();
+    const preferredPrefix = String(dto?.prefijo || dto?.prefix || '').trim().toUpperCase();
+    const preferredResolution = String(dto?.resolucion || dto?.resolutionNumber || '').trim();
+
+    if (!accountCode || !accountCodeT) {
+      throw new BadRequestException('La empresa no tiene NIT válido para consultar la numeración DIAN');
+    }
+    if (!softwareCode) {
+      throw new BadRequestException('Debes configurar el Software ID antes de consultar la numeración DIAN');
+    }
+
+    const result = await this.invoicesService.getDianNumberingRange({
+      accountCode,
+      accountCodeT,
+      softwareCode,
+      certPem: company.dianCertificate,
+      keyPem: company.dianCertificateKey,
+    });
+
+    const selected =
+      result.ranges.find((item) =>
+        (!!preferredResolution && item.resolutionNumber === preferredResolution) ||
+        (!!preferredPrefix && item.prefix.toUpperCase() === preferredPrefix),
+      ) ||
+      result.ranges[0] ||
+      null;
+
+    return {
+      operationCode: result.operationCode,
+      operationDescription: result.operationDescription,
+      selected,
+      ranges: result.ranges,
+    };
   }
 
   async getCompanyDianNomina(companyId: string) {

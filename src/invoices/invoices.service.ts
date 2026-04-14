@@ -4997,6 +4997,53 @@ ${keyInfoXml}
     return this.parseStatusResponse(raw);
   }
 
+  async getDianNumberingRange(params: {
+    accountCode: string;
+    accountCodeT?: string;
+    softwareCode: string;
+    certPem: string;
+    keyPem: string;
+    wsUrl?: string;
+  }) {
+    const wsUrl = params.wsUrl || DIAN_WS_PROD;
+    const body =
+      `<wcf:GetNumberingRange>` +
+      `<wcf:accountCode>${params.accountCode}</wcf:accountCode>` +
+      `<wcf:accountCodeT>${params.accountCodeT || params.accountCode}</wcf:accountCodeT>` +
+      `<wcf:softwareCode>${params.softwareCode}</wcf:softwareCode>` +
+      `</wcf:GetNumberingRange>`;
+
+    const raw = await this.soapCall(
+      wsUrl,
+      body,
+      'GetNumberingRange',
+      this.normalizePem(params.certPem),
+      this.normalizePem(params.keyPem),
+    );
+
+    const operationCode = this.extractTagLoose(raw, 'OperationCode') || '';
+    const operationDescription = this.extractTagLoose(raw, 'OperationDescription') || '';
+    const responseBlocks = this.extractBlocksLoose(raw, 'NumberRangeResponse');
+
+    const ranges = responseBlocks.map((block) => ({
+      resolutionNumber: this.extractTagLoose(block, 'ResolutionNumber') || '',
+      resolutionDate: this.extractTagLoose(block, 'ResolutionDate') || '',
+      prefix: this.extractTagLoose(block, 'Prefix') || '',
+      fromNumber: Number(this.extractTagLoose(block, 'FromNumber') || 0) || 0,
+      toNumber: Number(this.extractTagLoose(block, 'ToNumber') || 0) || 0,
+      validDateFrom: this.extractTagLoose(block, 'ValidDateFrom') || '',
+      validDateTo: this.extractTagLoose(block, 'ValidDateTo') || '',
+      technicalKey: this.extractTagLoose(block, 'TechnicalKey') || '',
+    }));
+
+    return {
+      operationCode,
+      operationDescription,
+      ranges,
+      raw,
+    };
+  }
+
   private parseStatusResponse(raw: string): DianStatusResult {
     return {
       isValid: this.extractTag(raw, 'b:IsValid') === 'true',
@@ -5346,6 +5393,11 @@ ${keyInfoXml}
     return e === -1 ? undefined : xml.substring(s + tag.length + 2, e).trim();
   }
 
+  private extractTagLoose(xml: string, tag: string): string | undefined {
+    const match = xml.match(new RegExp(`<(?:\\w+:)?${tag}>([\\s\\S]*?)</(?:\\w+:)?${tag}>`));
+    return match?.[1]?.trim();
+  }
+
   private extractAllTags(xml: string, tag: string): string[] {
     const r: string[] = [];
     let pos = 0;
@@ -5358,6 +5410,12 @@ ${keyInfoXml}
       pos = e + tag.length + 3;
     }
     return r;
+  }
+
+  private extractBlocksLoose(xml: string, tag: string): string[] {
+    return Array.from(
+      xml.matchAll(new RegExp(`<(?:\\w+:)?${tag}>([\\s\\S]*?)</(?:\\w+:)?${tag}>`, 'g')),
+    ).map((match) => match[1]);
   }
 
   // ── Date helpers ──────────────────────────────────────────────────────────
