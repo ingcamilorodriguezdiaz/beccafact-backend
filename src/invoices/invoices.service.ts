@@ -3149,7 +3149,7 @@ export class InvoicesService {
       `primeros8="${claveTecnica.slice(0, 8)}" últimos4="${claveTecnica.slice(-4)}"`,
     );
 
-    if (!isTestMode && !/^[A-Fa-f0-9]{38,40}$/.test(claveTecnica)) {
+     if (!isTestMode && !/^[A-Fa-f0-9]{62,64}$/.test(claveTecnica)) {
       const invalidTechnicalKeyMessage =
         `La Clave Técnica DIAN de producción es inválida. ` +
         `Valor actual: "${claveTecnica}" (longitud ${claveTecnica.length}). ` +
