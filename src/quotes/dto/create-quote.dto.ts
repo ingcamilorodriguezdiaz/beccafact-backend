@@ -95,6 +95,16 @@ export class CreateQuoteDto {
   @IsString()
   sourceChannel?: string;
 
+  @ApiPropertyOptional({ description: 'UUID de la lista de precios aplicada' })
+  @IsOptional()
+  @IsUUID()
+  priceListId?: string;
+
+  @ApiPropertyOptional({ description: 'UUID de la plantilla comercial aplicada' })
+  @IsOptional()
+  @IsUUID()
+  templateId?: string;
+
   @ApiPropertyOptional({ description: 'Moneda de la cotización', default: 'COP', example: 'COP' })
   @IsOptional()
   @IsString()

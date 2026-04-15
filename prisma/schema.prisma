@@ -3765,6 +3765,8 @@ model Quote {
   id                   String                 @id @default(uuid())
   companyId            String
   customerId           String
+  selectedPriceListId  String?
+  selectedTemplateId   String?
   number               String
   status               QuoteStatus            @default(DRAFT)
   issueDate            DateTime
@@ -3801,12 +3803,16 @@ model Quote {
   company              Company                @relation(fields: [companyId], references: [id])
   customer             Customer               @relation(fields: [customerId], references: [id])
   invoice              Invoice?               @relation("QuoteInvoice", fields: [invoiceId], references: [id])
+  selectedPriceList    QuotePriceList?        @relation("QuoteSelectedPriceList", fields: [selectedPriceListId], references: [id])
+  selectedTemplate     QuoteTemplate?         @relation("QuoteSelectedTemplate", fields: [selectedTemplateId], references: [id])
   salesOrders          SalesOrder[]
 
   @@unique([companyId, number])
   @@index([companyId])
   @@index([companyId, status])
   @@index([companyId, issueDate])
+  @@index([selectedPriceListId])
+  @@index([selectedTemplateId])
   @@map("quotes")
 }
 
@@ -3887,6 +3893,7 @@ model QuotePriceList {
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @default(now()) @updatedAt
   quote_price_list_items QuotePriceListItem[]
+  selectedInQuotes       Quote[]              @relation("QuoteSelectedPriceList")
   companies              Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, name])
@@ -3924,6 +3931,7 @@ model QuoteTemplate {
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @default(now()) @updatedAt
   quote_template_items QuoteTemplateItem[]
+  selectedInQuotes     Quote[]             @relation("QuoteSelectedTemplate")
   companies            Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, name])

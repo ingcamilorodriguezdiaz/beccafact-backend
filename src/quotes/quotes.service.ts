@@ -1250,14 +1250,14 @@ export class QuotesService {
       this.getAdvancedCommercialFields(companyId, [id]),
     ]);
     const advancedFields = advancedFieldsMap.get(id);
-    return {
+    return this.normalizeQuoteSelections({
       ...quote,
       ...(advancedFields ?? {}),
       approval,
       approvalFlow,
       approvalRequired: await this.requiresApproval(companyId, Number(quote.total), quote.items as any[]),
       currentVersion: versionCount,
-    };
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1269,6 +1269,7 @@ export class QuotesService {
       where: { id: dto.customerId, companyId, deletedAt: null },
     });
     if (!customer) throw new NotFoundException('Cliente no encontrado');
+    await this.ensureCommercialSelectionsBelongToCompany(companyId, dto.priceListId, dto.templateId);
 
     const number = await this.getNextQuoteNumber(companyId);
     const { itemsWithTotals, subtotal, taxAmount, total } = this.calculateTotals(
@@ -1280,6 +1281,8 @@ export class QuotesService {
       data: {
         companyId,
         customerId: dto.customerId,
+        selectedPriceListId: dto.priceListId ?? null,
+        selectedTemplateId: dto.templateId ?? null,
         number,
         status: 'DRAFT',
         issueDate: new Date(dto.issueDate),
@@ -1310,14 +1313,14 @@ export class QuotesService {
       total: Number(created.total ?? 0),
       customerId: created.customerId,
     });
-    return {
+    return this.normalizeQuoteSelections({
       ...created,
       ...(advancedFields ?? {}),
       approvalRequired: await this.requiresApproval(companyId, total, dto.items),
       currentVersion: 1,
       approvalFlow: [],
       approval: null,
-    };
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1325,6 +1328,7 @@ export class QuotesService {
   // ─────────────────────────────────────────────────────────────────────────────
   async update(companyId: string, id: string, dto: UpdateQuoteDto, userId?: string) {
     const quote = await this.findOne(companyId, id);
+    await this.ensureCommercialSelectionsBelongToCompany(companyId, dto.priceListId, dto.templateId);
 
     if (!MUTABLE_STATUSES.includes(quote.status as QuoteStatus)) {
       throw new BadRequestException(
@@ -1366,7 +1370,7 @@ export class QuotesService {
     }
 
     // Excluir 'items' del spread del dto para no pasarlo directamente a Prisma
-    const { items, ...dtoWithoutItems } = dto;
+    const { items, priceListId, templateId, ...dtoWithoutItems } = dto;
 
     await this.ensureQuoteCanProceed(companyId, id, quote);
     await this.createVersionSnapshot(companyId, id, 'UPDATE_BEFORE', quote, userId ?? null);
@@ -1375,6 +1379,8 @@ export class QuotesService {
       where: { id },
       data: {
         ...dtoWithoutItems,
+        ...(priceListId !== undefined ? { selectedPriceListId: priceListId || null } : {}),
+        ...(templateId !== undefined ? { selectedTemplateId: templateId || null } : {}),
         ...(dto.issueDate && { issueDate: new Date(dto.issueDate) }),
         ...(dto.expiresAt && { expiresAt: new Date(dto.expiresAt) }),
         ...totalsData,
@@ -1406,14 +1412,14 @@ export class QuotesService {
       total: Number(updated.total ?? 0),
       currentVersion: await this.getCurrentVersionNumber(companyId, id),
     });
-    return {
+    return this.normalizeQuoteSelections({
       ...updated,
       ...(advancedFields ?? {}),
       approvalRequired: await this.requiresApproval(companyId, Number(updated.total), updated.items as any[]),
       currentVersion: await this.getCurrentVersionNumber(companyId, id),
       approval: await this.getLatestApproval(companyId, id),
       approvalFlow: await this.getApprovalFlow(companyId, id),
-    };
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1717,6 +1723,8 @@ export class QuotesService {
       salesOwnerName: quote.salesOwnerName ?? undefined,
       opportunityName: quote.opportunityName ?? undefined,
       sourceChannel: quote.sourceChannel ?? undefined,
+      priceListId: (quote as any).selectedPriceListId ?? (quote as any).priceListId ?? undefined,
+      templateId: (quote as any).selectedTemplateId ?? (quote as any).templateId ?? undefined,
       currency: quote.currency ?? undefined,
       paymentTermLabel: (quote as any).paymentTermLabel ?? undefined,
       paymentTermDays: (quote as any).paymentTermDays ?? undefined,
@@ -2108,6 +2116,32 @@ export class QuotesService {
     };
   }
 
+  private async ensureCommercialSelectionsBelongToCompany(
+    companyId: string,
+    priceListId?: string | null,
+    templateId?: string | null,
+  ) {
+    if (priceListId) {
+      const priceList = await this.prisma.quotePriceList.findFirst({
+        where: { id: priceListId, companyId, isActive: true },
+        select: { id: true },
+      });
+      if (!priceList) {
+        throw new BadRequestException('La lista de precios seleccionada no pertenece a la empresa o no está activa');
+      }
+    }
+
+    if (templateId) {
+      const template = await this.prisma.quoteTemplate.findFirst({
+        where: { id: templateId, companyId, isActive: true },
+        select: { id: true },
+      });
+      if (!template) {
+        throw new BadRequestException('La plantilla seleccionada no pertenece a la empresa o no está activa');
+      }
+    }
+  }
+
   private async getApplicableApprovalPolicies(companyId: string, total: number, items: Array<{ discount?: any }> = []) {
     const policies = await this.getApprovalPolicies(companyId);
     const maxDiscount = items.reduce((acc, item) => Math.max(acc, Number(item?.discount ?? 0)), 0);
@@ -2322,15 +2356,26 @@ export class QuotesService {
     const versionsMap = new Map(versions.map((row) => [row.quoteId, Number(row.versionNumber)]));
     const enriched = [];
     for (const quote of quotes) {
-      enriched.push({
+      enriched.push(this.normalizeQuoteSelections({
         ...quote,
         ...(advancedFieldsMap.get(quote.id) ?? {}),
         approval: approvalsMap.get(quote.id) ?? null,
         approvalRequired: await this.requiresApproval(companyId, Number(quote.total), quote.items as any[]),
         currentVersion: versionsMap.get(quote.id) ?? 0,
-      });
+      }));
     }
     return enriched;
+  }
+
+  private normalizeQuoteSelections<T extends Record<string, any>>(quote: T): T & {
+    priceListId?: string | null;
+    templateId?: string | null;
+  } {
+    return {
+      ...quote,
+      priceListId: quote.priceListId ?? quote.selectedPriceListId ?? null,
+      templateId: quote.templateId ?? quote.selectedTemplateId ?? null,
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -2490,15 +2535,27 @@ export class QuotesService {
       lines.forEach((line, idx) => addText(line, x, topY + idx * lineHeight, options));
     };
     const drawLabelValueRows = (rows: Array<{ label: string; value: string[] }>, x: number, topY: number, width: number) => {
+      const labelWidth = Math.min(86, width * 0.34);
+      const valueX = x + labelWidth + 10;
+      const valueWidth = Math.max(70, width - labelWidth - 10);
       let cursorY = topY;
       for (const row of rows) {
         addText(row.label, x, cursorY, { size: 9, font: 'F2', color: colors.muted });
-        row.value.forEach((line, idx) => {
-          addRightText(line, x + width, cursorY + idx * 11, { size: 10, color: colors.text });
+        const wrappedLines = row.value.flatMap((line) => wrapText(line, valueWidth, 10));
+        wrappedLines.forEach((line, idx) => {
+          addText(line, valueX, cursorY + idx * 11, { size: 10, color: colors.text });
         });
-        cursorY += Math.max(16, row.value.length * 11 + 4);
+        cursorY += Math.max(18, wrappedLines.length * 11 + 6);
       }
       return cursorY - topY;
+    };
+    const estimateLabelValueRowsHeight = (rows: Array<{ label: string; value: string[] }>, width: number) => {
+      const labelWidth = Math.min(86, width * 0.34);
+      const valueWidth = Math.max(70, width - labelWidth - 10);
+      return rows.reduce((acc, row) => {
+        const wrappedLines = row.value.flatMap((line) => wrapText(line, valueWidth, 10));
+        return acc + Math.max(18, wrappedLines.length * 11 + 6);
+      }, 0);
     };
     const sectionTitle = (title: string, accent: [number, number, number] = colors.navy) => {
       ensureSpace(28);
@@ -2523,23 +2580,24 @@ export class QuotesService {
     drawTextBlock(companyMeta.map(normalizeText), marginX, 72, 13, { size: 10, color: [226, 232, 240] });
 
     // Meta box (numero, fecha, estado)
-    const metaX = pageWidth - marginX - 188;
+    const metaWidth = 210;
+    const metaX = pageWidth - marginX - metaWidth;
     const metaY = 34;
     setFill(colors.white);
-    addRect(metaX, metaY, 188, 74, 'f');
+    addRect(metaX, metaY, metaWidth, 78, 'f');
     setStroke([214, 223, 233]);
     setLineWidth(0.8);
-    addRect(metaX, metaY, 188, 74, 'S');
+    addRect(metaX, metaY, metaWidth, 78, 'S');
     addText('COTIZACION', metaX + 14, metaY + 18, { size: 12, font: 'F2', color: colors.navy });
-    addText(quote.number ?? '-', metaX + 14, metaY + 40, { size: 22, font: 'F2', color: colors.text });
-    addText(`Emision ${fmtDate(quote.issueDate)}`, metaX + 14, metaY + 56, { size: 9, color: colors.muted });
-    if (quote.expiresAt) addText(`Vigencia ${fmtDate(quote.expiresAt)}`, metaX + 104, metaY + 56, { size: 9, color: colors.muted });
+    addText(quote.number ?? '-', metaX + 14, metaY + 40, { size: 21, font: 'F2', color: colors.text });
+    addText(`Emision ${fmtDate(quote.issueDate)}`, metaX + 14, metaY + 58, { size: 9, color: colors.muted });
+    if (quote.expiresAt) addText(`Vigencia ${fmtDate(quote.expiresAt)}`, metaX + 14, metaY + 70, { size: 9, color: colors.muted });
 
     const badge = statusStyle(quote.status as string);
     const badgeWidth = Math.max(70, estimateTextWidth(statusLabel(quote.status as string), 9) + 20);
     setFill(badge.bg);
-    addRect(metaX + 188 - badgeWidth - 14, metaY + 12, badgeWidth, 18, 'f');
-    addText(statusLabel(quote.status as string), metaX + 188 - badgeWidth - 4, metaY + 24, { size: 9, font: 'F2', color: badge.text });
+    addRect(metaX + metaWidth - badgeWidth - 14, metaY + 12, badgeWidth, 18, 'f');
+    addText(statusLabel(quote.status as string), metaX + metaWidth - badgeWidth - 4, metaY + 24, { size: 9, font: 'F2', color: badge.text });
 
     y = 132;
 
@@ -2547,11 +2605,11 @@ export class QuotesService {
     const cardGap = 14;
     const cardWidth = (contentWidth - cardGap) / 2;
     const customerRows = [
-      { label: 'Cliente',    value: wrapText((quote.customer as any)?.name ?? '-', 160, 10) },
-      { label: 'Documento',  value: wrapText((quote.customer as any)?.documentNumber ?? '-', 160, 10) },
-      ...((quote.customer as any)?.email    ? [{ label: 'Email',     value: wrapText((quote.customer as any).email,    160, 10) }] : []),
-      ...((quote.customer as any)?.phone    ? [{ label: 'Telefono',  value: wrapText((quote.customer as any).phone,    160, 10) }] : []),
-      ...((quote.customer as any)?.address  ? [{ label: 'Direccion', value: wrapText((quote.customer as any).address,  160, 10) }] : []),
+      { label: 'Cliente',    value: [(quote.customer as any)?.name ?? '-'] },
+      { label: 'Documento',  value: [(quote.customer as any)?.documentNumber ?? '-'] },
+      ...((quote.customer as any)?.email    ? [{ label: 'Email',     value: [(quote.customer as any).email] }] : []),
+      ...((quote.customer as any)?.phone    ? [{ label: 'Telefono',  value: [(quote.customer as any).phone] }] : []),
+      ...((quote.customer as any)?.address  ? [{ label: 'Direccion', value: [(quote.customer as any).address] }] : []),
     ];
     const summaryRows = [
       { label: 'Moneda',    value: [normalizeText(quote.currency ?? 'COP')] },
@@ -2563,9 +2621,14 @@ export class QuotesService {
       { label: 'Descuento', value: [normalizeText(fmtCOP(quote.discountAmount ?? 0))] },
       { label: 'Total',     value: [normalizeText(fmtCOP(quote.total))] },
     ];
-    const estimateRowsHeight = (rows: Array<{ label: string; value: string[] }>) =>
-      rows.reduce((acc, row) => acc + Math.max(16, row.value.length * 11 + 4), 0);
-    const infoCardHeight = Math.max(110, 20 + Math.max(estimateRowsHeight(customerRows), estimateRowsHeight(summaryRows)) + 18);
+    const infoCardInnerWidth = cardWidth - 28;
+    const infoCardHeight = Math.max(
+      132,
+      24 + Math.max(
+        estimateLabelValueRowsHeight(customerRows, infoCardInnerWidth),
+        estimateLabelValueRowsHeight(summaryRows, infoCardInnerWidth),
+      ) + 34,
+    );
     ensureSpace(infoCardHeight + 8);
 
     setFill(colors.white);
@@ -2578,8 +2641,8 @@ export class QuotesService {
     addRect(marginX + cardWidth + cardGap, y, cardWidth, 28, 'f');
     addText('Cliente / Receptor', marginX + 14, y + 18, { size: 11, font: 'F2', color: colors.navy });
     addText('Resumen financiero', marginX + cardWidth + cardGap + 14, y + 18, { size: 11, font: 'F2', color: colors.navy });
-    drawLabelValueRows(customerRows, marginX + 14, y + 44, cardWidth - 28);
-    drawLabelValueRows(summaryRows, marginX + cardWidth + cardGap + 14, y + 44, cardWidth - 28);
+    drawLabelValueRows(customerRows, marginX + 14, y + 46, infoCardInnerWidth);
+    drawLabelValueRows(summaryRows, marginX + cardWidth + cardGap + 14, y + 46, infoCardInnerWidth);
     y += infoCardHeight + 18;
 
     // ── Tabla de items ─────────────────────────────────────────────────────────
@@ -2588,9 +2651,9 @@ export class QuotesService {
     const columns = {
       idx:       marginX + 10,
       desc:      marginX + 42,
-      qtyRight:  marginX + 312,
-      unitRight: marginX + 396,
-      taxRight:  marginX + 446,
+      qtyRight:  marginX + 332,
+      unitRight: marginX + 414,
+      taxRight:  marginX + 464,
       totalRight: pageWidth - marginX - 12,
     };
 
@@ -2610,7 +2673,7 @@ export class QuotesService {
 
     const items = Array.isArray(quote.items) ? quote.items : [];
     items.forEach((item: any, index: number) => {
-      const descriptionLines = wrapText(item.description ?? '-', 230, 9);
+      const descriptionLines = wrapText(item.description ?? '-', 250, 9);
       const metaBits = [
         item.product?.sku ? `SKU ${normalizeText(item.product.sku)}` : '',
         Number(item.discount ?? 0) > 0 ? `Desc ${Number(item.discount)}%` : '',
