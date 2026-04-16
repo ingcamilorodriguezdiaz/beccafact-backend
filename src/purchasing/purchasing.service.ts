@@ -1178,7 +1178,16 @@ export class PurchasingService {
       redBg: [254, 226, 226] as [number, number, number],
       redText: [153, 27, 27] as [number, number, number],
     };
-    const estimateTextWidth = (text: string, fontSize: number) => text.length * fontSize * 0.56;
+    const estimateTextWidth = (text: string, fontSize: number) => {
+      let w = 0;
+      for (const ch of String(text)) {
+        if ('.,;:!|()[]{}\'"` '.includes(ch)) w += 0.28;
+        else if ('fijlrt'.includes(ch)) w += 0.40;
+        else if ('mwMW'.includes(ch)) w += 0.76;
+        else w += 0.56;
+      }
+      return w * fontSize;
+    };
     const pdfSafe = (value: any) =>
       this.normalizeText(value)
         .replace(/\\/g, '\\\\')
@@ -1240,6 +1249,9 @@ export class PurchasingService {
       const normalized = this.normalizeText(text) || '-';
       const width = estimateTextWidth(normalized, size);
       addText(normalized, Math.max(marginX, rightX - width), topY, options);
+    };
+    const addLine = (x1: number, y1: number, x2: number, y2: number) => {
+      commands.push(`${x1.toFixed(2)} ${toPdfY(y1).toFixed(2)} m ${x2.toFixed(2)} ${toPdfY(y2).toFixed(2)} l S`);
     };
 
     const drawHeader = () => {
@@ -1313,16 +1325,24 @@ export class PurchasingService {
       y += cardHeight + 18;
     };
 
+    // Posiciones de separadores de columna (relativo a marginX)
+    const colSeps = [22, 278, 324, 410, 458];
     const drawTableHeader = () => {
       ensureSpace(28);
       setFill(colors.teal);
       addRect(marginX, y, contentWidth, 22, 'f');
-      addText('#', marginX + 8, y + 14, { size: 9, font: 'F2', color: colors.white });
-      addText('Descripcion', marginX + 28, y + 14, { size: 9, font: 'F2', color: colors.white });
-      addRightText('Cant.', marginX + 318, y + 14, { size: 9, font: 'F2', color: colors.white });
-      addRightText('Precio', marginX + 402, y + 14, { size: 9, font: 'F2', color: colors.white });
-      addRightText('IVA', marginX + 452, y + 14, { size: 9, font: 'F2', color: colors.white });
-      addRightText('Total', pageWidth - marginX - 10, y + 14, { size: 9, font: 'F2', color: colors.white });
+      addText('#', marginX + 8, y + 15, { size: 9, font: 'F2', color: colors.white });
+      addText('Descripcion', marginX + 30, y + 15, { size: 9, font: 'F2', color: colors.white });
+      addRightText('Cant.', marginX + 320, y + 15, { size: 9, font: 'F2', color: colors.white });
+      addRightText('Precio Unit.', marginX + 406, y + 15, { size: 9, font: 'F2', color: colors.white });
+      addRightText('IVA', marginX + 454, y + 15, { size: 9, font: 'F2', color: colors.white });
+      addRightText('Total', pageWidth - marginX - 8, y + 15, { size: 9, font: 'F2', color: colors.white });
+      // Separadores verticales en el encabezado
+      setStroke([255, 255, 255]);
+      setLineWidth(0.4);
+      for (const sepX of colSeps) {
+        addLine(marginX + sepX, y + 3, marginX + sepX, y + 21);
+      }
       y += 24;
     };
 
@@ -1332,27 +1352,39 @@ export class PurchasingService {
 
     const lines = Array.isArray(order.lines) ? order.lines : [];
     lines.forEach((line: any, index: number) => {
-      const descriptionLines = wrapText(line.description ?? '-', 220, 9);
+      const descriptionLines = wrapText(line.description ?? '-', 248, 9);
       const meta = `Dto ${Number(line.discountPercent ?? 0)}% · Base ${this.formatCurrency(this.lineBaseForRender(line))}`;
-      const rowHeight = Math.max(28, (descriptionLines.length + 1) * 11 + 10);
+      const lineH = 13;
+      const rowHeight = Math.max(34, descriptionLines.length * lineH + 24);
+      // textTop: centrado vertical del bloque de texto dentro de la fila
+      const textTop = y + Math.floor((rowHeight - (descriptionLines.length * lineH + 10)) / 2) + lineH;
       const previousY = y;
-      ensureSpace(rowHeight + 4);
+      ensureSpace(rowHeight + 2);
       if (previousY !== y) {
         drawTableHeader();
       }
       setFill(index % 2 === 0 ? colors.white : colors.soft);
       addRect(marginX, y, contentWidth, rowHeight, 'f');
       setStroke(colors.line);
-      setLineWidth(0.5);
+      setLineWidth(0.4);
       addRect(marginX, y, contentWidth, rowHeight, 'S');
-      addText(String(index + 1), marginX + 8, y + 16, { size: 9, font: 'F2', color: colors.text });
-      descriptionLines.forEach((descLine, idx) => addText(descLine, marginX + 28, y + 16 + idx * 11, { size: 9, color: colors.text }));
-      addText(meta, marginX + 28, y + 16 + descriptionLines.length * 11, { size: 8, color: colors.muted });
-      addRightText(line.quantity, marginX + 318, y + 16, { size: 9, color: colors.text });
-      addRightText(this.formatCurrency(line.unitPrice), marginX + 402, y + 16, { size: 9, color: colors.text });
-      addRightText(`${Number(line.taxPercent ?? 0)}%`, marginX + 452, y + 16, { size: 9, color: colors.text });
-      addRightText(this.formatCurrency(this.lineBaseForRender(line) + this.lineTaxForRender(line)), pageWidth - marginX - 10, y + 16, { size: 9, font: 'F2', color: colors.text });
-      y += rowHeight + 4;
+      // Separadores verticales en la fila
+      setLineWidth(0.3);
+      for (const sepX of colSeps) {
+        addLine(marginX + sepX, y + 1, marginX + sepX, y + rowHeight - 1);
+      }
+      // Número de línea
+      addText(String(index + 1), marginX + 8, textTop, { size: 9, font: 'F2', color: colors.slate });
+      // Descripción (multi-línea)
+      descriptionLines.forEach((descLine, idx) => addText(descLine, marginX + 30, textTop + idx * lineH, { size: 9, color: colors.text }));
+      // Meta: descuento y base
+      addText(meta, marginX + 30, textTop + descriptionLines.length * lineH, { size: 7.5, color: colors.muted });
+      // Columnas numéricas (alineadas a sus respectivas columnas)
+      addRightText(line.quantity, marginX + 320, textTop, { size: 9, color: colors.text });
+      addRightText(this.formatCurrency(line.unitPrice), marginX + 406, textTop, { size: 9, color: colors.text });
+      addRightText(`${Number(line.taxPercent ?? 0)}%`, marginX + 454, textTop, { size: 9, color: colors.text });
+      addRightText(this.formatCurrency(this.lineBaseForRender(line) + this.lineTaxForRender(line)), pageWidth - marginX - 8, textTop, { size: 9, font: 'F2', color: colors.text });
+      y += rowHeight + 2;
     });
 
     const totalBoxWidth = 208;

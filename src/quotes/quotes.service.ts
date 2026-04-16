@@ -8,6 +8,22 @@ import {
 } from '@nestjs/common';
 import { QuoteStatus } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import {
+  Document,
+  Packer,
+  Paragraph,
+  Table,
+  TableRow,
+  TableCell,
+  TextRun,
+  AlignmentType,
+  BorderStyle,
+  WidthType,
+  HeadingLevel,
+  ShadingType,
+  TableLayoutType,
+  VerticalAlign,
+} from 'docx';
 import { PrismaService } from '../config/prisma.service';
 import { MailerService } from '../common/mailer/mailer.service';
 import { InvoicesService } from '../invoices/invoices.service';
@@ -2827,5 +2843,481 @@ export class QuotesService {
     }
     pdf += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
     return Buffer.from(pdf, 'utf8');
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // GENERAR DOCX — Genera un documento Word (.docx) de la cotización
+  // ─────────────────────────────────────────────────────────────────────────────
+  async generateDocx(companyId: string, quoteId: string): Promise<Buffer> {
+    const quote = await this.prisma.quote.findFirst({
+      where: { id: quoteId, companyId, deletedAt: null },
+      include: {
+        customer: true,
+        items: { orderBy: { position: 'asc' } },
+      },
+    });
+    if (!quote) throw new NotFoundException('Cotización no encontrada');
+
+    const advancedFields = (await this.getAdvancedCommercialFields(companyId, [quoteId])).get(quoteId);
+    Object.assign(quote as any, advancedFields ?? {});
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { name: true, nit: true, razonSocial: true, email: true, phone: true, address: true, city: true },
+    });
+
+    const fmtCOP = (v: any) =>
+      new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(Number(v ?? 0));
+
+    const fmtDate = (d: any) =>
+      d ? new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-';
+
+    const statusLabel = (s: string) =>
+      ({ DRAFT: 'BORRADOR', SENT: 'ENVIADA', ACCEPTED: 'ACEPTADA', REJECTED: 'RECHAZADA', EXPIRED: 'VENCIDA', CONVERTED: 'CONVERTIDA' }[s] ?? s ?? '-');
+
+    const safe = (v: any) => String(v ?? '').trim() || '-';
+
+    // ── Colores ────────────────────────────────────────────────────────────────
+    const NAVY    = '133463'; // #133463
+    const BLUE    = '2463EB'; // #2463EB
+    const SLATE   = '475569';
+    const SOFT_BG = 'F1F5F9';
+    const WHITE   = 'FFFFFF';
+    const MUTED   = '64748B';
+    const GREEN_BG   = 'DCFCE7';
+    const GREEN_TEXT = '166534';
+    const AMBER_BG   = 'FEF3C7';
+    const AMBER_TEXT = '92400E';
+    const RED_BG     = 'FEE2E2';
+    const RED_TEXT   = '991B1B';
+
+    const statusColors = (s: string) => {
+      if (s === 'ACCEPTED' || s === 'CONVERTED') return { bg: GREEN_BG, text: GREEN_TEXT };
+      if (s === 'DRAFT' || s === 'SENT') return { bg: AMBER_BG, text: AMBER_TEXT };
+      if (s === 'REJECTED' || s === 'EXPIRED') return { bg: RED_BG, text: RED_TEXT };
+      return { bg: SOFT_BG, text: SLATE };
+    };
+
+    // ── Helpers para celdas de tabla ───────────────────────────────────────────
+    const noBorder = {
+      top:    { style: BorderStyle.NONE, size: 0, color: 'auto' },
+      bottom: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+      left:   { style: BorderStyle.NONE, size: 0, color: 'auto' },
+      right:  { style: BorderStyle.NONE, size: 0, color: 'auto' },
+      insideH: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+      insideV: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+    };
+
+    const thinBorder = (color = 'CBD5E1') => ({
+      top:    { style: BorderStyle.SINGLE, size: 4, color },
+      bottom: { style: BorderStyle.SINGLE, size: 4, color },
+      left:   { style: BorderStyle.SINGLE, size: 4, color },
+      right:  { style: BorderStyle.SINGLE, size: 4, color },
+    });
+
+    const infoCell = (label: string, value: string, bgColor = SOFT_BG): TableCell =>
+      new TableCell({
+        borders: noBorder,
+        shading: { type: ShadingType.SOLID, color: bgColor, fill: bgColor },
+        margins: { top: 80, bottom: 80, left: 120, right: 120 },
+        children: [
+          new Paragraph({
+            children: [new TextRun({ text: label, size: 16, color: MUTED, bold: false })],
+            spacing: { after: 20 },
+          }),
+          new Paragraph({
+            children: [new TextRun({ text: value, size: 18, color: '0F172A', bold: true })],
+          }),
+        ],
+      });
+
+    const headerCell = (text: string): TableCell =>
+      new TableCell({
+        shading: { type: ShadingType.SOLID, color: NAVY, fill: NAVY },
+        borders: noBorder,
+        margins: { top: 80, bottom: 80, left: 100, right: 100 },
+        verticalAlign: VerticalAlign.CENTER,
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text, color: WHITE, bold: true, size: 17 })],
+          }),
+        ],
+      });
+
+    const dataCell = (text: string, align: (typeof AlignmentType)[keyof typeof AlignmentType] = AlignmentType.LEFT, bg = WHITE): TableCell =>
+      new TableCell({
+        shading: { type: ShadingType.SOLID, color: bg, fill: bg },
+        borders: {
+          top:    { style: BorderStyle.SINGLE, size: 2, color: 'E2E8F0' },
+          bottom: { style: BorderStyle.SINGLE, size: 2, color: 'E2E8F0' },
+          left:   { style: BorderStyle.NONE, size: 0, color: 'auto' },
+          right:  { style: BorderStyle.NONE, size: 0, color: 'auto' },
+        },
+        margins: { top: 60, bottom: 60, left: 100, right: 100 },
+        verticalAlign: VerticalAlign.CENTER,
+        children: [
+          new Paragraph({
+            alignment: align,
+            children: [new TextRun({ text, size: 17, color: '0F172A' })],
+          }),
+        ],
+      });
+
+    // ── 1. ENCABEZADO ─────────────────────────────────────────────────────────
+    const headerTable = new Table({
+      layout: TableLayoutType.FIXED,
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: noBorder,
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              shading: { type: ShadingType.SOLID, color: NAVY, fill: NAVY },
+              borders: noBorder,
+              margins: { top: 180, bottom: 180, left: 200, right: 200 },
+              width: { size: 70, type: WidthType.PERCENTAGE },
+              children: [
+                new Paragraph({
+                  children: [new TextRun({ text: safe(company?.razonSocial || company?.name), color: WHITE, bold: true, size: 36 })],
+                  spacing: { after: 60 },
+                }),
+                new Paragraph({
+                  children: [new TextRun({ text: `NIT: ${safe(company?.nit)}`, color: 'CBD5E1', size: 18 })],
+                  spacing: { after: 40 },
+                }),
+                ...(company?.email ? [new Paragraph({ children: [new TextRun({ text: company.email, color: 'CBD5E1', size: 16 })] })] : []),
+                ...(company?.phone ? [new Paragraph({ children: [new TextRun({ text: company.phone, color: 'CBD5E1', size: 16 })] })] : []),
+                ...(company?.city  ? [new Paragraph({ children: [new TextRun({ text: company.city, color: 'CBD5E1', size: 16 })] })] : []),
+              ],
+            }),
+            new TableCell({
+              shading: { type: ShadingType.SOLID, color: BLUE, fill: BLUE },
+              borders: noBorder,
+              margins: { top: 180, bottom: 180, left: 200, right: 200 },
+              width: { size: 30, type: WidthType.PERCENTAGE },
+              verticalAlign: VerticalAlign.CENTER,
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.RIGHT,
+                  children: [new TextRun({ text: 'COTIZACIÓN', color: WHITE, bold: true, size: 28 })],
+                  spacing: { after: 80 },
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.RIGHT,
+                  children: [new TextRun({ text: safe(quote.number), color: WHITE, bold: true, size: 22 })],
+                  spacing: { after: 60 },
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.RIGHT,
+                  children: [new TextRun({ text: `Estado: ${statusLabel(quote.status)}`, color: 'CBD5E1', size: 17 })],
+                }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+
+    // ── 2. META INFO (fechas) ─────────────────────────────────────────────────
+    const metaTable = new Table({
+      layout: TableLayoutType.FIXED,
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: noBorder,
+      rows: [
+        new TableRow({
+          children: [
+            infoCell('Fecha de emisión', fmtDate(quote.issueDate)),
+            infoCell('Fecha de vencimiento', fmtDate((quote as any).expiresAt)),
+            infoCell('Moneda', safe(quote.currency)),
+            (() => {
+              const sc = statusColors(quote.status);
+              return new TableCell({
+                borders: noBorder,
+                shading: { type: ShadingType.SOLID, color: sc.bg, fill: sc.bg },
+                margins: { top: 80, bottom: 80, left: 120, right: 120 },
+                verticalAlign: VerticalAlign.CENTER,
+                children: [
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    children: [new TextRun({ text: statusLabel(quote.status), color: sc.text, bold: true, size: 20 })],
+                  }),
+                ],
+              });
+            })(),
+          ],
+        }),
+      ],
+    });
+
+    // ── 3. CLIENTE Y RESUMEN ──────────────────────────────────────────────────
+    const customerTable = new Table({
+      layout: TableLayoutType.FIXED,
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: noBorder,
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              width: { size: 60, type: WidthType.PERCENTAGE },
+              borders: thinBorder(),
+              shading: { type: ShadingType.SOLID, color: WHITE, fill: WHITE },
+              margins: { top: 100, bottom: 100, left: 160, right: 160 },
+              children: [
+                new Paragraph({
+                  children: [new TextRun({ text: 'CLIENTE', color: NAVY, bold: true, size: 18 })],
+                  spacing: { after: 120 },
+                  heading: HeadingLevel.HEADING_3,
+                }),
+                new Paragraph({ children: [new TextRun({ text: safe(quote.customer?.name), bold: true, size: 20, color: '0F172A' })], spacing: { after: 60 } }),
+                new Paragraph({ children: [new TextRun({ text: `Doc: ${safe(quote.customer?.documentNumber)}`, size: 17, color: SLATE })] }),
+                ...(quote.customer?.email  ? [new Paragraph({ children: [new TextRun({ text: quote.customer.email,  size: 17, color: SLATE })] })] : []),
+                ...(quote.customer?.phone  ? [new Paragraph({ children: [new TextRun({ text: quote.customer.phone,  size: 17, color: SLATE })] })] : []),
+                ...(quote.customer?.address ? [new Paragraph({ children: [new TextRun({ text: quote.customer.address, size: 17, color: SLATE })] })] : []),
+                ...(quote.customer?.city   ? [new Paragraph({ children: [new TextRun({ text: safe(quote.customer?.city), size: 17, color: SLATE })] })] : []),
+              ],
+            }),
+            new TableCell({
+              width: { size: 40, type: WidthType.PERCENTAGE },
+              borders: thinBorder(),
+              shading: { type: ShadingType.SOLID, color: SOFT_BG, fill: SOFT_BG },
+              margins: { top: 100, bottom: 100, left: 160, right: 160 },
+              children: [
+                new Paragraph({
+                  children: [new TextRun({ text: 'RESUMEN', color: NAVY, bold: true, size: 18 })],
+                  spacing: { after: 120 },
+                }),
+                ...([
+                  ['Subtotal',    fmtCOP(quote.subtotal)],
+                  ['IVA',         fmtCOP(quote.taxAmount)],
+                  ['Descuento',   fmtCOP(quote.discountAmount ?? 0)],
+                  ['TOTAL',       fmtCOP(quote.total)],
+                ] as [string, string][]).map(([lbl, val], idx) =>
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: `${lbl}: `, size: idx === 3 ? 20 : 17, color: idx === 3 ? NAVY : SLATE, bold: idx === 3 }),
+                      new TextRun({ text: val,         size: idx === 3 ? 20 : 17, color: idx === 3 ? NAVY : '0F172A', bold: idx === 3 }),
+                    ],
+                    spacing: { after: idx === 3 ? 0 : 60 },
+                  })
+                ),
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+
+    // ── 4. TABLA DE ÍTEMS ─────────────────────────────────────────────────────
+    const COL_WIDTHS = [34, 12, 18, 10, 11, 15]; // porcentajes
+    const itemRows: TableRow[] = [
+      new TableRow({
+        tableHeader: true,
+        children: [
+          headerCell('Descripción'),
+          headerCell('Cant.'),
+          headerCell('Precio Unit.'),
+          headerCell('Desc. %'),
+          headerCell('IVA %'),
+          headerCell('Total'),
+        ].map((cell, i) => {
+          (cell as any).options.width = { size: COL_WIDTHS[i], type: WidthType.PERCENTAGE };
+          return cell;
+        }),
+      }),
+      ...quote.items.map((item, rowIdx) => {
+        const bg = rowIdx % 2 === 0 ? WHITE : SOFT_BG;
+        return new TableRow({
+          children: [
+            dataCell(safe(item.description), AlignmentType.LEFT, bg),
+            dataCell(String(Number(item.quantity)), AlignmentType.CENTER, bg),
+            dataCell(fmtCOP(item.unitPrice), AlignmentType.RIGHT, bg),
+            dataCell(`${Number(item.discount ?? 0)}%`, AlignmentType.CENTER, bg),
+            dataCell(`${Number(item.taxRate ?? 0)}%`, AlignmentType.CENTER, bg),
+            dataCell(fmtCOP(Number(item.unitPrice) * Number(item.quantity) * (1 - Number(item.discount ?? 0) / 100)), AlignmentType.RIGHT, bg),
+          ],
+        });
+      }),
+    ];
+
+    const itemsTable = new Table({
+      layout: TableLayoutType.FIXED,
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: itemRows,
+    });
+
+    // ── 5. CAJA DE TOTALES ────────────────────────────────────────────────────
+    const totalsTable = new Table({
+      layout: TableLayoutType.FIXED,
+      width: { size: 50, type: WidthType.PERCENTAGE },
+      borders: thinBorder(),
+      rows: [
+        ...([
+          ['Subtotal',       fmtCOP(quote.subtotal),         false],
+          ['IVA',            fmtCOP(quote.taxAmount),         false],
+          ['Descuento',      fmtCOP(quote.discountAmount ?? 0), false],
+          ['TOTAL A PAGAR',  fmtCOP(quote.total),             true],
+        ] as [string, string, boolean][]).map(([lbl, val, isTotal]) =>
+          new TableRow({
+            children: [
+              new TableCell({
+                shading: { type: ShadingType.SOLID, color: isTotal ? NAVY : SOFT_BG, fill: isTotal ? NAVY : SOFT_BG },
+                borders: noBorder,
+                margins: { top: 80, bottom: 80, left: 160, right: 160 },
+                children: [new Paragraph({ children: [new TextRun({ text: lbl, bold: isTotal, size: isTotal ? 20 : 17, color: isTotal ? WHITE : SLATE })] })],
+              }),
+              new TableCell({
+                shading: { type: ShadingType.SOLID, color: isTotal ? NAVY : WHITE, fill: isTotal ? NAVY : WHITE },
+                borders: noBorder,
+                margins: { top: 80, bottom: 80, left: 160, right: 160 },
+                children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: val, bold: isTotal, size: isTotal ? 20 : 17, color: isTotal ? WHITE : '0F172A' })] })],
+              }),
+            ],
+          })
+        ),
+      ],
+    });
+
+    // ── 6. CONDICIONES COMERCIALES ────────────────────────────────────────────
+    const commercialRows: TableRow[] = [];
+    const addCommercial = (label: string, value: any) => {
+      if (!value) return;
+      commercialRows.push(
+        new TableRow({
+          children: [
+            new TableCell({
+              width: { size: 35, type: WidthType.PERCENTAGE },
+              borders: noBorder,
+              shading: { type: ShadingType.SOLID, color: SOFT_BG, fill: SOFT_BG },
+              margins: { top: 60, bottom: 60, left: 120, right: 60 },
+              children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, size: 17, color: SLATE })] })],
+            }),
+            new TableCell({
+              width: { size: 65, type: WidthType.PERCENTAGE },
+              borders: noBorder,
+              margins: { top: 60, bottom: 60, left: 60, right: 120 },
+              children: [new Paragraph({ children: [new TextRun({ text: String(value), size: 17, color: '0F172A' })] })],
+            }),
+          ],
+        })
+      );
+    };
+
+    const q = quote as any;
+    addCommercial('Vendedor',           q.salesOwnerName);
+    addCommercial('Oportunidad',        q.opportunityName);
+    addCommercial('Canal',              q.sourceChannel);
+    addCommercial('Condición de pago',  q.paymentTermLabel);
+    addCommercial('Plazo (días)',        q.paymentTermDays != null ? String(q.paymentTermDays) : null);
+    addCommercial('Entrega (días)',      q.deliveryLeadTimeDays != null ? String(q.deliveryLeadTimeDays) : null);
+    addCommercial('Términos entrega',   q.deliveryTerms);
+    addCommercial('Incoterm',           q.incotermCode ? `${q.incotermCode}${q.incotermLocation ? ' – ' + q.incotermLocation : ''}` : null);
+    if (Number(q.exchangeRate ?? 1) !== 1)
+      addCommercial('Tasa de cambio', `${Number(q.exchangeRate).toLocaleString('es-CO')} COP/USD`);
+    addCommercial('Condiciones comerciales', q.commercialConditions);
+
+    // ── 7. NOTAS Y TÉRMINOS ───────────────────────────────────────────────────
+    const sectionParagraph = (title: string, content: string, bgColor: string, textColor: string): Table =>
+      new Table({
+        layout: TableLayoutType.FIXED,
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: noBorder,
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({
+                shading: { type: ShadingType.SOLID, color: bgColor, fill: bgColor },
+                borders: noBorder,
+                margins: { top: 120, bottom: 120, left: 180, right: 180 },
+                children: [
+                  new Paragraph({
+                    children: [new TextRun({ text: title, bold: true, size: 18, color: textColor })],
+                    spacing: { after: 100 },
+                  }),
+                  new Paragraph({
+                    children: [new TextRun({ text: content, size: 17, color: textColor })],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+
+    // ── 8. PIE DE PÁGINA ──────────────────────────────────────────────────────
+    const footerPara = new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: `Documento generado el ${new Date().toLocaleString('es-CO')}  ·  ${safe(company?.razonSocial || company?.name)}`,
+          size: 14,
+          color: MUTED,
+          italics: true,
+        }),
+      ],
+      spacing: { before: 200 },
+    });
+
+    // ── ENSAMBLADO DEL DOCUMENTO ──────────────────────────────────────────────
+    const children: any[] = [
+      headerTable,
+      new Paragraph({ spacing: { after: 120 } }),
+      metaTable,
+      new Paragraph({ spacing: { after: 160 } }),
+      customerTable,
+      new Paragraph({ spacing: { after: 200 } }),
+      new Paragraph({
+        children: [new TextRun({ text: 'DETALLE DE ÍTEMS', bold: true, size: 20, color: NAVY })],
+        spacing: { after: 100 },
+      }),
+      itemsTable,
+      new Paragraph({ spacing: { after: 160 } }),
+      new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        children: [new TextRun({ text: '' })],
+      }),
+      totalsTable,
+    ];
+
+    if (commercialRows.length) {
+      children.push(new Paragraph({ spacing: { after: 200 } }));
+      children.push(new Paragraph({ children: [new TextRun({ text: 'CONDICIONES COMERCIALES', bold: true, size: 20, color: NAVY })], spacing: { after: 100 } }));
+      children.push(new Table({
+        layout: TableLayoutType.FIXED,
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: noBorder,
+        rows: commercialRows,
+      }));
+    }
+
+    if (quote.notes) {
+      children.push(new Paragraph({ spacing: { after: 200 } }));
+      children.push(sectionParagraph('NOTAS', safe(quote.notes), AMBER_BG, AMBER_TEXT));
+    }
+
+    if (quote.terms) {
+      children.push(new Paragraph({ spacing: { after: 200 } }));
+      children.push(sectionParagraph('TÉRMINOS Y CONDICIONES', safe(quote.terms), SOFT_BG, SLATE));
+    }
+
+    children.push(footerPara);
+
+    const doc = new Document({
+      creator: safe(company?.razonSocial || company?.name),
+      title: `Cotización ${safe(quote.number)}`,
+      description: `Cotización generada por BeccaFact`,
+      sections: [
+        {
+          properties: {
+            page: {
+              margin: { top: 720, bottom: 720, left: 900, right: 900 },
+            },
+          },
+          children,
+        },
+      ],
+    });
+
+    return Buffer.from(await Packer.toBuffer(doc));
   }
 }

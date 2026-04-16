@@ -555,6 +555,24 @@ export class QuotesController {
     return new StreamableFile(buffer);
   }
 
+  // ─── Vista previa DOCX de cotización ─────────────────────────────────────
+  @Get(':id/docx')
+  @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO', 'CONTADOR', 'VIEWER')
+  @ApiOperation({ summary: 'Descargar cotización en formato Word (.docx)' })
+  async getDocx(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const buffer = await this.quotesService.generateDocx(companyId, id);
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'Content-Disposition': `attachment; filename="cotizacion-${id}.docx"`,
+      'Cache-Control': 'no-cache',
+    });
+    return new StreamableFile(buffer);
+  }
+
   // ─── Eliminar cotización (soft-delete, solo DRAFT) ────────────────────────
   @Delete(':id')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR')
