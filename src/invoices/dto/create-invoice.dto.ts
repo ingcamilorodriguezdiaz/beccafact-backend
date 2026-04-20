@@ -1,6 +1,6 @@
 import {
   IsString, IsOptional, IsEnum, IsUUID, IsArray, ValidateNested,
-  IsNumber, Min, IsDateString, IsBoolean,
+  IsNumber, Min, IsDateString, IsBoolean, IsObject,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -44,6 +44,15 @@ export class CreateInvoiceDto {
   @IsOptional()
   @IsUUID()
   sourceTerminalId?: string;
+  @ApiPropertyOptional({ description: 'Venta POS origen, si aplica' })
+  @IsOptional()
+  @IsUUID()
+  posSaleId?: string;
+
+  @ApiPropertyOptional({ description: 'Snapshot fiscal interno para documentos especializados como POS electrónico' })
+  @IsOptional()
+  @IsObject()
+  fiscalRulesSnapshot?: Record<string, unknown>;
 
   @ApiPropertyOptional({ description: 'Uso interno para controlar el momento del impacto operativo de inventario' })
   @IsOptional()

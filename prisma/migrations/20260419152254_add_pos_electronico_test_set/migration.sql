@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "DianTestSetType" ADD VALUE 'POS_ELECTRONICO';

@@ -404,8 +404,14 @@ export class PosController {
 
   @Get('terminals')
   @Roles('ADMIN', 'MANAGER', 'OPERATOR', 'CAJERO')
-  findTerminals(@CurrentUser() user: any, @CurrentBranchId() branchId?: string) {
-    return this.posService.findTerminals(user.companyId, branchId);
+  findTerminals(
+    @CurrentUser() user: any,
+    @CurrentBranchId() currentBranchId?: string,
+    @Query('branchId') branchId?: string,
+    @Query('all') all?: string,
+  ) {
+    const effectiveBranchId = all === '1' ? undefined : (branchId ?? currentBranchId);
+    return this.posService.findTerminals(user.companyId, effectiveBranchId);
   }
 
   @Post('terminals')

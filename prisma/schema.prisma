@@ -76,6 +76,12 @@ model Company {
   dianPosRangoHasta            Int?
   dianPosFechaDesde            String?
   dianPosFechaHasta            String?
+  posEnabled                   Boolean                       @default(false)
+  posTestMode                  Boolean                       @default(true)
+  posSoftwareId                String?
+  posSoftwarePin               String?
+  posTestSetId                 String?
+  posClaveTecnica              String?
   accountPayablePayments       AccountPayablePayment[]
   accountPayableSchedules      AccountPayableSchedule[]
   accountingAccounts           AccountingAccount[]
@@ -4376,6 +4382,7 @@ enum CashMovementType {
 enum DianTestSetType {
   FACTURACION
   NOMINA
+  POS_ELECTRONICO
 }
 
 enum DianTestSetStatus {

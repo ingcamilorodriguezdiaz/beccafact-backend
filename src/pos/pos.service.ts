@@ -100,6 +100,125 @@ export class PosService {
     return Math.round(value * 100) / 100;
   }
 
+  private async resolvePosElectronicInvoiceConfig(params: {
+    companyId: string;
+    branchId?: string | null;
+    terminalId?: string | null;
+  }) {
+    const { companyId, branchId, terminalId } = params;
+    const configs = await this.prisma.invoiceDocumentConfig.findMany({
+      where: {
+        companyId,
+        isActive: true,
+        type: 'VENTA' as any,
+        channel: 'POS',
+        OR: [
+          ...(terminalId ? [{ posTerminalId: terminalId }] : []),
+          ...(branchId ? [{ branchId, posTerminalId: null }] : []),
+          { branchId: null, posTerminalId: null },
+        ],
+      },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      select: {
+        id: true,
+        prefix: true,
+        resolutionNumber: true,
+        rangeFrom: true,
+        rangeTo: true,
+        validFrom: true,
+        validTo: true,
+        posTerminalId: true,
+        branchId: true,
+      },
+    });
+
+    if (!configs.length) return null;
+
+    return (
+      (terminalId ? configs.find((item) => item.posTerminalId === terminalId) : null) ??
+      (branchId ? configs.find((item) => item.branchId === branchId && item.posTerminalId === null) : null) ??
+      configs[0]
+    );
+  }
+
+  private async buildPosElectronicFiscalSnapshot(params: {
+    companyId: string;
+    customerId: string;
+    saleNumber: string;
+    subtotal: number;
+    branchId?: string | null;
+    terminal?: any | null;
+    posDocumentConfig?: any | null;
+  }) {
+    const { companyId, customerId, saleNumber, subtotal, branchId, terminal, posDocumentConfig } = params;
+    const [company, customer] = await Promise.all([
+      this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: {
+          razonSocial: true,
+          address: true,
+          dianPosResolucion: true,
+          dianPosPrefijo: true,
+          dianPosRangoDesde: true,
+          dianPosRangoHasta: true,
+          dianPosFechaDesde: true,
+          dianPosFechaHasta: true,
+          posClaveTecnica: true,
+        },
+      }),
+      this.prisma.customer.findFirst({
+        where: { id: customerId, companyId },
+        select: {
+          documentNumber: true,
+          name: true,
+          loyaltyCode: true,
+          loyaltyPointsBalance: true,
+        },
+      }),
+    ]);
+
+    const terminalParameters = (terminal?.parameters as Record<string, any> | null) ?? {};
+
+    return {
+      posElectronic: true,
+      technicalKey: company?.posClaveTecnica ?? null,
+      supplierTaxLevelCode: 'O-13',
+      numbering: {
+        prefix: posDocumentConfig?.prefix ?? company?.dianPosPrefijo ?? 'POS',
+        resolutionNumber: posDocumentConfig?.resolutionNumber ?? company?.dianPosResolucion ?? null,
+        rangeFrom: posDocumentConfig?.rangeFrom ?? company?.dianPosRangoDesde ?? null,
+        rangeTo: posDocumentConfig?.rangeTo ?? company?.dianPosRangoHasta ?? null,
+        validFrom: posDocumentConfig?.validFrom ?? company?.dianPosFechaDesde ?? null,
+        validTo: posDocumentConfig?.validTo ?? company?.dianPosFechaHasta ?? null,
+        documentConfigId: posDocumentConfig?.id ?? null,
+      },
+      equivalentExtensions: {
+        softwareManufacturer: {
+          contactName: 'Equipo BeccaSoft',
+          razonSocial: 'BECCASOFT SAS',
+          softwareName: 'BECCAFACT POS',
+        },
+        buyerBenefits: {
+          // En el DEE POS de habilitación DIAN valida este grupo como obligatorio
+          // dentro del set, usando Name/Value repetidos en el XML.
+          // Se informa el código del comprador, sus nombres/apellidos y los
+          // puntos acumulados con valores no vacíos para el set de pruebas.
+          code: String(customer?.loyaltyCode ?? customer?.documentNumber ?? '').trim(),
+          names: String(customer?.name ?? '').trim(),
+          points: Math.max(1, Number(customer?.loyaltyPointsBalance ?? 0)),
+        },
+        cashRegister: {
+          plate: String(terminalParameters.placaCaja ?? terminal?.code ?? terminal?.cashRegisterName ?? 'CAJA-DIAN-TEST-01').trim(),
+          location: String(terminalParameters.ubicacionCaja ?? terminal?.cashRegisterName ?? terminal?.name ?? branchId ?? company?.address ?? 'Punto de venta principal').trim(),
+          cashier: '',
+          type: String(terminalParameters.tipoCaja ?? terminal?.deviceName ?? terminal?.name ?? 'CAJA POS').trim(),
+          saleCode: String(saleNumber || '1').trim(),
+          subtotal: Number(subtotal ?? 0),
+        },
+      },
+    };
+  }
+
   private async createIntegrationTrace(params: {
     companyId: string;
     branchId?: string | null;
@@ -2947,21 +3066,29 @@ export class PosService {
     branchId: string | undefined,
     filters: { search?: string; locationId?: string },
   ) {
-    const products = await this.prisma.product.findMany({
-      where: {
-        companyId,
-        deletedAt: null,
-        status: 'ACTIVE',
+    const effectiveBranchId = await this.resolveCatalogBranchId(companyId, branchId);
+    const productWhere: any = {
+      companyId,
+      deletedAt: null,
+      status: 'ACTIVE',
+      AND: [
+        ...(effectiveBranchId
+          ? [{ OR: [{ branchId: effectiveBranchId }, { branchId: null }] }]
+          : [{ branchId: null }]),
         ...(filters.search
-          ? {
+          ? [{
               OR: [
                 { name: { contains: filters.search, mode: 'insensitive' } },
                 { sku: { contains: filters.search, mode: 'insensitive' } },
                 { barcode: { contains: filters.search } },
               ],
-            }
-          : {}),
-      },
+            }]
+          : []),
+      ],
+    };
+
+    const products = await this.prisma.product.findMany({
+      where: productWhere,
       orderBy: { name: 'asc' },
       take: 100,
       select: {
@@ -2983,8 +3110,8 @@ export class PosService {
         productId: { in: products.map((product) => product.id) },
         ...(filters.locationId
           ? { locationId: filters.locationId }
-          : branchId
-            ? { OR: [{ branchId }, { branchId: null }] }
+          : effectiveBranchId
+            ? { OR: [{ branchId: effectiveBranchId }, { branchId: null }] }
             : {}),
       },
       include: {
@@ -3029,6 +3156,18 @@ export class PosService {
         })),
       };
     });
+  }
+
+  private async resolveCatalogBranchId(companyId: string, branchId?: string) {
+    if (branchId) return branchId;
+
+    const mainBranch = await this.prisma.branch.findFirst({
+      where: { companyId, isActive: true },
+      orderBy: [{ isMain: 'desc' }, { createdAt: 'asc' }],
+      select: { id: true },
+    });
+
+    return mainBranch?.id;
   }
 
   private async reserveInventoryForAdvance(
@@ -4173,7 +4312,10 @@ export class PosService {
 
     const session = await this.prisma.posSession.findFirst({
       where: { id: dto.sessionId, companyId, status: 'OPEN' },
-      include: { terminal: true },
+      include: {
+        terminal: true,
+        user: { select: { firstName: true, lastName: true } },
+      },
     });
     if (!session) {
       throw new BadRequestException('La sesión de caja no está abierta o no existe');
@@ -4559,12 +4701,31 @@ export class PosService {
     let invoice: any = null;
     if (dto.generateInvoice && dto.customerId && !isAdvance) {
       try {
+        const posDocumentConfig = await this.resolvePosElectronicInvoiceConfig({
+          companyId,
+          branchId: branchId ?? session.branchId ?? null,
+          terminalId: session.terminalId ?? session.terminal?.id ?? null,
+        });
+        const fiscalRulesSnapshot = await this.buildPosElectronicFiscalSnapshot({
+          companyId,
+          customerId: dto.customerId,
+          saleNumber,
+          subtotal,
+          branchId: branchId ?? session.branchId ?? null,
+          terminal: session.terminal ?? null,
+          posDocumentConfig,
+        });
+        (fiscalRulesSnapshot as any).equivalentExtensions.cashRegister.cashier =
+          `${session.user?.firstName ?? ''} ${session.user?.lastName ?? ''}`.trim() || 'CAJERO PRINCIPAL';
         invoice = await this.invoicesService.create(companyId,branchId, {
           customerId: dto.customerId,
           type: 'VENTA' as any,
-          prefix: session.terminal?.invoicePrefix || undefined,
+          posSaleId: sale.id,
           sourceChannel: 'POS',
           sourceTerminalId: session.terminalId ?? session.terminal?.id ?? undefined,
+          documentConfigId: posDocumentConfig?.id ?? undefined,
+          prefix: posDocumentConfig?.prefix ?? undefined,
+          fiscalRulesSnapshot,
           issueDate: new Date().toISOString(),
 	          items: itemsData.map((item) => ({
 	            productId: item.productId,
@@ -4605,7 +4766,7 @@ export class PosService {
         items: true,
         payments: true,
         customer: true,
-        session: { include: { terminal: true } },
+        session: { include: { terminal: true, user: { select: { firstName: true, lastName: true } } } },
       },
     });
 
@@ -4629,12 +4790,32 @@ export class PosService {
       throw new BadRequestException('Ya existe una factura vinculada a esta venta.');
     }
 
+    const posDocumentConfig = await this.resolvePosElectronicInvoiceConfig({
+      companyId,
+      branchId: branchId ?? sale.branchId ?? sale.session?.branchId ?? null,
+      terminalId: sale.session?.terminal?.id ?? sale.session?.terminalId ?? null,
+    });
+    const fiscalRulesSnapshot = await this.buildPosElectronicFiscalSnapshot({
+      companyId,
+      customerId: sale.customerId,
+      saleNumber: sale.saleNumber,
+      subtotal: Number(sale.subtotal ?? 0),
+      branchId: branchId ?? sale.branchId ?? sale.session?.branchId ?? null,
+      terminal: sale.session?.terminal ?? null,
+      posDocumentConfig,
+    });
+    (fiscalRulesSnapshot as any).equivalentExtensions.cashRegister.cashier =
+      `${sale.session?.user?.firstName ?? ''} ${sale.session?.user?.lastName ?? ''}`.trim() || 'CAJERO PRINCIPAL';
+
     const invoice = await this.invoicesService.create(companyId,branchId, {
       customerId: sale.customerId,
       type: 'VENTA' as any,
-      prefix: sale.session?.terminal?.invoicePrefix || undefined,
+      posSaleId: sale.id,
       sourceChannel: 'POS',
       sourceTerminalId: sale.session?.terminal?.id ?? sale.session?.terminalId ?? undefined,
+      documentConfigId: posDocumentConfig?.id ?? undefined,
+      prefix: posDocumentConfig?.prefix ?? undefined,
+      fiscalRulesSnapshot,
       issueDate: sale.createdAt.toISOString(),
       items: sale.items.map((item) => ({
         productId: item.productId ?? undefined,
@@ -5552,7 +5733,6 @@ ${barcode128}
         invoice = await this.invoicesService.create(companyId, branchId, {
           customerId: sale.customerId,
           type: 'VENTA' as any,
-          prefix: sale.session?.terminal?.invoicePrefix || undefined,
           sourceChannel: 'POS',
           sourceTerminalId: sale.session?.terminal?.id ?? sale.session?.terminalId ?? undefined,
           issueDate: new Date().toISOString(),

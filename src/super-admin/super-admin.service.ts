@@ -621,61 +621,8 @@ export class SuperAdminService {
     };
   }
 
-  private async getCompanyDianPosResolution(companyId: string) {
-    try {
-      const rows = await this.prisma.$queryRawUnsafe<any[]>(
-        `
-          SELECT
-            "dianPosResolucion",
-            "dianPosPrefijo",
-            "dianPosRangoDesde",
-            "dianPosRangoHasta",
-            "dianPosFechaDesde",
-            "dianPosFechaHasta"
-          FROM "companies"
-          WHERE "id" = $1
-          LIMIT 1
-        `,
-        companyId,
-      );
-      return rows[0] ?? {};
-    } catch {
-      return {};
-    }
-  }
-
-  private async saveCompanyDianPosResolution(companyId: string, pos: any) {
-    try {
-      await this.prisma.$executeRawUnsafe(
-        `
-          UPDATE "companies"
-          SET
-            "dianPosResolucion" = $1,
-            "dianPosPrefijo" = $2,
-            "dianPosRangoDesde" = $3,
-            "dianPosRangoHasta" = $4,
-            "dianPosFechaDesde" = $5,
-            "dianPosFechaHasta" = $6
-          WHERE "id" = $7
-        `,
-        pos?.resolucion || null,
-        pos?.prefijo || null,
-        pos?.rangoDesde != null ? Number(pos.rangoDesde) : null,
-        pos?.rangoHasta != null ? Number(pos.rangoHasta) : null,
-        pos?.vigenciaDesde || null,
-        pos?.vigenciaHasta || null,
-        companyId,
-      );
-    } catch (error) {
-      throw new BadRequestException(
-        'Las columnas de resolución POS aún no existen en la base de datos. Ejecuta la migración de Prisma y vuelve a intentar.',
-      );
-    }
-  }
-
   async getCompanyDianFacturacion(companyId: string) {
     const c = await this.getCompanyOrFail(companyId) as any;
-    const posRow = await this.getCompanyDianPosResolution(companyId);
     const venta = this.mapDianResolutionBlock(
       c.dianResolucion,
       c.dianPrefijo,
@@ -684,31 +631,21 @@ export class SuperAdminService {
       c.dianFechaDesde,
       c.dianFechaHasta,
     );
-    const pos = this.mapDianResolutionBlock(
-      posRow.dianPosResolucion,
-      posRow.dianPosPrefijo,
-      posRow.dianPosRangoDesde,
-      posRow.dianPosRangoHasta,
-      posRow.dianPosFechaDesde,
-      posRow.dianPosFechaHasta,
-    );
     return {
-      enabled: !!(c.dianSoftwareId && (c.dianResolucion || posRow.dianPosResolucion)),
+      enabled: !!(c.dianSoftwareId && c.dianResolucion),
       ambiente: c.dianTestMode ? 'habilitacion' : 'produccion',
       softwareId: c.dianSoftwareId ?? '',
       softwarePin: c.dianSoftwarePin ?? '',
       testSetId: c.dianTestSetId ?? '',
       claveTecnica: c.dianClaveTecnica ?? '',
       venta,
-      pos,
       ...venta,
       hasCertificate: !!c.dianCertificate,
     };
   }
 
   async updateCompanyDianFacturacion(companyId: string, dto: any) {
-    const current = await this.getCompanyOrFail(companyId) as any;
-    const currentPos = await this.getCompanyDianPosResolution(companyId);
+    await this.getCompanyOrFail(companyId);
     const venta = dto.venta ?? {
       resolucion: dto.resolucion,
       prefijo: dto.prefijo,
@@ -716,14 +653,6 @@ export class SuperAdminService {
       rangoHasta: dto.rangoHasta,
       vigenciaDesde: dto.vigenciaDesde,
       vigenciaHasta: dto.vigenciaHasta,
-    };
-    const pos = dto.pos ?? {
-      resolucion: currentPos.dianPosResolucion,
-      prefijo: currentPos.dianPosPrefijo,
-      rangoDesde: currentPos.dianPosRangoDesde,
-      rangoHasta: currentPos.dianPosRangoHasta,
-      vigenciaDesde: currentPos.dianPosFechaDesde,
-      vigenciaHasta: currentPos.dianPosFechaHasta,
     };
     await this.prisma.company.update({
       where: { id: companyId },
@@ -741,8 +670,65 @@ export class SuperAdminService {
         dianFechaHasta: venta?.vigenciaHasta || null,
       } as any,
     });
-    await this.saveCompanyDianPosResolution(companyId, pos);
     return this.getCompanyDianFacturacion(companyId);
+  }
+
+  async getCompanyDianPos(companyId: string) {
+    await this.getCompanyOrFail(companyId);
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        posEnabled: true,
+        posTestMode: true,
+        posSoftwareId: true,
+        posSoftwarePin: true,
+        posTestSetId: true,
+        posClaveTecnica: true,
+        dianPosResolucion: true,
+        dianPosPrefijo: true,
+        dianPosRangoDesde: true,
+        dianPosRangoHasta: true,
+        dianPosFechaDesde: true,
+        dianPosFechaHasta: true,
+      } as any,
+    }) as any;
+    if (!company) throw new NotFoundException('Empresa no encontrada');
+    return {
+      enabled: company.posEnabled ?? false,
+      ambiente: company.posTestMode ? 'habilitacion' : 'produccion',
+      softwareId: company.posSoftwareId ?? '',
+      softwarePin: company.posSoftwarePin ?? '',
+      testSetId: company.posTestSetId ?? '',
+      claveTecnica: company.posClaveTecnica ?? '',
+      resolucion: company.dianPosResolucion ?? '',
+      prefijo: company.dianPosPrefijo ?? '',
+      rangoDesde: company.dianPosRangoDesde ?? null,
+      rangoHasta: company.dianPosRangoHasta ?? null,
+      vigenciaDesde: company.dianPosFechaDesde ?? '',
+      vigenciaHasta: company.dianPosFechaHasta ?? '',
+    };
+  }
+
+  async updateCompanyDianPos(companyId: string, dto: any) {
+    await this.getCompanyOrFail(companyId);
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        posEnabled: dto.enabled ?? false,
+        posTestMode: dto.ambiente === 'habilitacion',
+        posSoftwareId: dto.softwareId || null,
+        posSoftwarePin: dto.softwarePin || null,
+        posTestSetId: dto.testSetId || null,
+        posClaveTecnica: dto.claveTecnica || null,
+        dianPosResolucion: dto.resolucion || null,
+        dianPosPrefijo: dto.prefijo || null,
+        dianPosRangoDesde: dto.rangoDesde != null ? Number(dto.rangoDesde) : null,
+        dianPosRangoHasta: dto.rangoHasta != null ? Number(dto.rangoHasta) : null,
+        dianPosFechaDesde: dto.vigenciaDesde || null,
+        dianPosFechaHasta: dto.vigenciaHasta || null,
+      } as any,
+    });
+    return this.getCompanyDianPos(companyId);
   }
 
   async getCompanyDianNumberingRange(companyId: string, dto: any) {

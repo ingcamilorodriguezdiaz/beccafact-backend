@@ -43,6 +43,12 @@ import * as QRCode from 'qrcode';
 const DIAN_SOFTWARE_ID = '8c2e43bd-9d57-4144-b0af-8876de5917a8';
 const DIAN_SOFTWARE_PIN = '12345';
 const DIAN_TEST_SET_ID = 'aa87ad48-5975-46d1-b0d5-f8ed563a528e';
+// TestSetId del set de habilitación POS Electrónico (Res. 18760000001, Software 44337242-3910-4fed-a154-13f325a54953).
+// Este valor es la claveTécnica que DIAN usa para verificar el CUDE en habilitación POS.
+// DEAD06 ocurre si se usa cualquier otro valor. Debe coincidir con lo registrado en el portal DIAN.
+const DIAN_POS_TEST_SET_ID = 'c07c5526-4885-49cd-a086-b64abfb0919c';
+// Software ID del portal POS habilitación (distinto del FE software ID)
+const DIAN_POS_SOFTWARE_ID = '44337242-3910-4fed-a154-13f325a54953';
 const DIAN_WS_HAB = 'https://vpfe-hab.dian.gov.co/WcfDianCustomerServices.svc';
 const DIAN_WS_PROD = 'https://vpfe.dian.gov.co/WcfDianCustomerServices.svc';
 
@@ -60,6 +66,23 @@ function cleanPemStatic(raw: string, type: string): string {
   return idx >= 0 ? raw.slice(idx).trim() : raw.trim();
 }
 
+const DIAN_UNIT_CODE_MAP: Record<string, string> = {
+  UND: 'NIU',
+  UN: 'NIU',
+  UNIT: 'NIU',
+  UNIDAD: 'NIU',
+  EA: 'NIU',
+  NIU: 'NIU',
+  KG: 'KGM',
+  KGM: 'KGM',
+  MT: 'MTR',
+  MTR: 'MTR',
+  LT: 'LTR',
+  LTR: 'LTR',
+  HR: 'HUR',
+  HUR: 'HUR',
+};
+
 
 // Technical key used during habilitación (test) — provided by DIAN in the numbering range
 const DIAN_TECH_KEY_HAB = 'fc8eac422eba16e22ffd8c6f94b3f40a6e38162c';
@@ -74,6 +97,12 @@ export class InvoicesService {
     private accountingService: AccountingService,
     private carteraService: CarteraService,
   ) {
+  }
+
+  private normalizeDianUnitCode(unit?: string | null): string {
+    const normalized = String(unit ?? '').trim().toUpperCase();
+    if (!normalized) return 'NIU';
+    return DIAN_UNIT_CODE_MAP[normalized] ?? normalized;
   }
 
   private async createDianJob(params: {
@@ -553,6 +582,8 @@ export class InvoicesService {
     preferredPrefix?: string | null;
   }) {
     const channel = this.normalizeInvoiceChannel(params.sourceChannel);
+    const preferredPrefix = String(params.preferredPrefix ?? '').trim().toUpperCase() || null;
+    const ignoreGenericPosPrefix = channel === 'POS' && preferredPrefix === 'POS';
     if (params.documentConfigId) {
       const explicitConfig = await this.prisma.invoiceDocumentConfig.findFirst({
         where: {
@@ -578,8 +609,8 @@ export class InvoicesService {
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
     });
 
-    const matchedByPrefix = params.preferredPrefix
-      ? configs.find((item) => item.prefix === params.preferredPrefix)
+    const matchedByPrefix = preferredPrefix && !ignoreGenericPosPrefix
+      ? configs.find((item) => item.prefix === preferredPrefix)
       : null;
     if (matchedByPrefix) return matchedByPrefix;
     if (configs.length > 0) return configs[0];
@@ -595,20 +626,26 @@ export class InvoicesService {
         },
       });
       if (terminal) {
-        return {
-          id: null,
-          prefix: terminal.invoicePrefix || 'POS',
-          resolutionNumber: terminal.resolutionNumber ?? null,
-          resolutionLabel: terminal.resolutionLabel ?? null,
-          rangeFrom: null,
-          rangeTo: null,
-          validFrom: null,
-          validTo: null,
-          technicalKey: null,
-          fiscalRules: null,
-          channel,
-          posTerminalId: terminal.id,
-        };
+        const terminalPrefix = String(terminal.invoicePrefix ?? '').trim().toUpperCase();
+        const hasSpecificTerminalFiscalSetup =
+          !!terminalPrefix && terminalPrefix !== 'POS' && !!terminal.resolutionNumber;
+
+        if (hasSpecificTerminalFiscalSetup) {
+          return {
+            id: null,
+            prefix: terminalPrefix,
+            resolutionNumber: terminal.resolutionNumber ?? null,
+            resolutionLabel: terminal.resolutionLabel ?? null,
+            rangeFrom: null,
+            rangeTo: null,
+            validFrom: null,
+            validTo: null,
+            technicalKey: null,
+            fiscalRules: null,
+            channel,
+            posTerminalId: terminal.id,
+          };
+        }
       }
     }
 
@@ -633,7 +670,10 @@ export class InvoicesService {
     const isPos = channel === 'POS';
     return {
       id: null,
-      prefix: params.preferredPrefix || (isPos ? company?.dianPosPrefijo : company?.dianPrefijo) || (isPos ? 'POS' : 'FV'),
+      prefix:
+        (!ignoreGenericPosPrefix ? preferredPrefix : null) ||
+        (isPos ? company?.dianPosPrefijo : company?.dianPrefijo) ||
+        (isPos ? 'POS' : 'FV'),
       resolutionNumber: (isPos ? company?.dianPosResolucion : company?.dianResolucion) ?? null,
       resolutionLabel: null,
       rangeFrom: isPos ? company?.dianPosRangoDesde ?? null : company?.dianRangoDesde ?? null,
@@ -783,6 +823,24 @@ export class InvoicesService {
       }
     }
 
+    const normalizedChannel = this.normalizeInvoiceChannel(dto.sourceChannel);
+    if (
+      normalizedChannel === 'POS' &&
+      originalInvoiceForOperation &&
+      !dto.posSaleId &&
+      originalInvoiceForOperation.sourcePosSaleId
+    ) {
+      dto.posSaleId = originalInvoiceForOperation.sourcePosSaleId;
+    }
+    if (
+      normalizedChannel === 'POS' &&
+      originalInvoiceForOperation &&
+      !dto.fiscalRulesSnapshot &&
+      originalInvoiceForOperation.fiscalRulesSnapshot
+    ) {
+      dto.fiscalRulesSnapshot = originalInvoiceForOperation.fiscalRulesSnapshot as any;
+    }
+
     // Pre-cargar productos para obtener unit y unspscCode (DIAN XML)
     const productIds = dto.items.map(i => i.productId).filter(Boolean) as string[];
     const products = productIds.length > 0
@@ -803,9 +861,9 @@ export class InvoicesService {
       const lineTotal = lineAfterDiscount + lineTax;
       subtotal += lineAfterDiscount;
       taxAmount += lineTax;
-      // unit: usar el del producto si existe, luego el del DTO, default 'EA' (tabla 13.3.6 UNece)
+      // unit: usar el del producto si existe, luego el del DTO, y normalizar al catálogo DIAN/UNECE
       const prod = item.productId ? productMap.get(item.productId) : undefined;
-      const unit = (item as any).unit || prod?.unit || 'EA';
+      const unit = this.normalizeDianUnitCode((item as any).unit || prod?.unit || 'NIU');
       return {
         description: item.description,
         quantity: Number(item.quantity),
@@ -862,7 +920,6 @@ export class InvoicesService {
       documentConfig: resolvedConfig,
     });
 
-    const normalizedChannel = this.normalizeInvoiceChannel(dto.sourceChannel);
     const shouldApplyDirectInventory =
       (dto.type ?? 'VENTA') === 'VENTA' &&
       normalizedChannel !== 'POS' &&
@@ -904,13 +961,14 @@ export class InvoicesService {
           notes: dto.notes,
           currency: dto.currency ?? 'COP',
           documentConfigId: resolvedConfig.id ?? null,
+          sourcePosSaleId: dto.posSaleId ?? null,
           resolutionNumber: resolvedConfig.resolutionNumber ?? null,
           resolutionLabel: resolvedConfig.resolutionLabel ?? null,
           numberingRangeFrom: resolvedConfig.rangeFrom ?? null,
           numberingRangeTo: resolvedConfig.rangeTo ?? null,
           resolutionValidFrom: resolvedConfig.validFrom ?? null,
           resolutionValidTo: resolvedConfig.validTo ?? null,
-          fiscalRulesSnapshot: resolvedConfig.fiscalRules ?? undefined,
+          fiscalRulesSnapshot: (dto.fiscalRulesSnapshot as any) ?? resolvedConfig.fiscalRules ?? undefined,
           fiscalValidationStatus: fiscalValidation.status,
           fiscalValidationNotes: fiscalValidation.notes,
           ...(dto.originalInvoiceId && { originalInvoiceId: dto.originalInvoiceId }),
@@ -2973,6 +3031,18 @@ export class InvoicesService {
         customer: true,
         company: true,
         documentConfig: true,
+        posSale: {
+          include: {
+            payments: true,
+            session: {
+              include: {
+                branch: { select: { id: true, name: true } },
+                terminal: true,
+                user: { select: { id: true, firstName: true, lastName: true, email: true } },
+              },
+            },
+          },
+        },
         items: {
           include: { product: { select: { id: true, sku: true, unit: true, unspscCode: true } } },
           orderBy: { position: 'asc' },
@@ -3004,55 +3074,73 @@ export class InvoicesService {
     const items = inv.items;
     const sourceChannel = this.normalizeInvoiceChannel(inv.sourceChannel || source || 'DIRECT');
     let documentConfig = inv.documentConfig as any;
+    const posFiscalSnapshot = sourceChannel === 'POS' ? ((inv.fiscalRulesSnapshot as any) ?? null) : null;
 
-    if (!documentConfig?.resolutionNumber) {
-      const resolvedConfig = await this.resolveInvoiceDocumentConfig({
-        companyId,
-        branchId,
-        type: invoice.type,
-        documentConfigId: invoice.documentConfigId ?? null,
-        sourceChannel,
-        sourceTerminalId: invoice.sourceTerminalId ?? null,
-        preferredPrefix: invoice.prefix ?? null,
+    const resolvedConfig = await this.resolveInvoiceDocumentConfig({
+      companyId,
+      branchId,
+      type: invoice.type,
+      documentConfigId: invoice.documentConfigId ?? null,
+      sourceChannel,
+      sourceTerminalId: invoice.sourceTerminalId ?? null,
+      preferredPrefix: invoice.prefix ?? null,
+    });
+
+    if (resolvedConfig && !(sourceChannel === 'POS' && posFiscalSnapshot?.posElectronic)) {
+      documentConfig = resolvedConfig;
+      const normalizedCurrentPrefix = String(invoice.prefix ?? '').trim().toUpperCase();
+      const normalizedResolvedPrefix = String(resolvedConfig.prefix ?? '').trim().toUpperCase();
+      const finalPrefix = normalizedResolvedPrefix || String(invoice.prefix ?? '').trim();
+      const shouldReassignPosNumber =
+        sourceChannel === 'POS' &&
+        !!normalizedResolvedPrefix &&
+        normalizedCurrentPrefix !== normalizedResolvedPrefix;
+      const nextInvoiceNumber = shouldReassignPosNumber
+        ? await this.getCompatibleInvoiceNumberForPrefix({
+            companyId,
+            invoiceId: invoice.id,
+            currentInvoiceNumber: invoice.invoiceNumber,
+            targetPrefix: normalizedResolvedPrefix,
+            rangeFrom: resolvedConfig.rangeFrom ?? null,
+          })
+        : invoice.invoiceNumber;
+
+      await this.prisma.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          invoiceNumber: nextInvoiceNumber,
+          documentConfigId: resolvedConfig.id ?? invoice.documentConfigId ?? null,
+          ...(finalPrefix ? { prefix: finalPrefix } : {}),
+          resolutionNumber: resolvedConfig.resolutionNumber ?? invoice.resolutionNumber ?? null,
+          resolutionLabel: resolvedConfig.resolutionLabel ?? invoice.resolutionLabel ?? null,
+          numberingRangeFrom: resolvedConfig.rangeFrom ?? invoice.numberingRangeFrom ?? null,
+          numberingRangeTo: resolvedConfig.rangeTo ?? invoice.numberingRangeTo ?? null,
+          resolutionValidFrom: resolvedConfig.validFrom ?? invoice.resolutionValidFrom ?? null,
+          resolutionValidTo: resolvedConfig.validTo ?? invoice.resolutionValidTo ?? null,
+          fiscalRulesSnapshot:
+            resolvedConfig.fiscalRules ??
+            invoice.fiscalRulesSnapshot ??
+            undefined,
+        },
       });
 
-      if (resolvedConfig) {
-        documentConfig = resolvedConfig;
-        await this.prisma.invoice.update({
-          where: { id: invoice.id },
-          data: {
-            documentConfigId: resolvedConfig.id ?? invoice.documentConfigId ?? null,
-            prefix: invoice.prefix ?? resolvedConfig.prefix ?? null,
-            resolutionNumber: invoice.resolutionNumber ?? resolvedConfig.resolutionNumber ?? null,
-            resolutionLabel: invoice.resolutionLabel ?? resolvedConfig.resolutionLabel ?? null,
-            numberingRangeFrom: invoice.numberingRangeFrom ?? resolvedConfig.rangeFrom ?? null,
-            numberingRangeTo: invoice.numberingRangeTo ?? resolvedConfig.rangeTo ?? null,
-            resolutionValidFrom: invoice.resolutionValidFrom ?? resolvedConfig.validFrom ?? null,
-            resolutionValidTo: invoice.resolutionValidTo ?? resolvedConfig.validTo ?? null,
-            fiscalRulesSnapshot:
-              invoice.fiscalRulesSnapshot ??
-              resolvedConfig.fiscalRules ??
-              undefined,
-          },
-        });
-
-        (invoice as any).documentConfigId = resolvedConfig.id ?? invoice.documentConfigId ?? null;
-        (invoice as any).prefix = invoice.prefix ?? resolvedConfig.prefix ?? null;
-        (invoice as any).resolutionNumber =
-          invoice.resolutionNumber ?? resolvedConfig.resolutionNumber ?? null;
-        (invoice as any).resolutionLabel =
-          invoice.resolutionLabel ?? resolvedConfig.resolutionLabel ?? null;
-        (invoice as any).numberingRangeFrom =
-          invoice.numberingRangeFrom ?? resolvedConfig.rangeFrom ?? null;
-        (invoice as any).numberingRangeTo =
-          invoice.numberingRangeTo ?? resolvedConfig.rangeTo ?? null;
-        (invoice as any).resolutionValidFrom =
-          invoice.resolutionValidFrom ?? resolvedConfig.validFrom ?? null;
-        (invoice as any).resolutionValidTo =
-          invoice.resolutionValidTo ?? resolvedConfig.validTo ?? null;
-        (invoice as any).fiscalRulesSnapshot =
-          invoice.fiscalRulesSnapshot ?? resolvedConfig.fiscalRules ?? null;
-      }
+      (invoice as any).invoiceNumber = nextInvoiceNumber;
+      (invoice as any).documentConfigId = resolvedConfig.id ?? invoice.documentConfigId ?? null;
+      (invoice as any).prefix = finalPrefix || null;
+      (invoice as any).resolutionNumber =
+        resolvedConfig.resolutionNumber ?? invoice.resolutionNumber ?? null;
+      (invoice as any).resolutionLabel =
+        resolvedConfig.resolutionLabel ?? invoice.resolutionLabel ?? null;
+      (invoice as any).numberingRangeFrom =
+        resolvedConfig.rangeFrom ?? invoice.numberingRangeFrom ?? null;
+      (invoice as any).numberingRangeTo =
+        resolvedConfig.rangeTo ?? invoice.numberingRangeTo ?? null;
+      (invoice as any).resolutionValidFrom =
+        resolvedConfig.validFrom ?? invoice.resolutionValidFrom ?? null;
+      (invoice as any).resolutionValidTo =
+        resolvedConfig.validTo ?? invoice.resolutionValidTo ?? null;
+      (invoice as any).fiscalRulesSnapshot =
+        resolvedConfig.fiscalRules ?? invoice.fiscalRulesSnapshot ?? null;
     }
 
     const isPos = sourceChannel === 'POS';
@@ -3096,7 +3184,10 @@ export class InvoicesService {
     }
 
     // ── Determine environment ─────────────────────────────────────────────
-    const isTestMode = company.dianTestMode !== false;
+    // POS Electrónico uses its own posTestMode; all other channels use dianTestMode.
+    const isTestMode = isPos
+      ? ((company as any).posTestMode !== false)
+      : (company.dianTestMode !== false);
 
     if (!isTestMode) {
       const productionConfigIssues: string[] = [];
@@ -3128,19 +3219,61 @@ export class InvoicesService {
       }
     }
 
-    const softwareId = company.dianSoftwareId || DIAN_SOFTWARE_ID;
-    const softwarePin = company.dianSoftwarePin || DIAN_SOFTWARE_PIN;
-    const testSetId = company.dianTestSetId || DIAN_TEST_SET_ID;
-    // Determinar fuente de claveTecnica (para logging de diagnóstico FAD06)
-    const rawClaveTecnica =
-      documentConfig?.technicalKey ||
-      (inv.fiscalRulesSnapshot as any)?.technicalKey ||
-      company.dianClaveTecnica ||
-      DIAN_TECH_KEY_HAB;
-    const claveTecnicaSource =
-      documentConfig?.technicalKey ? 'documentConfig.technicalKey' :
-      (inv.fiscalRulesSnapshot as any)?.technicalKey ? 'fiscalRulesSnapshot.technicalKey' :
-      company.dianClaveTecnica ? 'company.dianClaveTecnica' : 'DIAN_TECH_KEY_HAB (fallback)';
+    // POS Electrónico uses its own software credentials; other channels use dianSoftware*.
+    // Fallbacks POS: usar constantes del portal DIAN (Software 44337242-..., TestSet c07c5526-...).
+    const softwareId = isPos
+      ? ((company as any).posSoftwareId || company.dianSoftwareId || DIAN_POS_SOFTWARE_ID)
+      : (company.dianSoftwareId || DIAN_SOFTWARE_ID);
+    const softwarePin = isPos
+      ? ((company as any).posSoftwarePin || company.dianSoftwarePin || DIAN_SOFTWARE_PIN)
+      : (company.dianSoftwarePin || DIAN_SOFTWARE_PIN);
+    const testSetId = isPos
+      ? ((company as any).posTestSetId || company.dianTestSetId || DIAN_POS_TEST_SET_ID)
+      : (company.dianTestSetId || DIAN_TEST_SET_ID);
+    // Determinar fuente de claveTecnica (para logging de diagnóstico FAD06).
+    // En habilitación POS, DIAN exige el posTestSetId como clave técnica para calcular el CUDE.
+    // (DEAD06: si se usa otra clave, el CUDE no coincide con lo que DIAN calcula internamente.)
+    // En producción POS, se usa posClaveTecnica → fallback DIAN_TECH_KEY_HAB.
+    // Para FE (no POS), se usa la cadena habitual de clave técnica.
+    let rawClaveTecnica: string;
+    let claveTecnicaSource: string;
+    if (isPos && isTestMode) {
+      // Habilitación POS: posTestSetId ES la clave técnica para el CUDE (convención DIAN Res. 000165).
+      // DEAD06 ocurre si la clave no coincide con el TestSetId registrado en el portal DIAN.
+      // Fallback final: DIAN_POS_TEST_SET_ID (c07c5526-...) del portal de habilitación POS.
+      rawClaveTecnica =
+        (company as any).posTestSetId ||
+        (company as any).posClaveTecnica ||
+        DIAN_POS_TEST_SET_ID;
+      claveTecnicaSource =
+        (company as any).posTestSetId ? 'company.posTestSetId (POS hab — DEAD06 fix)' :
+        (company as any).posClaveTecnica ? 'company.posClaveTecnica' :
+        'DIAN_POS_TEST_SET_ID (fallback portal DIAN)';
+    } else if (isPos && !isTestMode) {
+      // Producción POS: usar clave técnica de la resolución POS
+      rawClaveTecnica =
+        documentConfig?.technicalKey ||
+        posFiscalSnapshot?.technicalKey ||
+        (inv.fiscalRulesSnapshot as any)?.technicalKey ||
+        (company as any).posClaveTecnica ||
+        DIAN_TECH_KEY_HAB;
+      claveTecnicaSource =
+        documentConfig?.technicalKey ? 'documentConfig.technicalKey' :
+        (inv.fiscalRulesSnapshot as any)?.technicalKey ? 'fiscalRulesSnapshot.technicalKey' :
+        (company as any).posClaveTecnica ? 'company.posClaveTecnica' :
+        'DIAN_TECH_KEY_HAB (fallback)';
+    } else {
+      // FE (no POS): cadena estándar
+      rawClaveTecnica =
+        documentConfig?.technicalKey ||
+        (inv.fiscalRulesSnapshot as any)?.technicalKey ||
+        company.dianClaveTecnica ||
+        DIAN_TECH_KEY_HAB;
+      claveTecnicaSource =
+        documentConfig?.technicalKey ? 'documentConfig.technicalKey' :
+        (inv.fiscalRulesSnapshot as any)?.technicalKey ? 'fiscalRulesSnapshot.technicalKey' :
+        company.dianClaveTecnica ? 'company.dianClaveTecnica' : 'DIAN_TECH_KEY_HAB (fallback)';
+    }
     // Limpiar TODOS los caracteres de espacio/control: espacios, tabs, newlines, no-break-spaces, etc.
     // Las claves técnicas DIAN son siempre alfanuméricas sin espacios.
     const claveTecnica = rawClaveTecnica.replace(/[\s\u00A0\uFEFF]/g, '');
@@ -3184,8 +3317,8 @@ export class InvoicesService {
     let prefix: string;
     let numericPart: string;
 
-    if (isTestMode) {
-      // Ambiente habilitación: prefijo SETP, número en rango 990000001+
+    if (isTestMode && !isPos) {
+      // Ambiente habilitación FE: prefijo SETP, número en rango 990000001+
       prefix = invoice.prefix || documentConfig?.prefix || company.dianPrefijo || 'SETP';
       // Extraer solo dígitos del invoiceNumber
       const digits = rawNum.replace(/\D/g, '') || '1';
@@ -3193,13 +3326,27 @@ export class InvoicesService {
       const rangeBase = Number(
         invoice.numberingRangeFrom ??
           documentConfig?.rangeFrom ??
-          (isPos ? company.dianPosRangoDesde : company.dianRangoDesde) ??
+          company.dianRangoDesde ??
           990000000,
       );
       numericPart = String(rangeBase + parseInt(digits, 10));
+    } else if (isTestMode && isPos) {
+      // Ambiente habilitación POS: usar prefijo y rango de la resolución POS de la empresa.
+      // DIAN exige que el número esté dentro del rango autorizado (1 a dianPosRangoHasta).
+      // Se usa módulo para garantizar que nunca lo supere.
+      // Fallback: prefijo EPOS de la resolución de habilitación DIAN 18760000001.
+      prefix = (company as any).dianPosPrefijo || invoice.prefix || documentConfig?.prefix || 'EPOS';
+      const rawDigits = parseInt(rawNum.replace(/\D/g, '') || '1', 10) || 1;
+      const posRangeMax = Number((company as any).dianPosRangoHasta || 1000000);
+      const posRangeMin = Number((company as any).dianPosRangoDesde || 1);
+      // Map into [rangeMin, rangeMax] using modulo to stay within authorized range
+      const mappedNum = posRangeMin + ((rawDigits - 1) % (posRangeMax - posRangeMin + 1));
+      numericPart = String(mappedNum);
     } else {
-      // Producción: prefijo y número reales
-      prefix = dbPrefix;
+      // Producción: prefijo y número reales (FE y POS)
+      prefix = isPos
+        ? ((company as any).dianPosPrefijo || dbPrefix)
+        : dbPrefix;
       const rawSuffix =
         rawNum.replace(new RegExp(`^${dbPrefix}-?`), '').trim() ||
         rawNum.replace(/\D/g, '') ||
@@ -3304,9 +3451,10 @@ export class InvoicesService {
     const custDv = custIdType === '31' ? this.calcDv(custIdBase.replace(/[^0-9]/g, '').slice(0, 9)) : '';
     const nitCustomerClean = custId;
 
-    // ── CUFE — SHA-384 per Anexo Técnico DIAN v1.9 §11.2 ─────────────────
+    // ── UUID fiscal (CUFE/CUDE) — Anexo Técnico DIAN ─────────────────────
+    const uuidSecuritySeed = isPos ? softwarePin : claveTecnica;
     this.logger.log(
-      `[CUFE] Calculando con claveTecnica="${claveTecnica}" (len=${claveTecnica.length}) ` +
+      `[CUFE] Calculando con seed="${uuidSecuritySeed}" (len=${uuidSecuritySeed.length}) ` +
       `tipoAmbiente="${isTestMode ? '2' : '1'}" issueDate="${issueDate}" issueTime="${issueTime}" ` +
       `subtotal=${subtotal} taxIva=${taxIva} total=${total} nitOFE="${supplierNitClean}" numAdq="${nitCustomerClean}"`,
     );
@@ -3315,7 +3463,7 @@ export class InvoicesService {
       subtotal, taxIva, taxInc, taxIca, total,
       nitSupplier: supplierNitClean,
       nitCustomer: nitCustomerClean,
-      claveTecnica,
+      claveTecnica: uuidSecuritySeed,
       tipoAmbiente: isTestMode ? '2' : '1',
     });
     this.logger.log(`[CUFE] Input: "${cufeInput}"`);
@@ -3326,11 +3474,13 @@ export class InvoicesService {
 
     // ── Numbering range data ──────────────────────────────────────────────
 
-    // En un helper o dentro del servicio
+    // Defaults de habilitación DIAN POS (Resolución 18760000001, portal DIAN).
+    // Usados cuando la empresa no ha configurado su resolución POS.
+    // TestSetId/claveTécnica del portal: c07c5526-4885-49cd-a086-b64abfb0919c
     const defaults = {
       resolucion: '18760000001',
       desde: 1,
-      hasta: 5000000,
+      hasta: 1000000,
       fechaDesde: '2019-01-19',
       fechaHasta: '2030-01-19'
     };
@@ -3342,12 +3492,12 @@ export class InvoicesService {
 
     const companyDefaults = isPos
       ? {
-          resolucion: company.dianPosResolucion || defaults.resolucion,
-          dianPrefix: company.dianPosPrefijo || prefix,
-          rangoDesde: company.dianPosRangoDesde || defaults.desde,
-          rangoHasta: company.dianPosRangoHasta || defaults.hasta,
-          fechaDesde: company.dianPosFechaDesde ? toDateOnly(new Date(company.dianPosFechaDesde)) : defaults.fechaDesde,
-          fechaHasta: company.dianPosFechaHasta ? toDateOnly(new Date(company.dianPosFechaHasta)) : defaults.fechaHasta,
+          resolucion: posFiscalSnapshot?.numbering?.resolutionNumber || company.dianPosResolucion || defaults.resolucion,
+          dianPrefix: posFiscalSnapshot?.numbering?.prefix || company.dianPosPrefijo || prefix,
+          rangoDesde: posFiscalSnapshot?.numbering?.rangeFrom || company.dianPosRangoDesde || defaults.desde,
+          rangoHasta: posFiscalSnapshot?.numbering?.rangeTo || company.dianPosRangoHasta || defaults.hasta,
+          fechaDesde: posFiscalSnapshot?.numbering?.validFrom || (company.dianPosFechaDesde ? toDateOnly(new Date(company.dianPosFechaDesde)) : defaults.fechaDesde),
+          fechaHasta: posFiscalSnapshot?.numbering?.validTo || (company.dianPosFechaHasta ? toDateOnly(new Date(company.dianPosFechaHasta)) : defaults.fechaHasta),
         }
       : {
           resolucion: company.dianResolucion || defaults.resolucion,
@@ -3371,11 +3521,17 @@ export class InvoicesService {
         : companyDefaults;
 
     // ── Build UBL 2.1 XML ────────────────────────────────────────────────
-    this.logger.log(`[DIAN] Generating XML for ${fullNumber} CUFE=${cufe.slice(0, 16)}…`);
+    this.logger.log(`[DIAN] Generating XML for ${fullNumber} ${isPos ? 'CUDE' : 'CUFE'}=${cufe.slice(0, 16)}…`);
     // ── CustomizationID: 05=bienes, 01=consumidor final ──────────────────
     // Consumidor final: doc != NIT (CC, TI, CE, etc. — no tiene RUT)
     const isConsumidorFinal = custIdType !== '31';
-    const customizationId = isConsumidorFinal ? '01' : '05';
+    const customizationId = isPos ? '10' : (isConsumidorFinal ? '01' : '05');
+    const supplierTaxLevelCode = isPos
+      ? (posFiscalSnapshot?.supplierTaxLevelCode || 'O-13')
+      : 'O-99';
+    const posEquivalentExtensions = isPos
+      ? (posFiscalSnapshot?.equivalentExtensions || null)
+      : null;
 
     // ── PaymentMeansCode desde invoice.paymentMethod ──────────────────────
     // 10=contado, 41=crédito, 42=transferencia, 48=tarj.crédito, 54=tarj.débito
@@ -3391,11 +3547,15 @@ export class InvoicesService {
       dueDate: invoice.dueDate ? this.toColombiaDate(new Date(invoice.dueDate)) : issueDate,
       profileExecutionId: isTestMode ? '2' : '1',
       currency: invoice.currency || 'COP',
+      profileId: isPos ? 'DIAN 2.1: Documento Equivalente POS' : 'DIAN 2.1: Factura Electrónica de Venta',
+      invoiceTypeCode: isPos ? '20' : '01',
+      uuidSchemeName: isPos ? 'CUDE-SHA384' : 'CUFE-SHA384',
       cufe, cufeInput, ssc, softwareId,
       resolucion, rangoDesde, rangoHasta, fechaDesde, fechaHasta,
       subtotal, taxIva, taxInc, taxIca, total,
       supplierNit: supplierNitClean, supplierDv,
       supplierName: company.razonSocial,
+      supplierTaxLevelCode,
       supplierAddress: company.address || 'Sin dirección',
       supplierCity: company.city || 'Bogotá',
       supplierCityCode: (company as any).cityCode || '11001',
@@ -3417,11 +3577,12 @@ export class InvoicesService {
       custTaxLevelCode: (customer as any).taxLevelCode || null,
       customizationId,
       paymentMeansCode,
+      posEquivalentExtensions,
       items: items.map((it: any, idx: number) => ({
         lineId: idx + 1,
         description: it.description,
         quantity: Number(it.quantity),
-        unit: it.unit || it.product?.unit || 'EA',
+        unit: this.normalizeDianUnitCode(it.unit || it.product?.unit || 'NIU'),
         unitPrice: Number(it.unitPrice),
         taxRate: Number(it.taxRate),
         taxAmount: Number(it.taxAmount),
@@ -4080,6 +4241,9 @@ export class InvoicesService {
       issueDate, issueTime, dueDate,
       profileExecutionId: '2',          // habilitación
       currency: 'COP',
+      profileId: 'DIAN 2.1: Factura Electrónica de Venta',
+      invoiceTypeCode: '01',
+      uuidSchemeName: 'CUFE-SHA384',
       cufe, cufeInput, ssc, softwareId,
       // Datos de resolución de prueba DIAN habilitación
       resolucion: '18760000001',
@@ -4120,7 +4284,7 @@ export class InvoicesService {
         lineId: 1,
         description: 'Servicio de software BeccaFact (prueba habilitación)',
         quantity: 1,
-        unit: 'EA',
+        unit: 'NIU',
         unitPrice: subtotal,
         taxRate: 19,
         taxAmount: iva,
@@ -4292,8 +4456,10 @@ export class InvoicesService {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // CUFE — Código Único Factura Electrónica (Anexo Técnico DIAN v1.9 §11.2)
-  // SHA-384(NumFac+FecFac+HorFac+ValFac+CodImp1+ValImp1+CodImp2+ValImp2+CodImp3+ValImp3+ValTot+NitOFE+NumAdq+ClTec+TipoAmbiente)
+  // UUID fiscal DIAN (CUFE/CUDE)
+  // FE:  SHA-384(... + ClTec + TipoAmbiente)
+  // POS: SHA-384(... + SfPin + TipoAmbiente)
+  // El helper conserva el nombre histórico por compatibilidad interna.
   // ══════════════════════════════════════════════════════════════════════════
 
   // Retorna { cufe, cufeInput } — cufeInput va en cbc:Note del XML (Anexo §11.2 / Generica.xml)
@@ -4341,10 +4507,12 @@ export class InvoicesService {
   private buildUblXml(d: {
     fullNumber: string; prefix: string; issueDate: string; issueTime: string;
     dueDate: string; profileExecutionId: string; currency: string;
+    profileId: string; invoiceTypeCode: string; uuidSchemeName: string;
     cufe: string; cufeInput: string; ssc: string; softwareId: string;
     resolucion: string; rangoDesde: string; rangoHasta: string; fechaDesde: string; fechaHasta: string;
     subtotal: number; taxIva: number; taxInc: number; taxIca: number; total: number;
     supplierNit: string; supplierDv: string; supplierName: string;
+    supplierTaxLevelCode?: string | null;
     supplierAddress: string; supplierCity: string; supplierCityCode: string;
     supplierDepartment: string; supplierDeptCode: string;
     supplierCountry: string; supplierPhone: string; supplierEmail: string;
@@ -4354,6 +4522,11 @@ export class InvoicesService {
     // Nuevos campos de control
     customizationId?: string;    // '01' consumidor final | '05' bienes | '09' servicios | '10' mandatos  default='05'
     paymentMeansCode?: string;   // '10' contado | '41' crédito | '42' transferencia | '48' tarj.crédito | '54' tarj.débito
+    posEquivalentExtensions?: {
+      softwareManufacturer: { contactName: string; razonSocial: string; softwareName: string };
+      buyerBenefits: { code: string; names: string; points: number };
+      cashRegister: { plate: string; location: string; cashier: string; type: string; saleCode: string; subtotal: number };
+    } | null;
     items: Array<{ lineId: number; description: string; quantity: number; unit: string; unitPrice: number; taxRate: number; taxAmount: number; discount: number; lineTotal: number; sku?: string; unspscCode?: string | null }>;
   }): string {
     const x = (s: string) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -4365,6 +4538,65 @@ export class InvoicesService {
 
     // ── PaymentMeansCode ──────────────────────────────────────────────────
     const paymentMeansCode = d.paymentMeansCode || '10';
+    const posExtensionXml = d.posEquivalentExtensions
+      ? `
+      <ext:UBLExtension>
+         <ext:ExtensionContent>
+            <FabricanteSoftware>
+               <InformacionDelFabricanteDelSoftware>
+                  <Name>NombreApellido</Name>
+                  <Value>${x(d.posEquivalentExtensions.softwareManufacturer.contactName)}</Value>
+                  <Name>RazonSocial</Name>
+                  <Value>${x(d.posEquivalentExtensions.softwareManufacturer.razonSocial)}</Value>
+                  <Name>NombreSoftware</Name>
+                  <Value>${x(d.posEquivalentExtensions.softwareManufacturer.softwareName)}</Value>
+               </InformacionDelFabricanteDelSoftware>
+            </FabricanteSoftware>
+         </ext:ExtensionContent>
+      </ext:UBLExtension>
+      ${
+        // Ajustado al ejemplo funcional de DIAN POS: contenedor
+        // BeneficiosComprador + un único InformacionBeneficiosComprador
+        // con pares Name/Value consecutivos.
+        (d.posEquivalentExtensions.buyerBenefits.code &&
+         d.posEquivalentExtensions.buyerBenefits.names)
+        ? `<ext:UBLExtension>
+         <ext:ExtensionContent>
+            <BeneficiosComprador>
+               <InformacionBeneficiosComprador>
+                  <Name>Codigo</Name>
+                  <Value>${x(d.posEquivalentExtensions.buyerBenefits.code)}</Value>
+                  <Name>NombresApellidos</Name>
+                  <Value>${x(d.posEquivalentExtensions.buyerBenefits.names)}</Value>
+                  <Name>Puntos</Name>
+                  <Value>${Math.max(0, Math.trunc(Number(d.posEquivalentExtensions.buyerBenefits.points) || 0))}</Value>
+               </InformacionBeneficiosComprador>
+            </BeneficiosComprador>
+         </ext:ExtensionContent>
+      </ext:UBLExtension>`
+        : ''
+      }
+      <ext:UBLExtension>
+         <ext:ExtensionContent>
+            <PuntoVenta>
+               <InformacionCajaVenta>
+                  <Name>PlacaCaja</Name>
+                  <Value>${x(d.posEquivalentExtensions.cashRegister.plate)}</Value>
+                  <Name>UbicaciónCaja</Name>
+                  <Value>${x(d.posEquivalentExtensions.cashRegister.location)}</Value>
+                  <Name>Cajero</Name>
+                  <Value>${x(d.posEquivalentExtensions.cashRegister.cashier)}</Value>
+                  <Name>TipoCaja</Name>
+                  <Value>${x(d.posEquivalentExtensions.cashRegister.type)}</Value>
+                  <Name>CódigoVenta</Name>
+                  <Value>${x(d.posEquivalentExtensions.cashRegister.saleCode)}</Value>
+                  <Name>SubTotal</Name>
+                  <Value>${Number(d.posEquivalentExtensions.cashRegister.subtotal || 0).toFixed(2)}</Value>
+               </InformacionCajaVenta>
+            </PuntoVenta>
+         </ext:ExtensionContent>
+      </ext:UBLExtension>`
+      : '';
 
     // ── cac:Person para personas naturales (FAK61 / ZB01) ────────────────
     // Obligatorio cuando AdditionalAccountID="2" (custIdType !== '31').
@@ -4609,13 +4841,7 @@ export class InvoicesService {
     }).join('');
 
     // ── QRCode exactamente como el XML de ejemplo DIAN ────────────────────
-    const qrCode = `NroFactura=${d.fullNumber}
-NitFacturador=${d.supplierNit}
-NitAdquiriente=${d.custId}
-FechaFactura=${d.issueDate}
-ValorTotalFactura=${d.total.toFixed(2)}
-CUFE=${d.cufe}
-URL=https://catalogo-vpfe${isHab ? '-hab' : ''}.dian.gov.co/Document/FindDocument?documentKey=${d.cufe}`;
+    const qrCode = `https://catalogo-vpfe${isHab ? '-hab' : ''}.dian.gov.co/document/searchqr?documentkey=${d.cufe}`;
 
     return `<?xml version="1.0" encoding="UTF-8" standalone="no"?><Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2" xmlns:sts="dian:gov:co:facturaelectronica:Structures-2-1" xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" xmlns:xades141="http://uri.etsi.org/01903/v1.4.1#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2     http://docs.oasis-open.org/ubl/os-UBL-2.1/xsd/maindoc/UBL-Invoice-2.1.xsd">
    <ext:UBLExtensions>
@@ -4649,17 +4875,16 @@ URL=https://catalogo-vpfe${isHab ? '-hab' : ''}.dian.gov.co/Document/FindDocumen
             </sts:DianExtensions>
          </ext:ExtensionContent>
       </ext:UBLExtension>
-   
-   <ext:UBLExtension><ext:ExtensionContent><!-- SIGNATURE_PLACEHOLDER --></ext:ExtensionContent></ext:UBLExtension></ext:UBLExtensions>
+      <ext:UBLExtension><ext:ExtensionContent><!-- SIGNATURE_PLACEHOLDER --></ext:ExtensionContent></ext:UBLExtension>${posExtensionXml}</ext:UBLExtensions>
    <cbc:UBLVersionID>UBL 2.1</cbc:UBLVersionID>
    <cbc:CustomizationID>${customizationId}</cbc:CustomizationID>
-   <cbc:ProfileID>DIAN 2.1: Factura Electrónica de Venta</cbc:ProfileID>
+   <cbc:ProfileID>${x(d.profileId)}</cbc:ProfileID>
    <cbc:ProfileExecutionID>${d.profileExecutionId}</cbc:ProfileExecutionID>
    <cbc:ID>${d.fullNumber}</cbc:ID>
-   <cbc:UUID schemeID="${d.profileExecutionId}" schemeName="CUFE-SHA384">${d.cufe}</cbc:UUID>
+   <cbc:UUID schemeID="${d.profileExecutionId}" schemeName="${d.uuidSchemeName}">${d.cufe}</cbc:UUID>
    <cbc:IssueDate>${d.issueDate}</cbc:IssueDate>
    <cbc:IssueTime>${d.issueTime}</cbc:IssueTime>
-   <cbc:InvoiceTypeCode>01</cbc:InvoiceTypeCode>
+   <cbc:InvoiceTypeCode>${d.invoiceTypeCode}</cbc:InvoiceTypeCode>
    <cbc:Note>${x(d.cufeInput)}</cbc:Note>
    <cbc:DocumentCurrencyCode listAgencyID="6" listAgencyName="United Nations Economic Commission for Europe" listID="ISO 4217 Alpha">${d.currency}</cbc:DocumentCurrencyCode>
    <cbc:LineCountNumeric>${d.items.length}</cbc:LineCountNumeric>
@@ -4687,7 +4912,7 @@ URL=https://catalogo-vpfe${isHab ? '-hab' : ''}.dian.gov.co/Document/FindDocumen
          <cac:PartyTaxScheme>
             <cbc:RegistrationName>${x(d.supplierName)}</cbc:RegistrationName>
             <cbc:CompanyID schemeAgencyID="195" schemeAgencyName="CO, DIAN (Dirección de Impuestos y Aduanas Nacionales)" schemeID="${d.supplierDv}" schemeName="31">${d.supplierNit}</cbc:CompanyID>
-            <cbc:TaxLevelCode listName="05">O-99</cbc:TaxLevelCode>
+            <cbc:TaxLevelCode listName="05">${x(d.supplierTaxLevelCode || 'O-13')}</cbc:TaxLevelCode>
             <cac:RegistrationAddress>
                <cbc:ID>${d.supplierCityCode || '11001'}</cbc:ID>
                <cbc:CityName>${x(d.supplierCity)}</cbc:CityName>
@@ -5448,6 +5673,36 @@ ${keyInfoXml}
     const num = parseInt(parts[parts.length - 1] ?? '0') + 1;
     const width = Math.max(4, String(num).length, startWidth);
     return `${prefix}-${String(num).padStart(width, '0')}`;
+  }
+
+  private async getCompatibleInvoiceNumberForPrefix(params: {
+    companyId: string;
+    invoiceId: string;
+    currentInvoiceNumber?: string | null;
+    targetPrefix: string;
+    rangeFrom?: number | null;
+  }) {
+    const { companyId, invoiceId, currentInvoiceNumber, targetPrefix, rangeFrom } = params;
+    const currentSuffix = String(currentInvoiceNumber ?? '').split('-').pop()?.trim() ?? '';
+    const numericSuffix = currentSuffix.replace(/\D/g, '');
+    const start = Number(rangeFrom ?? 1);
+    const width = Math.max(4, currentSuffix.length || 0, String(start).length);
+
+    if (numericSuffix) {
+      const candidate = `${targetPrefix}-${numericSuffix.padStart(width, '0')}`;
+      const existing = await this.prisma.invoice.findFirst({
+        where: {
+          companyId,
+          invoiceNumber: candidate,
+          deletedAt: null,
+          id: { not: invoiceId },
+        },
+        select: { id: true },
+      });
+      if (!existing) return candidate;
+    }
+
+    return this.getNextInvoiceNumber(companyId, targetPrefix, rangeFrom ?? undefined);
   }
 
 

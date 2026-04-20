@@ -34,7 +34,13 @@ const corsOrigin = configService.get<string>('CORS_ORIGIN', 'http://localhost:42
       'http://localhost:34709'
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Company-ID', 'X-Branch-Id'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Company-ID',
+      'X-Branch-Id',
+      'X-Context-Source',
+    ],
     credentials: true,
   });
 

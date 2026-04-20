@@ -174,6 +174,21 @@ export class SuperAdminController {
     return this.superAdminService.getCompanyDianNumberingRange(id, data);
   }
 
+  @Get('companies/:id/integrations/dian/pos')
+  @ApiOperation({ summary: 'Obtener configuración DIAN POS Electrónico de una empresa' })
+  getCompanyDianPos(@Param('id', ParseUUIDPipe) id: string) {
+    return this.superAdminService.getCompanyDianPos(id);
+  }
+
+  @Put('companies/:id/integrations/dian/pos')
+  @ApiOperation({ summary: 'Actualizar configuración DIAN POS Electrónico de una empresa' })
+  updateCompanyDianPos(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() data: any,
+  ) {
+    return this.superAdminService.updateCompanyDianPos(id, data);
+  }
+
   @Get('companies/:id/integrations/dian/nomina')
   @ApiOperation({ summary: 'Obtener configuración DIAN nómina de una empresa' })
   getCompanyDianNomina(@Param('id', ParseUUIDPipe) id: string) {

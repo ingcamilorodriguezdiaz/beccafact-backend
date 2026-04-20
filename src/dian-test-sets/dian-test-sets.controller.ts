@@ -46,6 +46,13 @@ export class DianTestSetsController {
     return this.service.startNomina(companyId);
   }
 
+  @Post('company/:companyId/pos-electronico')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({ summary: 'Iniciar set de pruebas de documentos equivalentes POS (30 docs)' })
+  startPosElectronico(@Param('companyId') companyId: string) {
+    return this.service.startPosElectronico(companyId);
+  }
+
   @Post(':id/check-status')
   @ApiOperation({ summary: 'Verificar/refrescar estado DIAN de documentos pendientes' })
   checkStatuses(@Param('id') id: string) {
