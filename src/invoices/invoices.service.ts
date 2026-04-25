@@ -41,14 +41,14 @@ import * as QRCode from 'qrcode';
 // DIAN Constants — BeccaFact Software propio
 // ─────────────────────────────────────────────────────────────────────────────
 const DIAN_SOFTWARE_ID = '8c2e43bd-9d57-4144-b0af-8876de5917a8';
-const DIAN_SOFTWARE_PIN = '12345';
+const DIAN_SOFTWARE_PIN = '12349';
 const DIAN_TEST_SET_ID = 'aa87ad48-5975-46d1-b0d5-f8ed563a528e';
 // TestSetId del set de habilitación POS Electrónico (Res. 18760000001, Software 44337242-3910-4fed-a154-13f325a54953).
 // Este valor es la claveTécnica que DIAN usa para verificar el CUDE en habilitación POS.
 // DEAD06 ocurre si se usa cualquier otro valor. Debe coincidir con lo registrado en el portal DIAN.
 const DIAN_POS_TEST_SET_ID = 'c07c5526-4885-49cd-a086-b64abfb0919c';
 // Software ID del portal POS habilitación (distinto del FE software ID)
-const DIAN_POS_SOFTWARE_ID = '44337242-3910-4fed-a154-13f325a54953';
+const DIAN_POS_SOFTWARE_ID = '44337242-3910-4fed-a154-13f325a54954';
 const DIAN_WS_HAB = 'https://vpfe-hab.dian.gov.co/WcfDianCustomerServices.svc';
 const DIAN_WS_PROD = 'https://vpfe.dian.gov.co/WcfDianCustomerServices.svc';
 
@@ -383,6 +383,15 @@ export class InvoicesService {
         isActive: dto.isActive,
         isDefault: dto.isDefault,
       },
+    });
+  }
+
+  async removeDocumentConfig(companyId: string, id: string) {
+    const current = await this.prisma.invoiceDocumentConfig.findFirst({ where: { id, companyId } });
+    if (!current) throw new NotFoundException('Configuración documental no encontrada');
+
+    return this.prisma.invoiceDocumentConfig.delete({
+      where: { id },
     });
   }
 
@@ -3200,8 +3209,42 @@ export class InvoicesService {
       if (!documentConfig?.prefix) {
         productionConfigIssues.push('La configuración documental no tiene prefijo');
       }
-      if (!documentConfig?.technicalKey) {
+      // POS Electrónico usa Software-PIN (no clave técnica) para el cálculo del CUDE.
+      // Anexo Técnico DEE V1.0 §14.1.3: CUDE = SHA-384(...+SfPin+TipoAmbie).
+      if (!isPos && !documentConfig?.technicalKey) {
         productionConfigIssues.push('La configuración documental no tiene clave técnica');
+      }
+      // POS producción: las credenciales de habilitación (SoftwareID 44337242-... / PIN 12345) NO
+      // están registradas en el catálogo de PRODUCCIÓN de la DIAN. Usarlas genera error 66 ("NSU no
+      // encontrado") porque DIAN rechaza el documento antes de asignarle un NSU/TrackId.
+      // Se bloquea si faltan credenciales O si se detecta el SoftwareID/PIN de habilitación.
+      const posSoftwareIdConf: string | null = (company as any).posSoftwareId || null;
+      const posSoftwarePinConf: string | null = (company as any).posSoftwarePin || null;
+      if (isPos && !posSoftwareIdConf) {
+        productionConfigIssues.push(
+          'POS Electrónico en producción requiere "Software ID POS" de producción. ' +
+          'Configúralo en Ajustes → Empresa → Configuración POS DIAN',
+        );
+      } else if (isPos && posSoftwareIdConf === DIAN_POS_SOFTWARE_ID) {
+        productionConfigIssues.push(
+          `El Software ID POS configurado es el de HABILITACIÓN DIAN (${DIAN_POS_SOFTWARE_ID}). ` +
+          'Para producción necesitas el Software ID real de tu software en el catálogo DIAN. ' +
+          'Obtén las credenciales en el Portal DIAN → Catálogo de Participantes → Producción, ' +
+          'o regresa a modo habilitación en Ajustes → Empresa → Configuración POS DIAN.',
+        );
+      }
+      if (isPos && !posSoftwarePinConf) {
+        productionConfigIssues.push(
+          'POS Electrónico en producción requiere "Software PIN POS" de producción. ' +
+          'Configúralo en Ajustes → Empresa → Configuración POS DIAN',
+        );
+      } else if (isPos && posSoftwarePinConf === DIAN_SOFTWARE_PIN) {
+        productionConfigIssues.push(
+          `El Software PIN POS configurado es el de HABILITACIÓN (${DIAN_SOFTWARE_PIN}). ` +
+          'Para producción necesitas el PIN real asignado por DIAN a tu software. ' +
+          'Obtenlo en el Portal DIAN → Catálogo de Participantes → Producción, ' +
+          'o regresa a modo habilitación en Ajustes → Empresa → Configuración POS DIAN.',
+        );
       }
       if (productionConfigIssues.length > 0) {
         const productionConfigMessage =
@@ -3282,7 +3325,9 @@ export class InvoicesService {
       `primeros8="${claveTecnica.slice(0, 8)}" últimos4="${claveTecnica.slice(-4)}"`,
     );
 
-     if (!isTestMode && !/^[A-Fa-f0-9]{62,64}$/.test(claveTecnica)) {
+    // POS Electrónico: claveTecnica no se usa en el CUDE (usa softwarePin), solo es para logging.
+    // Anexo Técnico DEE V1.0 §14.1.3: CUDE = SHA-384(...+SfPin+TipoAmbie). Omitir validación hex.
+    if (!isPos && !isTestMode && !/^[A-Fa-f0-9]{62,64}$/.test(claveTecnica)) {
       const invalidTechnicalKeyMessage =
         `La Clave Técnica DIAN de producción es inválida. ` +
         `Valor actual: "${claveTecnica}" (longitud ${claveTecnica.length}). ` +

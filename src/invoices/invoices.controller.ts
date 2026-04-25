@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Body, Param, Query,
+  Controller, Get, Post, Patch, Delete, Body, Param, Query,
   UseGuards, ParseUUIDPipe, HttpCode, HttpStatus, Res,
   StreamableFile,
   Headers,
@@ -252,6 +252,16 @@ export class InvoicesController {
     @Body() dto: UpdateInvoiceDocumentConfigDto,
   ) {
     return this.invoicesService.updateDocumentConfig(companyId, id, dto);
+  }
+
+  @Delete('document-configs/:id')
+  @Roles('ADMIN', 'MANAGER', 'CONTADOR')
+  @ApiOperation({ summary: 'Eliminar configuración documental de facturación' })
+  removeDocumentConfig(
+    @CurrentUser('companyId') companyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invoicesService.removeDocumentConfig(companyId, id);
   }
 
   @Post()
