@@ -280,6 +280,90 @@ export class DianTestSetsService {
     await this.prisma.dianTestSet.delete({ where: { id: testSetId } });
   }
 
+  // ── Reset: delete test set and all associated real records ──────────────────
+
+  async reset(testSetId: string): Promise<void> {
+    const testSet = await this.prisma.dianTestSet.findUnique({
+      where: { id: testSetId },
+      include: {
+        documents: {
+          select: { id: true, invoiceId: true, payrollId: true, docType: true },
+        },
+      },
+    }) as any;
+
+    if (!testSet) throw new NotFoundException(`Test set ${testSetId} no encontrado`);
+
+    if (
+      testSet.status === 'IN_PROGRESS' ||
+      testSet.status === 'PENDING'
+    ) {
+      throw new ConflictException('No se puede reiniciar un test set en progreso o pendiente');
+    }
+
+    const docs: Array<{ invoiceId: string | null; payrollId: string | null; docType: string }> =
+      testSet.documents ?? [];
+
+    // All invoice IDs (FACTURA, NOTA_CREDITO, NOTA_DEBITO, POS_VENTA, NOTA_AJUSTE_POS)
+    const allInvoiceIds = docs
+      .map((d) => d.invoiceId)
+      .filter((id): id is string => !!id);
+
+    // POS_VENTA invoices have a linked PosSale record (pos_sales.invoiceId → invoices.id FK).
+    // PosSale must be deleted before its Invoice to satisfy the FK constraint.
+    const posVentaInvoiceIds = docs
+      .filter((d) => d.docType === 'POS_VENTA' && !!d.invoiceId)
+      .map((d) => d.invoiceId as string);
+
+    // NIAE must be deleted before NIE (payroll self-referential FK)
+    const niaeIds = docs
+      .filter((d) => d.docType === 'NOMINA_AJUSTE' && !!d.payrollId)
+      .map((d) => d.payrollId as string);
+
+    const nieIds = docs
+      .filter((d) => d.docType === 'NOMINA_ELECTRONICA' && !!d.payrollId)
+      .map((d) => d.payrollId as string);
+
+    // 1. Delete PosSale records first (they hold the FK to Invoice)
+    //    Cascades automatically to: pos_sale_items, pos_sale_payments
+    if (posVentaInvoiceIds.length > 0) {
+      await this.prisma.posSale.deleteMany({
+        where: { invoiceId: { in: posVentaInvoiceIds } },
+      });
+    }
+
+    // 2. Hard-delete all invoices
+    //    Cascades automatically to: invoice_items, invoice_approval_requests,
+    //    invoice_attachments, invoice_inventory_movements, cartera_payments,
+    //    cartera_receipt_applications. Nullable FKs (invoice_dian_processing_jobs,
+    //    Invoice.originalInvoiceId) are set to NULL by the DB (SET NULL default).
+    if (allInvoiceIds.length > 0) {
+      await this.prisma.invoice.deleteMany({
+        where: { id: { in: allInvoiceIds } },
+      });
+    }
+
+    // 3. Hard-delete NIAE (nota ajuste) before NIE (base nómina) — FK order
+    if (niaeIds.length > 0) {
+      await this.prisma.payroll_records.deleteMany({ where: { id: { in: niaeIds } } });
+    }
+
+    // 4. Hard-delete NIE base records
+    if (nieIds.length > 0) {
+      await this.prisma.payroll_records.deleteMany({ where: { id: { in: nieIds } } });
+    }
+
+    // 5. Delete the test set (cascades to dian_test_set_documents)
+    await this.prisma.dianTestSet.delete({ where: { id: testSetId } });
+
+    this.logger.log(
+      `Reset test set ${testSetId}: ` +
+      `${posVentaInvoiceIds.length} PosSale(s) deleted, ` +
+      `${allInvoiceIds.length} invoice(s) deleted, ` +
+      `${niaeIds.length} NIAE + ${nieIds.length} NIE payroll record(s) deleted.`,
+    );
+  }
+
   // ════════════════════════════════════════════════════════════════════════════
   // PRIVATE: Execute facturación test set in background
   // ════════════════════════════════════════════════════════════════════════════

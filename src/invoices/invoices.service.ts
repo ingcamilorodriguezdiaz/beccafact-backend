@@ -961,7 +961,7 @@ export class InvoicesService {
           notes: dto.notes,
           currency: dto.currency ?? 'COP',
           documentConfigId: resolvedConfig.id ?? null,
-          sourcePosSaleId: dto.posSaleId ?? null,
+          sourcePosSaleId: dto.posSaleId ?? dto.sourcePosSaleId ?? null,
           resolutionNumber: resolvedConfig.resolutionNumber ?? null,
           resolutionLabel: resolvedConfig.resolutionLabel ?? null,
           numberingRangeFrom: resolvedConfig.rangeFrom ?? null,

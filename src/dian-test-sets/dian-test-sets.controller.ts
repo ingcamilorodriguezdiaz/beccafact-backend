@@ -59,6 +59,13 @@ export class DianTestSetsController {
     return this.service.checkStatuses(id);
   }
 
+  @Delete(':id/reset')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Reiniciar test set y eliminar todos los registros creados (facturas, nóminas)' })
+  reset(@Param('id') id: string) {
+    return this.service.reset(id);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Cancelar y eliminar un test set' })

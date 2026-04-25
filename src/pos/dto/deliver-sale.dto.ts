@@ -1,4 +1,5 @@
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString } from 'class-validator';
+import { PosDocumentModeDto } from './create-pos-sale.dto';
 
 export class DeliverSaleDto {
   @IsOptional()
@@ -9,4 +10,9 @@ export class DeliverSaleDto {
   @IsOptional()
   @IsBoolean()
   generateInvoice?: boolean;
+
+  /** Define si al entregar se genera POS electrónico o factura electrónica. */
+  @IsOptional()
+  @IsEnum(PosDocumentModeDto)
+  documentMode?: PosDocumentModeDto;
 }

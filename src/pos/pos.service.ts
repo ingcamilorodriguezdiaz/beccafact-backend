@@ -13,7 +13,12 @@ import { CreatePosSessionDto } from './dto/create-pos-session.dto';
 import { ClosePosSessionDto } from './dto/close-pos-session.dto';
 import { ApproveClosePosSessionDto } from './dto/approve-close-pos-session.dto';
 import { ReopenPosSessionDto } from './dto/reopen-pos-session.dto';
-import { CreatePosSaleDto, PosOrderTypeDto, PosSalePaymentLineDto } from './dto/create-pos-sale.dto';
+import {
+  CreatePosSaleDto,
+  PosDocumentModeDto,
+  PosOrderTypeDto,
+  PosSalePaymentLineDto,
+} from './dto/create-pos-sale.dto';
 import { AddPaymentDto } from './dto/add-payment.dto';
 import { DeliverSaleDto } from './dto/deliver-sale.dto';
 import { DispatchSaleDto } from './dto/dispatch-sale.dto';
@@ -77,6 +82,8 @@ type PosGovernanceActionValue =
 @Injectable()
 export class PosService {
   private readonly logger = new Logger(PosService.name);
+  private readonly genericPosConsumerDocument = '222222222222';
+  private readonly genericPosConsumerName = 'Consumidor Final';
 
   constructor(
     private prisma: PrismaService,
@@ -98,6 +105,147 @@ export class PosService {
 
   private roundCurrency(value: number) {
     return Math.round(value * 100) / 100;
+  }
+
+  private resolveRequestedDocumentMode(
+    documentMode?: PosDocumentModeDto | string | null,
+    legacyGenerateInvoice?: boolean | null,
+  ): PosDocumentModeDto {
+    const normalizedMode = String(documentMode ?? '').trim().toUpperCase();
+    if (normalizedMode === PosDocumentModeDto.ELECTRONIC_INVOICE) {
+      return PosDocumentModeDto.ELECTRONIC_INVOICE;
+    }
+    if (normalizedMode === PosDocumentModeDto.NONE) {
+      return PosDocumentModeDto.NONE;
+    }
+    if (normalizedMode === PosDocumentModeDto.POS_ELECTRONIC) {
+      return PosDocumentModeDto.POS_ELECTRONIC;
+    }
+    return legacyGenerateInvoice
+      ? PosDocumentModeDto.ELECTRONIC_INVOICE
+      : PosDocumentModeDto.POS_ELECTRONIC;
+  }
+
+  private isGenericPosConsumer(customer?: { documentNumber?: string | null } | null) {
+    return String(customer?.documentNumber ?? '').trim() === this.genericPosConsumerDocument;
+  }
+
+  private async ensureGenericPosElectronicCustomer(companyId: string) {
+    const existing = await this.prisma.customer.findFirst({
+      where: {
+        companyId,
+        documentType: 'CC',
+        documentNumber: this.genericPosConsumerDocument,
+      },
+      select: { id: true, name: true, documentNumber: true, documentType: true },
+    });
+
+    if (existing) return existing;
+
+    return this.prisma.customer.create({
+      data: {
+        companyId,
+        documentType: 'CC',
+        documentNumber: this.genericPosConsumerDocument,
+        name: this.genericPosConsumerName,
+        taxLevelCode: 'R-99-PN',
+        country: 'CO',
+        notes: 'Cliente genérico para emisión automática de POS electrónico.',
+      },
+      select: { id: true, name: true, documentNumber: true, documentType: true },
+    });
+  }
+
+  private async createDocumentFromPosSale(params: {
+    companyId: string;
+    branchId?: string | null;
+    sale: any;
+    customerId?: string | null;
+    documentMode: PosDocumentModeDto;
+    issueDate: string;
+    notes: string;
+    sourceTerminalId?: string | null;
+    terminal?: any | null;
+    cashierName?: string | null;
+  }) {
+    const {
+      companyId,
+      branchId,
+      sale,
+      customerId,
+      documentMode,
+      issueDate,
+      notes,
+      sourceTerminalId,
+      terminal,
+      cashierName,
+    } = params;
+
+    if (documentMode === PosDocumentModeDto.NONE) return null;
+
+    if (documentMode === PosDocumentModeDto.ELECTRONIC_INVOICE) {
+      if (!customerId) {
+        throw new BadRequestException('Debes seleccionar un cliente para generar factura electrónica.');
+      }
+
+      return this.invoicesService.create(companyId, branchId ?? null, {
+        customerId,
+        type: 'VENTA' as any,
+        sourceChannel: 'DIRECT',
+        sourceTerminalId: sourceTerminalId ?? undefined,
+        sourcePosSaleId: sale.id,
+        issueDate,
+        items: sale.items.map((item: any) => ({
+          productId: item.productId ?? undefined,
+          description: item.description,
+          quantity: Number(item.quantity),
+          unitPrice: Number(item.unitPrice),
+          taxRate: Number(item.taxRate ?? 19),
+          discount: Number(item.discount ?? 0),
+        })),
+        notes,
+        currency: 'COP',
+      } as any);
+    }
+
+    const posDocumentConfig = await this.resolvePosElectronicInvoiceConfig({
+      companyId,
+      branchId: branchId ?? sale.branchId ?? sale.session?.branchId ?? null,
+      terminalId: sourceTerminalId ?? terminal?.id ?? sale.session?.terminalId ?? null,
+    });
+    const fiscalRulesSnapshot = await this.buildPosElectronicFiscalSnapshot({
+      companyId,
+      customerId: customerId!,
+      saleNumber: sale.saleNumber,
+      subtotal: Number(sale.subtotal ?? 0),
+      branchId: branchId ?? sale.branchId ?? sale.session?.branchId ?? null,
+      terminal: terminal ?? sale.session?.terminal ?? null,
+      posDocumentConfig,
+    });
+    (fiscalRulesSnapshot as any).equivalentExtensions.cashRegister.cashier =
+      String(cashierName ?? '').trim() || 'CAJERO PRINCIPAL';
+
+    return this.invoicesService.create(companyId, branchId ?? null, {
+      customerId,
+      type: 'VENTA' as any,
+      posSaleId: sale.id,
+      sourceChannel: 'POS',
+      sourceTerminalId: sourceTerminalId ?? undefined,
+      documentConfigId: posDocumentConfig?.id ?? undefined,
+      prefix: posDocumentConfig?.prefix ?? undefined,
+      fiscalRulesSnapshot,
+      issueDate,
+      items: sale.items.map((item: any) => ({
+        productId: item.productId ?? undefined,
+        description: item.description,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        taxRate: Number(item.taxRate ?? 19),
+        discount: Number(item.discount ?? 0),
+      })),
+      notes,
+      currency: 'COP',
+    } as any);
   }
 
   private async resolvePosElectronicInvoiceConfig(params: {
@@ -4325,6 +4473,11 @@ export class PosService {
       throw new BadRequestException('La venta debe tener al menos un artículo');
     }
 
+    const requestedDocumentMode = this.resolveRequestedDocumentMode(
+      dto.documentMode,
+      dto.generateInvoice,
+    );
+
     const pricingContext = await this.buildPricingContext(
       companyId,
       branchId ?? session.branchId ?? undefined,
@@ -4380,6 +4533,11 @@ export class PosService {
     const orderType = this.resolveOrderType(dto);
     const isAdvance = (dto.isAdvancePayment === true || orderType === PosOrderTypeDto.LAYAWAY) && paymentPayload.totalPaid < total;
     const isPreOrder = orderType === PosOrderTypeDto.PREORDER;
+    const genericPosCustomer =
+      requestedDocumentMode === PosDocumentModeDto.POS_ELECTRONIC && !dto.customerId
+        ? await this.ensureGenericPosElectronicCustomer(companyId)
+        : null;
+    const resolvedSaleCustomerId = dto.customerId ?? genericPosCustomer?.id ?? null;
     let externalOrder: { id: string; status: string; channel: string } | null = null;
 
     if (dto.externalOrderId) {
@@ -4468,7 +4626,7 @@ export class PosService {
         data: {
           companyId,
           sessionId: dto.sessionId,
-          customerId: dto.customerId,
+          customerId: resolvedSaleCustomerId,
           externalOrderId: externalOrder?.id ?? null,
           orderType: orderType as any,
           orderStatus:
@@ -4561,7 +4719,7 @@ export class PosService {
               productId: item.productId,
               saleId: newSale.id,
               sessionId: dto.sessionId,
-              customerId: dto.customerId ?? null,
+              customerId: resolvedSaleCustomerId,
               quantity: Number(item.quantity),
               status: 'OPEN',
               notes: 'Preorden POS pendiente de abastecimiento',
@@ -4583,7 +4741,7 @@ export class PosService {
       return newSale;
     });
 
-    if (!isAdvance && dto.customerId) {
+    if (!isAdvance && dto.customerId && !this.isGenericPosConsumer(sale.customer)) {
       await this.awardLoyaltyPoints(companyId, sale.id, dto.customerId, branchId, total);
     }
 
@@ -4654,7 +4812,12 @@ export class PosService {
       });
     }
 
-    if ((paymentPayload.payments.some((payment) => payment.paymentMethod === 'AGREEMENT') || Number(sale.remainingAmount) > 0) && sale.customer?.id) {
+    if (
+      (paymentPayload.payments.some((payment) => payment.paymentMethod === 'AGREEMENT') ||
+        Number(sale.remainingAmount) > 0) &&
+      sale.customer?.id &&
+      !this.isGenericPosConsumer(sale.customer)
+    ) {
       await this.createIntegrationTrace({
         companyId,
         branchId: sale.branchId ?? branchId,
@@ -4697,47 +4860,24 @@ export class PosService {
       });
     }
 
-    // Generar factura electrónica solo si: pago completo, entregado y hay cliente
+    // Generar documento POS/FE automáticamente al completar la venta.
     let invoice: any = null;
-    if (dto.generateInvoice && dto.customerId && !isAdvance) {
+    if (requestedDocumentMode !== PosDocumentModeDto.NONE && !isAdvance) {
       try {
-        const posDocumentConfig = await this.resolvePosElectronicInvoiceConfig({
+        invoice = await this.createDocumentFromPosSale({
           companyId,
           branchId: branchId ?? session.branchId ?? null,
-          terminalId: session.terminalId ?? session.terminal?.id ?? null,
-        });
-        const fiscalRulesSnapshot = await this.buildPosElectronicFiscalSnapshot({
-          companyId,
-          customerId: dto.customerId,
-          saleNumber,
-          subtotal,
-          branchId: branchId ?? session.branchId ?? null,
-          terminal: session.terminal ?? null,
-          posDocumentConfig,
-        });
-        (fiscalRulesSnapshot as any).equivalentExtensions.cashRegister.cashier =
-          `${session.user?.firstName ?? ''} ${session.user?.lastName ?? ''}`.trim() || 'CAJERO PRINCIPAL';
-        invoice = await this.invoicesService.create(companyId,branchId, {
-          customerId: dto.customerId,
-          type: 'VENTA' as any,
-          posSaleId: sale.id,
-          sourceChannel: 'POS',
-          sourceTerminalId: session.terminalId ?? session.terminal?.id ?? undefined,
-          documentConfigId: posDocumentConfig?.id ?? undefined,
-          prefix: posDocumentConfig?.prefix ?? undefined,
-          fiscalRulesSnapshot,
+          sale,
+          customerId: sale.customer?.id ?? resolvedSaleCustomerId,
+          documentMode: requestedDocumentMode,
           issueDate: new Date().toISOString(),
-	          items: itemsData.map((item) => ({
-	            productId: item.productId,
-	            description: item.description,
-	            quantity: item.quantity,
-	            unitPrice: item.unitPrice,
-	            taxRate: item.taxRate ?? 19,
-	            discount: item.discount ?? 0,
-	          })),
           notes: `Generada desde POS - ${saleNumber}`,
-          currency: 'COP',
-        } as any);
+          sourceTerminalId: session.terminalId ?? session.terminal?.id ?? null,
+          terminal: session.terminal ?? null,
+          cashierName:
+            `${session.user?.firstName ?? ''} ${session.user?.lastName ?? ''}`.trim() ||
+            'CAJERO PRINCIPAL',
+        });
 
         await this.prisma.posSale.update({
           where: { id: sale.id },
@@ -4745,7 +4885,7 @@ export class PosService {
         });
       } catch (err: any) {
         this.logger.warn(
-          `Venta ${saleNumber}: no se pudo generar factura automática — ${err?.message}`,
+          `Venta ${saleNumber}: no se pudo generar documento automático — ${err?.message}`,
         );
       }
     }
@@ -4790,44 +4930,20 @@ export class PosService {
       throw new BadRequestException('Ya existe una factura vinculada a esta venta.');
     }
 
-    const posDocumentConfig = await this.resolvePosElectronicInvoiceConfig({
+    const invoice = await this.createDocumentFromPosSale({
       companyId,
       branchId: branchId ?? sale.branchId ?? sale.session?.branchId ?? null,
-      terminalId: sale.session?.terminal?.id ?? sale.session?.terminalId ?? null,
-    });
-    const fiscalRulesSnapshot = await this.buildPosElectronicFiscalSnapshot({
-      companyId,
+      sale,
       customerId: sale.customerId,
-      saleNumber: sale.saleNumber,
-      subtotal: Number(sale.subtotal ?? 0),
-      branchId: branchId ?? sale.branchId ?? sale.session?.branchId ?? null,
-      terminal: sale.session?.terminal ?? null,
-      posDocumentConfig,
-    });
-    (fiscalRulesSnapshot as any).equivalentExtensions.cashRegister.cashier =
-      `${sale.session?.user?.firstName ?? ''} ${sale.session?.user?.lastName ?? ''}`.trim() || 'CAJERO PRINCIPAL';
-
-    const invoice = await this.invoicesService.create(companyId,branchId, {
-      customerId: sale.customerId,
-      type: 'VENTA' as any,
-      posSaleId: sale.id,
-      sourceChannel: 'POS',
-      sourceTerminalId: sale.session?.terminal?.id ?? sale.session?.terminalId ?? undefined,
-      documentConfigId: posDocumentConfig?.id ?? undefined,
-      prefix: posDocumentConfig?.prefix ?? undefined,
-      fiscalRulesSnapshot,
+      documentMode: PosDocumentModeDto.ELECTRONIC_INVOICE,
       issueDate: sale.createdAt.toISOString(),
-      items: sale.items.map((item) => ({
-        productId: item.productId ?? undefined,
-        description: item.description,
-        quantity: Number(item.quantity),
-        unitPrice: Number(item.unitPrice),
-        taxRate: Number(item.taxRate),
-        discount: Number(item.discount),
-      })),
       notes: `Generada desde POS - ${sale.saleNumber}`,
-      currency: 'COP',
-    } as any);
+      sourceTerminalId: sale.session?.terminal?.id ?? sale.session?.terminalId ?? null,
+      terminal: sale.session?.terminal ?? null,
+      cashierName:
+        `${sale.session?.user?.firstName ?? ''} ${sale.session?.user?.lastName ?? ''}`.trim() ||
+        'CAJERO PRINCIPAL',
+    });
 
     await this.prisma.posSale.update({
       where: { id: saleId },
@@ -4928,6 +5044,7 @@ export class PosService {
           id: true, invoiceNumber: true, prefix: true,
           dianCufe: true, dianQrCode: true, dianStatus: true,
           dianStatusCode: true, dianSentAt: true, issueDate: true, status: true,
+          sourceChannel: true,
         },
       });
     }
@@ -5065,9 +5182,14 @@ export class PosService {
       ? cufeStr.match(/.{1,30}/g)?.join('<br/>') ?? cufeStr
       : '';
 
+    const isElectronicInvoice = invoice?.sourceChannel !== 'POS';
+    const documentTitle = invoice
+      ? (isElectronicInvoice ? 'FACTURA ELECTRÓNICA DE VENTA' : 'DOCUMENTO EQUIVALENTE POS')
+      : 'DOCUMENTO EQUIVALENTE POS';
+
     const invBlock = invoice ? `
       <div style="margin:4px 0">
-        <div style="font-size:9.5px;font-weight:bold;text-align:center">** FACTURA ELECTRÓNICA DE VENTA **</div>
+        <div style="font-size:9.5px;font-weight:bold;text-align:center">** ${documentTitle} **</div>
         <div style="font-size:9px;text-align:center">${invoice.prefix ?? ''}${invoice.invoiceNumber ?? ''}</div>
         ${invoice.dianStatusCode === '00'
           ? `<div style="font-size:9px;text-align:center;font-weight:bold">✓ ACEPTADA POR LA DIAN</div>`
@@ -5138,7 +5260,7 @@ ${resolucionBlock}
 
 <!-- ═══ TIPO DE DOCUMENTO ═══ -->
 <div style="text-align:center;font-size:10.5px;font-weight:bold;margin:2px 0">
-  ${invoice ? `FACTURA ELECTRÓNICA DE VENTA` : `DOCUMENTO EQUIVALENTE POS`}
+  ${documentTitle}
 </div>
 <div style="text-align:center;font-size:9.5px">${invoice ? `${invoice.prefix ?? ''}${invoice.invoiceNumber ?? ''}` : sale.saleNumber}</div>
 <div class="sep-sng"></div>
@@ -5611,7 +5733,9 @@ ${barcode128}
           totalTransactions: { increment: 1 },
         },
       });
-      await this.awardLoyaltyPoints(companyId, sale.id, sale.customerId, branchId, Number(sale.total));
+      if (!this.isGenericPosConsumer(updated.customer)) {
+        await this.awardLoyaltyPoints(companyId, sale.id, sale.customerId, branchId, Number(sale.total));
+      }
     }
 
     if (isFullyPaid && isDelivered && !sale.invoiceId) {
@@ -5685,6 +5809,10 @@ ${barcode128}
     const remaining = Number((sale as any).remainingAmount);
     const isFullyPaid = remaining <= 0;
     const newStatus = isFullyPaid ? 'COMPLETED' : 'ADVANCE';
+    const requestedDocumentMode = this.resolveRequestedDocumentMode(
+      dto.documentMode,
+      dto.generateInvoice,
+    );
 
     const updated = await this.prisma.$transaction(async (tx) => {
       await this.allocateInventoryForSale(
@@ -5723,38 +5851,42 @@ ${barcode128}
           totalTransactions: { increment: 1 },
         },
       });
-      await this.awardLoyaltyPoints(companyId, sale.id, sale.customerId, sale.branchId, Number(sale.total));
+      if (!this.isGenericPosConsumer(sale.customer)) {
+        await this.awardLoyaltyPoints(companyId, sale.id, sale.customerId, sale.branchId, Number(sale.total));
+      }
     }
 
-    // Generar factura si se solicitó y hay cliente
+    // Generar documento al entregar si la venta queda completamente pagada.
     let invoice: any = null;
-    if (dto.generateInvoice && sale.customerId && isFullyPaid) {
+    if (requestedDocumentMode !== PosDocumentModeDto.NONE && isFullyPaid) {
       try {
-        invoice = await this.invoicesService.create(companyId, branchId, {
-          customerId: sale.customerId,
-          type: 'VENTA' as any,
-          sourceChannel: 'POS',
-          sourceTerminalId: sale.session?.terminal?.id ?? sale.session?.terminalId ?? undefined,
+        const genericPosCustomer =
+          requestedDocumentMode === PosDocumentModeDto.POS_ELECTRONIC && !sale.customerId
+            ? await this.ensureGenericPosElectronicCustomer(companyId)
+            : null;
+        invoice = await this.createDocumentFromPosSale({
+          companyId,
+          branchId: branchId ?? sale.branchId ?? sale.session?.branchId ?? null,
+          sale,
+          customerId: sale.customerId ?? genericPosCustomer?.id ?? null,
+          documentMode: requestedDocumentMode,
           issueDate: new Date().toISOString(),
-          items: (sale as any).items.map((item: any) => ({
-            productId: item.productId ?? undefined,
-            description: item.description,
-            quantity: Number(item.quantity),
-            unitPrice: Number(item.unitPrice),
-            taxRate: Number(item.taxRate),
-            discount: Number(item.discount),
-          })),
           notes: `Generada desde POS (anticipo) - ${sale.saleNumber}`,
-          currency: 'COP',
-        } as any);
+          sourceTerminalId: sale.session?.terminal?.id ?? sale.session?.terminalId ?? null,
+          terminal: sale.session?.terminal ?? null,
+          cashierName: 'CAJERO PRINCIPAL',
+        });
 
         await this.prisma.posSale.update({
           where: { id: saleId },
-          data: { invoiceId: invoice.id },
+          data: {
+            invoiceId: invoice.id,
+            ...(genericPosCustomer && !sale.customerId ? { customerId: genericPosCustomer.id } : {}),
+          },
         });
       } catch (err: any) {
         this.logger.warn(
-          `Venta ${sale.saleNumber}: no se pudo generar factura al entregar — ${err?.message}`,
+          `Venta ${sale.saleNumber}: no se pudo generar documento al entregar — ${err?.message}`,
         );
       }
     }

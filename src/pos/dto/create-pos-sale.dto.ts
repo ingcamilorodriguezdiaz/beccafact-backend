@@ -32,6 +32,12 @@ export enum PosOrderTypeDto {
   PREORDER = 'PREORDER',
 }
 
+export enum PosDocumentModeDto {
+  POS_ELECTRONIC = 'POS_ELECTRONIC',
+  ELECTRONIC_INVOICE = 'ELECTRONIC_INVOICE',
+  NONE = 'NONE',
+}
+
 export class PosSalePaymentLineDto {
   @IsEnum(PaymentMethodDto)
   paymentMethod: PaymentMethodDto;
@@ -172,6 +178,11 @@ export class CreatePosSaleDto {
   @IsOptional()
   @IsBoolean()
   generateInvoice?: boolean;
+
+  /** Define si la venta debe emitirse como POS electrónico o factura electrónica. */
+  @IsOptional()
+  @IsEnum(PosDocumentModeDto)
+  documentMode?: PosDocumentModeDto;
 
   /** Si true, registra un anticipo (pago parcial). No genera factura hasta entregar y pagar el resto. */
   @IsOptional()

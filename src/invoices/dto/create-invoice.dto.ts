@@ -49,6 +49,11 @@ export class CreateInvoiceDto {
   @IsUUID()
   posSaleId?: string;
 
+  @ApiPropertyOptional({ description: 'Referencia a la venta POS origen sin forzar canal POS electrónico' })
+  @IsOptional()
+  @IsUUID()
+  sourcePosSaleId?: string;
+
   @ApiPropertyOptional({ description: 'Snapshot fiscal interno para documentos especializados como POS electrónico' })
   @IsOptional()
   @IsObject()
