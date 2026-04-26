@@ -7,6 +7,7 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { AdminUpdatePasswordDto } from './dto/admin-update-password.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CompanyStatusGuard } from '../common/guards/company-status.guard';
@@ -104,6 +105,19 @@ export class UsersController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.usersService.deactivate(companyId, id, requesterId);
+  }
+
+  @Patch(':id/password')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Actualizar contraseña de un usuario por administrador' })
+  @HttpCode(HttpStatus.OK)
+  updateUserPassword(
+    @CurrentUser('companyId') companyId: string,
+    @CurrentUser('sub') requesterId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AdminUpdatePasswordDto,
+  ) {
+    return this.usersService.adminUpdatePassword(companyId, id, requesterId, dto.newPassword);
   }
 
   @Patch('me/password')

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../config/prisma.service';
@@ -197,6 +198,26 @@ export class UsersService {
       where: { id: userId },
       data: { password: hashed, refreshToken: null },
     });
+  }
+
+  async adminUpdatePassword(companyId: string, id: string, requesterId: string, newPassword: string) {
+    if (id === requesterId) {
+      throw new BadRequestException('Usa la opción de cambiar tu propia contraseña desde Mi perfil');
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { id, companyId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    const hashed = await bcrypt.hash(newPassword, 12);
+    await this.prisma.user.update({
+      where: { id },
+      data: { password: hashed, refreshToken: null },
+    });
+
+    return { success: true };
   }
 
   async markTourSeen(userId: string) {
