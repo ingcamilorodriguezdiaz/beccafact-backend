@@ -31,7 +31,12 @@ const corsOrigin = configService.get<string>('CORS_ORIGIN', 'http://localhost:42
       'https://beccafact-frontend.onrender.com',
       'https://beccafact.com',
       'https://www.beccafact.com',
-      'http://localhost:34709'
+      'https://www.beccasoft.com',
+      'https://beccasoft.com',
+      'http://localhost:34709',
+      'http://localhost:4201',
+      'http://localhost:4202',
+      'http://localhost:4203',
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [

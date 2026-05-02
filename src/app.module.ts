@@ -1,8 +1,8 @@
+import { BullModule } from '@nestjs/bull';
 import { Module, NestModule, MiddlewareConsumer, RequestMethod } from '@nestjs/common';
 import { BranchContextMiddleware } from './common/middleware/branch-context.middleware';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { BullModule } from '@nestjs/bull';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { CompaniesModule } from './companies/companies.module';
@@ -28,6 +28,9 @@ import { AccountingModule } from './accounting/accounting.module';
 import { PurchasingModule } from './purchasing/purchasing.module';
 import { QuotesModule } from './quotes/quotes.module';
 import { MailerModule } from './common/mailer/mailer.module';
+import { SalesChatModule } from './sales-chat/sales-chat.module';
+import { SalesAgentModule } from './sales-agent/sales-agent.module';
+import { PaymentIntentsModule } from './payment-intents/payment-intents.module';
 
 @Module({
   imports: [
@@ -82,6 +85,9 @@ import { MailerModule } from './common/mailer/mailer.module';
     PurchasingModule,
     QuotesModule,
     MailerModule,
+    SalesChatModule,
+    SalesAgentModule,
+    PaymentIntentsModule,
   ],
 })
 export class AppModule implements NestModule {

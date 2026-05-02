@@ -150,4 +150,84 @@ export class MailerService {
       );
     }
   }
+
+  async sendSalesPaymentLinkEmail(input: {
+    to: string;
+    customerName: string;
+    companyName?: string;
+    planName: string;
+    amount: number;
+    paymentUrl: string;
+    quoteNumber: string;
+  }): Promise<void> {
+    const {
+      to,
+      customerName,
+      companyName,
+      planName,
+      amount,
+      paymentUrl,
+      quoteNumber,
+    } = input;
+    const formattedAmount = amount.toLocaleString('es-CO');
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"/><style>
+  body { font-family: Arial, sans-serif; color: #1e293b; background: #f8fafc; margin: 0; padding: 0; }
+  .container { max-width: 620px; margin: 32px auto; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,.08); }
+  .header { background: #1a407e; padding: 32px 40px; }
+  .header h1 { color: #fff; margin: 0; font-size: 24px; }
+  .header p { color: #dbeafe; margin: 8px 0 0; font-size: 14px; }
+  .body { padding: 36px 40px; }
+  .body p { font-size: 15px; line-height: 1.6; color: #374151; margin: 0 0 16px; }
+  .summary { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px 22px; margin: 24px 0; }
+  .summary p { margin: 0 0 10px; font-size: 14px; }
+  .summary p:last-child { margin-bottom: 0; }
+  .cta { margin: 28px 0; }
+  .button { display: inline-block; background: #16a34a; color: #fff !important; text-decoration: none; padding: 14px 22px; border-radius: 10px; font-weight: 700; }
+  .footer { background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 40px; }
+  .footer p { font-size: 12px; color: #94a3b8; margin: 0; }
+</style></head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>Tu plan ya está listo</h1>
+    <p>BeccaFact · Cierre de compra y activación</p>
+  </div>
+  <div class="body">
+    <p>Hola <strong>${customerName}</strong>,</p>
+    <p>Te compartimos el resumen de la compra${companyName ? ` para <strong>${companyName}</strong>` : ''}. Ya dejamos listo tu enlace de pago para que puedas activarlo cuando quieras.</p>
+    <div class="summary">
+      <p><strong>Cotización:</strong> ${quoteNumber}</p>
+      <p><strong>Plan:</strong> ${planName}</p>
+      <p><strong>Total:</strong> COP ${formattedAmount}</p>
+    </div>
+    <div class="cta">
+      <a class="button" href="${paymentUrl}" target="_blank" rel="noopener noreferrer">Pagar y activar ahora</a>
+    </div>
+    <p>Apenas se confirme el pago, seguimos con la activación de tu cuenta y te enviamos el acceso por correo.</p>
+    <p>Quedo atento si quieres que también te ayudemos a validar cuál plan te conviene más antes de pagar.</p>
+  </div>
+  <div class="footer">
+    <p>Este mensaje fue generado automáticamente por BeccaFact.</p>
+  </div>
+</div>
+</body>
+</html>`;
+
+    try {
+      await this.transporter.sendMail({
+        from: process.env.SMTP_FROM ?? process.env.SMTP_USER ?? 'noreply@beccafact.com',
+        to,
+        subject: `Activa tu plan ${planName} - ${quoteNumber}`,
+        html,
+      });
+      this.logger.log(`Email comercial con link de pago ${quoteNumber} enviado a ${to}`);
+    } catch (error) {
+      this.logger.error(
+        `Error al enviar email comercial ${quoteNumber} a ${to}: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+    }
+  }
 }
