@@ -4,6 +4,7 @@ import { SalesConversationStatus } from '@prisma/client';
 import {
   AgentResponse,
   ISalesAgentProvider,
+  SalesStage,
   SalesAgentContext,
   StructuredAgentDecision,
 } from './agent.interfaces';
@@ -75,6 +76,11 @@ export class SalesAgentService implements OnModuleInit {
       decision = await this.ruleProvider.generate(ctx);
     }
 
+    decision = {
+      ...decision,
+      salesStage: decision.salesStage ?? this.resolveSalesStage(decision),
+    };
+
     return this.toAgentResponse(decision);
   }
 
@@ -93,14 +99,17 @@ export class SalesAgentService implements OnModuleInit {
     }
     updateMetadata['lastIntent'] = d.intent;
     updateMetadata['lastNextAction'] = d.nextAction;
+    updateMetadata['salesStage'] = d.salesStage;
     if (d.recommendedPlanName) updateMetadata['recommendedPlanName'] = d.recommendedPlanName;
 
     let newStatus: string | undefined;
-    if (d.shouldEscalateToHuman) {
+    if (d.salesStage === 'HANDOFF_HUMAN' || d.shouldEscalateToHuman) {
       newStatus = SalesConversationStatus.HUMAN_REQUIRED;
-    } else if (d.shouldCreateQuote) {
+    } else if (d.salesStage === 'PAYMENT') {
+      newStatus = SalesConversationStatus.PAYMENT_PENDING;
+    } else if (d.salesStage === 'QUOTATION' || d.shouldCreateQuote) {
       newStatus = SalesConversationStatus.QUOTE_SENT;
-    } else if (d.nextAction === 'recommend_plan') {
+    } else if (d.salesStage === 'RECOMMENDATION' || d.nextAction === 'recommend_plan') {
       newStatus = SalesConversationStatus.QUALIFIED;
     } else if (['ask_follow_up', 'answer_question'].includes(d.nextAction)) {
       newStatus = SalesConversationStatus.IN_PROGRESS;
@@ -109,16 +118,51 @@ export class SalesAgentService implements OnModuleInit {
     return {
       content: d.message,
       newStatus,
+      salesStage: d.salesStage,
       updateConversation: Object.keys(updateConversation).length > 0 ? updateConversation : undefined,
       updateMetadata: Object.keys(updateMetadata).length > 0 ? updateMetadata : undefined,
       metadata: {
         intent: d.intent,
         nextAction: d.nextAction,
+        salesStage: d.salesStage,
         ...(d.shouldCreateQuote ? { action: 'CREATE_QUOTE' } : {}),
         ...(d.shouldCreatePaymentLink ? { action: 'CREATE_PAYMENT_LINK' } : {}),
       },
       shouldCreateQuote: d.shouldCreateQuote,
       shouldEscalateToHuman: d.shouldEscalateToHuman,
     };
+  }
+
+  private resolveSalesStage(d: StructuredAgentDecision): SalesStage {
+    if (d.shouldEscalateToHuman || d.nextAction === 'escalate_to_human' || d.intent === 'HUMAN_REQUEST') {
+      return 'HANDOFF_HUMAN';
+    }
+    if (d.shouldCreatePaymentLink || d.nextAction === 'create_payment_link') {
+      return 'PAYMENT';
+    }
+    if (d.shouldCreateQuote || d.nextAction === 'create_quote' || d.intent === 'READY_TO_BUY') {
+      return 'QUOTATION';
+    }
+    if (d.intent === 'ASK_DEMO') {
+      return 'DEMO';
+    }
+    if (d.intent === 'OBJECTION_PRICE' || d.intent === 'OBJECTION_NEEDS_TIME') {
+      return 'OBJECTION';
+    }
+    if (d.nextAction === 'recommend_plan' || d.recommendedPlanName) {
+      return 'RECOMMENDATION';
+    }
+
+    const hasQualificationSignals =
+      Boolean(d.capturedData.companyIndustry) ||
+      typeof d.capturedData.usersCount === 'number' ||
+      Boolean(d.capturedData.needs?.length) ||
+      d.intent === 'ASK_PRICE' ||
+      d.intent === 'ASK_FEATURES' ||
+      d.intent === 'ASK_SUPPORT' ||
+      d.intent === 'COMPARE_PLANS' ||
+      d.intent === 'PROVIDING_INFO';
+
+    return hasQualificationSignals ? 'QUALIFICATION' : 'DISCOVERY';
   }
 }

@@ -22,6 +22,16 @@ export type NextAction =
   | 'create_payment_link'
   | 'escalate_to_human';
 
+export type SalesStage =
+  | 'DISCOVERY'
+  | 'QUALIFICATION'
+  | 'RECOMMENDATION'
+  | 'OBJECTION'
+  | 'DEMO'
+  | 'QUOTATION'
+  | 'PAYMENT'
+  | 'HANDOFF_HUMAN';
+
 export interface CapturedCustomerData {
   companyName?: string;
   customerName?: string;
@@ -36,6 +46,7 @@ export interface StructuredAgentDecision {
   message: string;
   intent: MessageIntent;
   nextAction: NextAction;
+  salesStage?: SalesStage;
   capturedData: CapturedCustomerData;
   recommendedPlanName?: string;
   shouldCreateQuote: boolean;
@@ -53,6 +64,7 @@ export interface SalesAgentContext {
 export interface AgentResponse {
   content: string;
   newStatus?: string;
+  salesStage?: SalesStage;
   metadata?: Record<string, unknown>;
   updateConversation?: Record<string, unknown>;
   updateMetadata?: Record<string, unknown>;

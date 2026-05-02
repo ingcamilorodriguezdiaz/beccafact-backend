@@ -119,7 +119,10 @@ export class SalesChatService {
       },
     });
 
-    if (agentResponse.metadata?.action === 'CREATE_QUOTE') {
+    if (
+      agentResponse.metadata?.action === 'CREATE_QUOTE'
+      || agentResponse.metadata?.action === 'CREATE_PAYMENT_LINK'
+    ) {
       try {
         const checkoutSummary = existingCheckout ?? await this.generateOrReuseCheckoutSummary(conversationId);
         agentMessage = await this.prisma.salesMessage.update({
@@ -148,7 +151,7 @@ export class SalesChatService {
     }
 
     this.logger.log(
-      `Sales chat response conversation=${conversationId} durationMs=${Date.now() - startedAt} intent=${String(agentResponse.metadata?.['intent'] ?? 'unknown')} nextAction=${String(agentResponse.metadata?.['nextAction'] ?? 'unknown')}`,
+      `Sales chat response conversation=${conversationId} durationMs=${Date.now() - startedAt} intent=${String(agentResponse.metadata?.['intent'] ?? 'unknown')} nextAction=${String(agentResponse.metadata?.['nextAction'] ?? 'unknown')} salesStage=${String(agentResponse.metadata?.['salesStage'] ?? agentResponse.salesStage ?? 'unknown')}`,
     );
 
     return { visitorMessage, agentMessage };
@@ -307,7 +310,7 @@ export class SalesChatService {
       data: { quoteId: quote.id },
     });
 
-    const paymentIntent = await this.paymentIntents.createSimulated(
+    const paymentIntent = await this.paymentIntents.createChatCheckoutIntent(
       conversationId,
       total,
       quote.id,
@@ -331,19 +334,23 @@ export class SalesChatService {
     }
 
     const quoteResult = await this.generateQuote(conversationId);
-    return {
-      content: this.buildPaymentFollowUp({
+    const followUp = this.buildPaymentFollowUp({
         planName: quoteResult.plan.name,
         amount: Number(quoteResult.paymentIntent.amount),
         paymentUrl: quoteResult.paymentIntent.paymentUrl ?? '',
         quoteNumber: quoteResult.quote.number,
-      }).content,
+      });
+
+    return {
+      content: followUp.content,
       metadata: {
         paymentUrl: quoteResult.paymentIntent.paymentUrl,
         quoteId: quoteResult.quote.id,
         quoteNumber: quoteResult.quote.number,
         recommendedPlanName: quoteResult.plan.name,
         totalAmount: Number(quoteResult.paymentIntent.amount),
+        paymentCtaLabel: 'Pagar ahora',
+        paymentSummary: followUp.summary,
       },
       email: quoteResult.conversation.email ?? null,
       customerName: quoteResult.conversation.visitorName ?? quoteResult.conversation.companyName ?? 'Cliente',
@@ -402,7 +409,8 @@ export class SalesChatService {
   private buildPaymentFollowUp(input: { planName: string; amount: number; paymentUrl: string; quoteNumber: string }) {
     const formattedAmount = input.amount.toLocaleString('es-CO');
     return {
-      content: `Ya te dejé listo el resumen: plan ${input.planName}, cotización ${input.quoteNumber} y total COP ${formattedAmount}. Puedes continuar cuando quieras desde el enlace de pago que aparece aquí.`,
+      content: `Ya dejé lista tu propuesta comercial. Incluye el plan ${input.planName}, la cotización ${input.quoteNumber} y un enlace de pago para que puedas avanzar de inmediato cuando quieras.`,
+      summary: `Cotización ${input.quoteNumber} · Plan ${input.planName} · Total COP ${formattedAmount}`,
     };
   }
 
@@ -459,19 +467,23 @@ export class SalesChatService {
 
     const planName = quote.items[0]?.description?.replace(/^Plan\s+/i, '').replace(/\s*-\s*BeccaFact$/i, '').trim() || 'BeccaFact';
     const amount = Number(paymentIntent.amount ?? quote.total ?? 0);
-    return {
-      content: this.buildPaymentFollowUp({
+    const followUp = this.buildPaymentFollowUp({
         planName,
         amount,
         paymentUrl: paymentIntent.paymentUrl,
         quoteNumber: quote.number,
-      }).content,
+      });
+
+    return {
+      content: followUp.content,
       metadata: {
         paymentUrl: paymentIntent.paymentUrl,
         quoteId: quote.id,
         quoteNumber: quote.number,
         recommendedPlanName: planName,
         totalAmount: amount,
+        paymentCtaLabel: 'Pagar ahora',
+        paymentSummary: followUp.summary,
       },
       email: sourceConversation.email ?? null,
       customerName: sourceConversation.visitorName ?? sourceConversation.companyName ?? 'Cliente',
