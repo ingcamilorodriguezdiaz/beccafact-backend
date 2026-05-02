@@ -2958,9 +2958,15 @@ export class PayrollService {
         nit: true, razonSocial: true, address: true, city: true,
         dianTestMode: true, dianCertificate: true, dianCertificateKey: true,
         nominaSoftwareId: true, nominaSoftwarePin: true, nominaTestSetId: true,
+        isSandbox: true,
       },
     });
     if (!company) throw new NotFoundException('Company not found');
+    if ((company as any).isSandbox) {
+      throw new BadRequestException(
+        'Esta empresa opera en modo SANDBOX. La nómina electrónica no se transmite a la DIAN en este ambiente.',
+      );
+    }
 
     // ── Credenciales DIAN Nómina: valores de la empresa con fallback a constantes ─
     const co = company as typeof company & {

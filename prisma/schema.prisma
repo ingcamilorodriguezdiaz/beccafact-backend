@@ -82,6 +82,7 @@ model Company {
   posSoftwarePin               String?
   posTestSetId                 String?
   posClaveTecnica              String?
+  isSandbox                    Boolean                       @default(false)
   accountPayablePayments       AccountPayablePayment[]
   accountPayableSchedules      AccountPayableSchedule[]
   accountingAccounts           AccountingAccount[]

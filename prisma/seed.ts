@@ -329,6 +329,34 @@ async function main() {
         { key: 'max_support_tickets',     value: '5',     label: '5 tickets de soporte / mes' },
       ],
     },
+    // ── Plan SANDBOX: ambiente de pruebas para clientes (gratuito, todas las features) ──
+    {
+      name: 'SANDBOX',
+      displayName: 'Sandbox (Pruebas)',
+      description: 'Ambiente de pruebas controlado para clientes — sin transmisión real a la DIAN',
+      price: 0,
+      features: [
+        { key: 'max_documents_per_month', value: '-1',    label: 'Documentos ilimitados (simulados)' },
+        { key: 'has_invoices',            value: 'true',  label: 'Facturación electrónica (modo prueba)' },
+        { key: 'dian_enabled',            value: 'false', label: 'DIAN deshabilitado — solo simulación' },
+        { key: 'has_payroll',             value: 'true',  label: 'Nómina electrónica (modo prueba)' },
+        { key: 'has_inventory',           value: 'true',  label: 'Inventario avanzado' },
+        { key: 'has_cartera',             value: 'true',  label: 'Cartera y cobranza' },
+        { key: 'has_reports',             value: 'true',  label: 'Reportes avanzados' },
+        { key: 'bulk_import',             value: 'true',  label: 'Importación masiva CSV/Excel' },
+        { key: 'has_pos',                 value: 'true',  label: 'Punto de Venta (POS)' },
+        { key: 'has_integrations',        value: 'true',  label: 'Integraciones' },
+        { key: 'has_branch',              value: 'true',  label: 'Multisede' },
+        { key: 'has_accounting',          value: 'true',  label: 'Contabilidad' },
+        { key: 'has_purchasing',          value: 'true',  label: 'Compras y proveedores' },
+        { key: 'priority_support',        value: 'false', label: 'Soporte estándar' },
+        { key: 'max_products',            value: '-1',    label: 'Productos ilimitados' },
+        { key: 'max_customers',           value: '-1',    label: 'Clientes ilimitados' },
+        { key: 'max_users',               value: '10',    label: '10 usuarios' },
+        { key: 'max_support_tickets',     value: '2',     label: '2 tickets de soporte / mes' },
+        { key: 'is_sandbox',              value: 'true',  label: 'Ambiente sandbox — sin efectos reales' },
+      ],
+    },
   ];
 
   for (const planData of plansData) {

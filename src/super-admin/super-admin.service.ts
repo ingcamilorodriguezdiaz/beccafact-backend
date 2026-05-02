@@ -37,10 +37,11 @@ export class SuperAdminService {
   async getCompanies(filters: {
     search?: string;
     status?: string;
+    isSandbox?: string;
     page?: number;
     limit?: number;
   }) {
-    const { search, status, page = 1, limit = 20 } = filters;
+    const { search, status, isSandbox, page = 1, limit = 20 } = filters;
     const skip = (Number(page) - 1) * Number(limit);
     const where: any = { deletedAt: null };
 
@@ -52,6 +53,8 @@ export class SuperAdminService {
       ];
     }
     if (status) where.status = status;
+    if (isSandbox === 'true') where.isSandbox = true;
+    if (isSandbox === 'false') where.isSandbox = false;
 
     const [data, total] = await Promise.all([
       this.prisma.company.findMany({

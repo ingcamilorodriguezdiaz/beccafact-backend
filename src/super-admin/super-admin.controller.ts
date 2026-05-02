@@ -49,10 +49,11 @@ export class SuperAdminController {
   getCompanies(
     @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('isSandbox') isSandbox?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.superAdminService.getCompanies({ search, status,     
+    return this.superAdminService.getCompanies({ search, status, isSandbox,
         page:  Number(page)  || DEFAULT_PAGE,
           limit: Number(limit) || DEFAULT_LIMIT});
   }

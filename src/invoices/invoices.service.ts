@@ -3060,6 +3060,11 @@ export class InvoicesService {
     });
     if (!invoice) throw new NotFoundException('Factura no encontrada');
     if (invoice.status !== 'DRAFT') throw new BadRequestException('Solo se pueden enviar facturas en estado DRAFT');
+    if ((invoice.company as any)?.isSandbox) {
+      throw new BadRequestException(
+        'Esta empresa opera en modo SANDBOX. Los documentos electrónicos no se transmiten a la DIAN en este ambiente.',
+      );
+    }
     const approvedRequest = await this.ensureActionApprovalState(companyId, invoiceId, 'ISSUE');
     const branchId = options?.branchId ?? invoice.branchId ?? null;
     const dianJob = options?.skipJobRegistration
