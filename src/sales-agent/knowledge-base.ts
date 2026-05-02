@@ -187,6 +187,121 @@ export const SALES_KNOWLEDGE_BASE = {
     trainingIncluded: true,
     onboardingIncluded: true,
   },
+
+  industryPlaybooks: {
+    restaurante: {
+      painPoints: ['caja', 'inventario', 'facturación rápida', 'domicilios'],
+      qualifyingQuestions: [
+        '¿Hoy lo que más te duele es caja, inventario o facturación?',
+        '¿Tienen una sola sede o varias?',
+        '¿Necesitan punto de venta para atender rápido en caja?',
+      ],
+      suggestedNeeds: ['pos', 'inventario', 'facturacion', 'reportes'],
+      valuePitch:
+        'les ayuda a vender más rápido, controlar insumos y reducir descuadres en caja.',
+      recommendedCta: 'demo',
+    },
+    retail: {
+      painPoints: ['stock', 'ventas en mostrador', 'referencias', 'precios'],
+      qualifyingQuestions: [
+        '¿Venden por mostrador, por WhatsApp o ambos?',
+        '¿Hoy controlan inventario en Excel o ya usan sistema?',
+        '¿Cuántas cajas o usuarios lo manejarían?',
+      ],
+      suggestedNeeds: ['pos', 'inventario', 'cartera', 'reportes'],
+      valuePitch:
+        'les da control de inventario en tiempo real y acelera la venta en caja sin perder trazabilidad.',
+      recommendedCta: 'demo',
+    },
+    servicios: {
+      painPoints: ['facturación', 'seguimiento a clientes', 'cartera', 'cotizaciones'],
+      qualifyingQuestions: [
+        '¿Lo más importante para ustedes hoy es facturar mejor o cobrar mejor?',
+        '¿Manejan cotizaciones antes de cerrar la venta?',
+        '¿Cuántas personas del equipo usarían la herramienta?',
+      ],
+      suggestedNeeds: ['facturacion', 'cartera', 'cotizaciones', 'reportes'],
+      valuePitch:
+        'les ordena la parte administrativa, el seguimiento comercial y el cobro sin depender de tantos procesos manuales.',
+      recommendedCta: 'quote',
+    },
+    ferreteria: {
+      painPoints: ['muchas referencias', 'inventario', 'compras', 'ventas rápidas'],
+      qualifyingQuestions: [
+        '¿Manejan muchas referencias y cambios frecuentes de precio?',
+        '¿La mayor dificultad hoy está en inventario o en la venta rápida?',
+        '¿También necesitan compras y proveedores?',
+      ],
+      suggestedNeeds: ['inventario', 'pos', 'compras', 'reportes'],
+      valuePitch:
+        'les ayuda a ordenar referencias, compras y ventas para evitar quiebres de stock y pérdida de control.',
+      recommendedCta: 'demo',
+    },
+    drogueria: {
+      painPoints: ['atención rápida', 'inventario sensible', 'control por referencias'],
+      qualifyingQuestions: [
+        '¿Necesitan vender rápido en caja y controlar inventario al mismo tiempo?',
+        '¿Tienen una sola droguería o varias?',
+        '¿Hoy el problema es más de facturación, inventario o caja?',
+      ],
+      suggestedNeeds: ['pos', 'inventario', 'facturacion', 'reportes'],
+      valuePitch:
+        'les permite atender rápido, controlar inventario y tener más orden en la operación diaria.',
+      recommendedCta: 'demo',
+    },
+    distribuidora: {
+      painPoints: ['inventario por volumen', 'cartera', 'pedidos', 'múltiples vendedores'],
+      qualifyingQuestions: [
+        '¿Venden más a crédito o de contado?',
+        '¿Manejan cartera y cobranza frecuente?',
+        '¿Cuántas personas entre ventas y administración usarían el sistema?',
+      ],
+      suggestedNeeds: ['inventario', 'cartera', 'cotizaciones', 'compras', 'reportes'],
+      valuePitch:
+        'les da control comercial completo entre ventas, cartera, pedidos y administración.',
+      recommendedCta: 'quote',
+    },
+    manufactura: {
+      painPoints: ['inventario', 'compras', 'costos', 'control administrativo'],
+      qualifyingQuestions: [
+        '¿Lo que más quieren ordenar hoy es inventario, compras o facturación?',
+        '¿Necesitan varios usuarios entre planta y administración?',
+        '¿Ya tienen algún sistema o todavía lo llevan en Excel?',
+      ],
+      suggestedNeeds: ['inventario', 'compras', 'facturacion', 'reportes', 'contabilidad'],
+      valuePitch:
+        'les ayuda a reducir dependencia de Excel y a tener más trazabilidad en inventario, compras y facturación.',
+      recommendedCta: 'demo',
+    },
+  },
+
+  intentPlaybooks: {
+    curious: {
+      goal: 'abrir conversación y capturar el primer dato útil',
+      cta: 'ask_context',
+      guidance: ['educa breve', 'haz una sola pregunta de contexto', 'no cierres agresivamente'],
+    },
+    comparing: {
+      goal: 'diferenciar por valor y entender criterio de decisión',
+      cta: 'recommend_or_demo',
+      guidance: ['compara sin atacar competencia', 'lleva al dolor principal', 'habla de ajuste al negocio'],
+    },
+    demo_ready: {
+      goal: 'convertir interés en demostración enfocada',
+      cta: 'schedule_demo',
+      guidance: ['pregunta qué quiere ver primero', 'captura datos faltantes', 'aterriza la demo a la operación'],
+    },
+    quote_ready: {
+      goal: 'formalizar propuesta sin perder momentum',
+      cta: 'create_quote',
+      guidance: ['resume encaje', 'confirma plan sugerido', 'pide correo o WhatsApp si falta'],
+    },
+    payment_ready: {
+      goal: 'remover fricción y mover a activación',
+      cta: 'create_payment_link',
+      guidance: ['explica el siguiente paso', 'refuerza activación rápida', 'no reabras objeciones'],
+    },
+  },
 };
 
 export type SalesKnowledgeBase = typeof SALES_KNOWLEDGE_BASE;

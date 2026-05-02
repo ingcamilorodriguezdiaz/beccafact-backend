@@ -2,13 +2,14 @@ import { Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { ISalesAgentProvider, SalesAgentContext, StructuredAgentDecision } from '../agent.interfaces';
 import { SALES_KNOWLEDGE_BASE } from '../knowledge-base';
+import { RuleBasedSalesAgentProvider } from './rule-based.provider';
 
 const SYSTEM_PROMPT = `Eres un asesor comercial experto de BeccaSoft. Ayudas a empresas colombianas a encontrar el plan de software ERP correcto.
 
 Tu objetivo es conversar de forma natural, entender las necesidades del cliente y guiarlo hacia una compra. No suenas como bot ni como formulario.
 
 REGLAS DE CONVERSACIÓN:
-- Responde de forma breve: máximo 3–4 oraciones.
+- Responde de forma breve: máximo 3 o 4 oraciones.
 - Haz máximo 1 o 2 preguntas por mensaje. Nunca más.
 - No repitas preguntas que el cliente ya respondió.
 - Conecta las necesidades del cliente con beneficios concretos del plan.
@@ -17,6 +18,7 @@ REGLAS DE CONVERSACIÓN:
 - No uses listas ni bullet points en tu respuesta. Escribe en párrafo natural.
 - Usa un tono cercano, profesional y colombiano.
 - No inventes precios, módulos ni condiciones que no estén en la base de conocimiento.
+- Usa la decisión base recomendada como guía fuerte, salvo que el mensaje del cliente justifique claramente otra dirección.
 
 FORMATO DE RESPUESTA:
 Debes responder ÚNICAMENTE con un JSON válido con esta estructura exacta:
@@ -27,10 +29,11 @@ Debes responder ÚNICAMENTE con un JSON válido con esta estructura exacta:
   "capturedData": {
     "companyName": "nombre si lo mencionó, sino null",
     "customerName": "nombre si lo mencionó, sino null",
+    "companyIndustry": "industria si la detectas, sino null",
     "phone": "teléfono si lo mencionó, sino null",
     "email": "email si lo mencionó, sino null",
     "usersCount": número_si_lo_mencionó_sino_null,
-    "needs": ["array de módulos mencionados, sino vacío"]
+    "needs": ["array de módulos o necesidades mencionadas, sino vacío"]
   },
   "recommendedPlanName": "Básico|Profesional|Empresarial|null",
   "shouldCreateQuote": false,
@@ -42,14 +45,16 @@ Valores válidos para intent: ASK_PRICE, ASK_FEATURES, ASK_DEMO, ASK_PAYMENT, AS
 
 Valores válidos para nextAction: answer_question, ask_follow_up, recommend_plan, create_quote, create_payment_link, escalate_to_human
 
-Pon shouldCreateQuote en true SOLO si el cliente indica claramente que quiere la cotización o quiere comprar (ejemplos: "sí", "me interesa", "envíame la cotización", "quiero pagar", "lo tomo", "dale", "procede").
-Pon shouldEscalateToHuman en true SOLO si el cliente pide explícitamente hablar con una persona real.
+Pon shouldCreateQuote en true SOLO si el cliente indica claramente que quiere la cotización o quiere comprar.
+Pon shouldCreatePaymentLink en true SOLO si el cliente ya está listo para pagar o activar.
+Pon shouldEscalateToHuman en true SOLO si el cliente pide explícitamente hablar con una persona real o necesita coordinación humana.
 
 NO respondas con nada más que el JSON. Sin texto adicional, sin markdown, sin explicaciones.`;
 
 export class ClaudeSalesAgentProvider implements ISalesAgentProvider {
   private readonly logger = new Logger(ClaudeSalesAgentProvider.name);
-  private client: Anthropic;
+  private readonly client: Anthropic;
+  private readonly ruleProvider = new RuleBasedSalesAgentProvider();
 
   constructor(apiKey: string) {
     this.client = new Anthropic({ apiKey });
@@ -57,22 +62,22 @@ export class ClaudeSalesAgentProvider implements ISalesAgentProvider {
 
   async generate(ctx: SalesAgentContext): Promise<StructuredAgentDecision> {
     const { conversation, userMessage, availablePlans } = ctx;
+    const baselineDecision = await this.ruleProvider.generate(ctx);
+    const kb = SALES_KNOWLEDGE_BASE;
 
     const plansContext = availablePlans.map((p) => ({
       name: p.name,
       price: `COP ${Number(p.price).toLocaleString('es-CO')} / ${p.billingPeriod === 'MONTHLY' ? 'mes' : 'año'}`,
       maxUsers: p.maxUsers ?? 'ilimitados',
-      features: p.features,
+      features: Array.isArray(p.features) ? p.features.join(', ') : String(p.features ?? ''),
     }));
-
-    const kb = SALES_KNOWLEDGE_BASE;
 
     const knowledgeContext = `
 BASE DE CONOCIMIENTO:
 Empresa: ${kb.businessName} - ${kb.description}
 
 PLANES DISPONIBLES (usa estos precios, no inventes otros):
-${plansContext.map((p) => `- ${p.name}: ${p.price}, hasta ${p.maxUsers} usuarios, incluye: ${Array.isArray(p.features) ? p.features.join(', ') : p.features}`).join('\n')}
+${plansContext.map((p) => `- ${p.name}: ${p.price}, hasta ${p.maxUsers} usuarios, incluye: ${p.features}`).join('\n')}
 
 PREGUNTAS FRECUENTES:
 ${kb.faqs.map((f) => `P: ${f.question}\nR: ${f.answer}`).join('\n\n')}
@@ -80,8 +85,26 @@ ${kb.faqs.map((f) => `P: ${f.question}\nR: ${f.answer}`).join('\n\n')}
 CÓMO MANEJAR OBJECIONES:
 ${kb.objections.map((o) => `Si dicen "${o.trigger[0]}": ${o.response}`).join('\n')}
 
+PLAYBOOKS POR INDUSTRIA:
+${Object.entries(kb.industryPlaybooks)
+  .map(([industry, playbook]) => `- ${industry}: dolores=${playbook.painPoints.join(', ')} | pitch=${playbook.valuePitch} | CTA sugerido=${playbook.recommendedCta}`)
+  .join('\n')}
+
+PLAYBOOKS POR INTENCIÓN:
+${Object.entries(kb.intentPlaybooks)
+  .map(([intent, playbook]) => `- ${intent}: objetivo=${playbook.goal} | CTA=${playbook.cta} | guía=${playbook.guidance.join(', ')}`)
+  .join('\n')}
+
 PROCESO DE ACTIVACIÓN: ${kb.activationProcess.join(' | ')}
 MEDIOS DE PAGO: ${kb.paymentMethods.join(', ')}
+
+DECISIÓN BASE RECOMENDADA:
+intent=${baselineDecision.intent}
+nextAction=${baselineDecision.nextAction}
+recommendedPlan=${baselineDecision.recommendedPlanName ?? 'ninguno'}
+industry=${baselineDecision.capturedData.companyIndustry ?? 'desconocida'}
+needs=${baselineDecision.capturedData.needs?.join(', ') ?? 'ninguna'}
+mensaje_base=${baselineDecision.message}
 `;
 
     const historyMessages = conversation.messages.slice(-10).map((m) => ({
@@ -89,9 +112,10 @@ MEDIOS DE PAGO: ${kb.paymentMethods.join(', ')}
       content: m.content,
     }));
 
-    const contextForClaude = conversation.companyName || conversation.email || conversation.visitorName
-      ? `[Contexto: empresa="${conversation.companyName ?? ''}", contacto="${conversation.visitorName ?? ''}", email="${conversation.email ?? ''}", teléfono="${conversation.phone ?? ''}", plan recomendado="${conversation.recommendedPlanName ?? 'ninguno'}"]`
-      : '';
+    const contextForClaude =
+      conversation.companyName || conversation.email || conversation.visitorName
+        ? `[Contexto: empresa="${conversation.companyName ?? ''}", contacto="${conversation.visitorName ?? ''}", email="${conversation.email ?? ''}", teléfono="${conversation.phone ?? ''}", plan recomendado="${conversation.recommendedPlanName ?? 'ninguno'}"]`
+        : '';
 
     const messages: Anthropic.MessageParam[] = [
       ...(historyMessages.length > 0 ? historyMessages.slice(0, -1) : []),
@@ -110,58 +134,81 @@ MEDIOS DE PAGO: ${kb.paymentMethods.join(', ')}
       messages,
     });
 
-    const rawText = response.content[0].type === 'text' ? response.content[0].text.trim() : '';
+    const rawText = response.content[0]?.type === 'text' ? response.content[0].text.trim() : '';
 
-    return this.parseResponse(rawText, userMessage);
+    return this.parseResponse(rawText, userMessage, baselineDecision);
   }
 
-  private parseResponse(raw: string, userMessage: string): StructuredAgentDecision {
+  private parseResponse(
+    raw: string,
+    userMessage: string,
+    baselineDecision: StructuredAgentDecision,
+  ): StructuredAgentDecision {
     try {
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON found in response');
 
       const parsed = JSON.parse(jsonMatch[0]);
-
       if (!parsed.message || typeof parsed.message !== 'string') {
         throw new Error('Invalid message field');
       }
 
       return {
         message: parsed.message,
-        intent: parsed.intent ?? 'GENERAL_QUESTION',
-        nextAction: parsed.nextAction ?? 'answer_question',
+        intent: parsed.intent ?? baselineDecision.intent,
+        nextAction: parsed.nextAction ?? baselineDecision.nextAction,
         capturedData: {
-          companyName: parsed.capturedData?.companyName ?? undefined,
-          customerName: parsed.capturedData?.customerName ?? undefined,
-          phone: parsed.capturedData?.phone ?? undefined,
-          email: parsed.capturedData?.email ?? undefined,
-          usersCount: parsed.capturedData?.usersCount ?? undefined,
-          needs: Array.isArray(parsed.capturedData?.needs) ? parsed.capturedData.needs : [],
+          companyName: parsed.capturedData?.companyName ?? baselineDecision.capturedData.companyName ?? undefined,
+          customerName: parsed.capturedData?.customerName ?? baselineDecision.capturedData.customerName ?? undefined,
+          companyIndustry:
+            parsed.capturedData?.companyIndustry ?? baselineDecision.capturedData.companyIndustry ?? undefined,
+          phone: parsed.capturedData?.phone ?? baselineDecision.capturedData.phone ?? undefined,
+          email: parsed.capturedData?.email ?? baselineDecision.capturedData.email ?? undefined,
+          usersCount: parsed.capturedData?.usersCount ?? baselineDecision.capturedData.usersCount ?? undefined,
+          needs: Array.isArray(parsed.capturedData?.needs)
+            ? parsed.capturedData.needs
+            : baselineDecision.capturedData.needs ?? [],
         },
-        recommendedPlanName: parsed.recommendedPlanName ?? undefined,
-        shouldCreateQuote: parsed.shouldCreateQuote === true,
-        shouldCreatePaymentLink: parsed.shouldCreatePaymentLink === true,
-        shouldEscalateToHuman: parsed.shouldEscalateToHuman === true,
+        recommendedPlanName: parsed.recommendedPlanName ?? baselineDecision.recommendedPlanName ?? undefined,
+        shouldCreateQuote:
+          parsed.shouldCreateQuote === true || baselineDecision.shouldCreateQuote === true,
+        shouldCreatePaymentLink:
+          parsed.shouldCreatePaymentLink === true || baselineDecision.shouldCreatePaymentLink === true,
+        shouldEscalateToHuman:
+          parsed.shouldEscalateToHuman === true || baselineDecision.shouldEscalateToHuman === true,
       };
     } catch (err) {
-      this.logger.warn(`Failed to parse Claude response: ${(err as Error).message}. Raw: ${raw.substring(0, 200)}`);
-      return this.fallbackDecision(userMessage, raw);
+      this.logger.warn(
+        `Failed to parse Claude response: ${(err as Error).message}. Raw: ${raw.substring(0, 200)}`,
+      );
+      return this.fallbackDecision(userMessage, raw, baselineDecision);
     }
   }
 
-  private fallbackDecision(userMessage: string, rawMessage: string): StructuredAgentDecision {
+  private fallbackDecision(
+    userMessage: string,
+    rawMessage: string,
+    baselineDecision: StructuredAgentDecision,
+  ): StructuredAgentDecision {
     const lower = userMessage.toLowerCase();
     const wantsHuman = ['asesor', 'humano', 'persona', 'hablar con'].some((k) => lower.includes(k));
-    const wantsBuy = ['sí', 'si', 'quiero', 'cotización', 'pagar', 'lo tomo', 'dale'].some((k) => lower.includes(k));
+    const wantsBuy = ['sí', 'si', 'quiero', 'cotización', 'cotizacion', 'pagar', 'lo tomo', 'dale'].some((k) =>
+      lower.includes(k),
+    );
 
     return {
-      message: rawMessage || 'Entendido, permíteme un momento para darte la mejor respuesta.',
-      intent: 'GENERAL_QUESTION',
-      nextAction: wantsHuman ? 'escalate_to_human' : wantsBuy ? 'create_quote' : 'answer_question',
-      capturedData: {},
-      shouldCreateQuote: wantsBuy,
-      shouldCreatePaymentLink: false,
-      shouldEscalateToHuman: wantsHuman,
+      ...baselineDecision,
+      message:
+        rawMessage || baselineDecision.message || 'Entendido, permíteme un momento para darte la mejor respuesta.',
+      intent: wantsHuman ? 'HUMAN_REQUEST' : wantsBuy ? 'READY_TO_BUY' : baselineDecision.intent,
+      nextAction: wantsHuman
+        ? 'escalate_to_human'
+        : wantsBuy
+          ? 'create_quote'
+          : baselineDecision.nextAction,
+      shouldCreateQuote: wantsBuy || baselineDecision.shouldCreateQuote,
+      shouldCreatePaymentLink: baselineDecision.shouldCreatePaymentLink,
+      shouldEscalateToHuman: wantsHuman || baselineDecision.shouldEscalateToHuman,
     };
   }
 }

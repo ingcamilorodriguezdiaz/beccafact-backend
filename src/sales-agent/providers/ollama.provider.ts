@@ -73,7 +73,14 @@ export class OllamaProvider implements ISalesAgentProvider {
         },
         {
           role: 'user' as const,
-          content: `Planes disponibles: ${plansText}\nCliente pregunta: ${this.truncate(userMessage, this.maxMessageChars)}`,
+          content: `Planes disponibles: ${plansText}
+Industria detectada: ${ruleDecision.capturedData.companyIndustry ?? 'sin definir'}
+Necesidades detectadas: ${ruleDecision.capturedData.needs?.join(', ') ?? 'sin definir'}
+Intención detectada: ${ruleDecision.intent}
+Siguiente acción sugerida: ${ruleDecision.nextAction}
+Plan sugerido: ${ruleDecision.recommendedPlanName ?? 'sin definir'}
+Mensaje base recomendado: ${ruleDecision.message}
+Cliente pregunta: ${this.truncate(userMessage, this.maxMessageChars)}`,
         },
       ],
       stream: false,
