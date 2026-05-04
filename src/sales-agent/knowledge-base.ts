@@ -1,66 +1,15 @@
+import {
+  SALES_CONVERSATION_TEST_CASES,
+  SALES_ESCALATION_RULES,
+  SALES_INDUSTRY_PLAYBOOKS,
+  SALES_INTENT_PLAYBOOKS,
+} from './sales-playbook';
+
 export const SALES_KNOWLEDGE_BASE = {
   businessName: 'BeccaSoft',
   product: 'BeccaFact',
   description:
     'BeccaFact es un software ERP en la nube para empresas colombianas. Automatiza facturación electrónica DIAN, inventario, nómina, contabilidad, punto de venta y más. 100% colombiano, fácil de usar y con soporte real.',
-
-  plans: [
-    {
-      name: 'Básico',
-      price: 89900,
-      billingPeriod: 'mensual',
-      maxUsers: 3,
-      description:
-        'Ideal para microempresas, emprendedores y negocios que arrancan. Incluye lo esencial para facturar con la DIAN y llevar el control de clientes.',
-      modules: [
-        'Facturación electrónica DIAN',
-        'Gestión de clientes',
-        'Catálogo de productos',
-        'Reportes básicos de ventas',
-        'Notas crédito y débito',
-      ],
-      bestFor: 'Emprendedores, pequeños comercios, negocios con hasta 3 empleados',
-      notIncluded: ['Inventario', 'Punto de venta (POS)', 'Nómina', 'Contabilidad'],
-    },
-    {
-      name: 'Profesional',
-      price: 179900,
-      billingPeriod: 'mensual',
-      maxUsers: 10,
-      description:
-        'Perfecto para pequeñas y medianas empresas que necesitan control completo de ventas, inventario y cartera. El más popular.',
-      modules: [
-        'Todo lo del plan Básico',
-        'Control de inventario',
-        'Punto de venta (POS)',
-        'Gestión de cartera',
-        'Pedidos y cotizaciones',
-        'Reportes avanzados',
-        'Múltiples sucursales',
-      ],
-      bestFor: 'Pymes, tiendas, distribuidoras, empresas con 4–10 usuarios',
-      notIncluded: ['Nómina electrónica DIAN', 'Contabilidad completa'],
-    },
-    {
-      name: 'Empresarial',
-      price: 299900,
-      billingPeriod: 'mensual',
-      maxUsers: null,
-      description:
-        'La solución completa para empresas medianas y grandes. Todos los módulos activados, usuarios ilimitados y soporte prioritario.',
-      modules: [
-        'Todo lo del plan Profesional',
-        'Nómina electrónica DIAN',
-        'Contabilidad completa',
-        'Módulo de compras y proveedores',
-        'Usuarios ilimitados',
-        'API de integración',
-        'Soporte 24/7 dedicado',
-      ],
-      bestFor: 'Empresas medianas, grupos empresariales, negocios con más de 10 usuarios',
-      notIncluded: [],
-    },
-  ],
 
   modules: {
     facturacion: 'Genera facturas electrónicas válidas ante la DIAN, con CUFE, QR y envío automático al correo del cliente.',
@@ -100,7 +49,7 @@ export const SALES_KNOWLEDGE_BASE = {
     },
     {
       question: '¿Tiene soporte técnico?',
-      answer: 'Sí, todos los planes incluyen soporte por correo y chat. El plan Empresarial tiene soporte 24/7 prioritario.',
+      answer: 'Sí. El soporte incluido depende del plan activo configurado para tu empresa, y si necesitas más cobertura te orientamos sobre la opción que mejor encaja.',
     },
     {
       question: '¿Puedo ver una demo?',
@@ -120,7 +69,7 @@ export const SALES_KNOWLEDGE_BASE = {
     {
       trigger: ['caro', 'costoso', 'precio alto', 'no tengo presupuesto', 'mucho dinero'],
       response:
-        'Entiendo que el presupuesto importa. Si lo comparas con lo que cuesta un contador que lleve la facturación manualmente o con multas por reportar mal a la DIAN, el plan Básico a $89.900 al mes termina siendo una inversión muy razonable. Además, no hay contratos: si en algún momento no te funciona, lo cancelas.',
+        'Entiendo que el presupuesto importa. La idea es que pagues por un plan que realmente te ayude a ordenar la operación, evitar reprocesos y cumplir bien con la DIAN. Además, no hay permanencias largas: puedes crecer o ajustar el plan según lo que necesites.',
     },
     {
       trigger: ['lo pienso', 'déjame pensarlo', 'necesito tiempo', 'voy a consultar'],
@@ -188,120 +137,10 @@ export const SALES_KNOWLEDGE_BASE = {
     onboardingIncluded: true,
   },
 
-  industryPlaybooks: {
-    restaurante: {
-      painPoints: ['caja', 'inventario', 'facturación rápida', 'domicilios'],
-      qualifyingQuestions: [
-        '¿Hoy lo que más te duele es caja, inventario o facturación?',
-        '¿Tienen una sola sede o varias?',
-        '¿Necesitan punto de venta para atender rápido en caja?',
-      ],
-      suggestedNeeds: ['pos', 'inventario', 'facturacion', 'reportes'],
-      valuePitch:
-        'les ayuda a vender más rápido, controlar insumos y reducir descuadres en caja.',
-      recommendedCta: 'demo',
-    },
-    retail: {
-      painPoints: ['stock', 'ventas en mostrador', 'referencias', 'precios'],
-      qualifyingQuestions: [
-        '¿Venden por mostrador, por WhatsApp o ambos?',
-        '¿Hoy controlan inventario en Excel o ya usan sistema?',
-        '¿Cuántas cajas o usuarios lo manejarían?',
-      ],
-      suggestedNeeds: ['pos', 'inventario', 'cartera', 'reportes'],
-      valuePitch:
-        'les da control de inventario en tiempo real y acelera la venta en caja sin perder trazabilidad.',
-      recommendedCta: 'demo',
-    },
-    servicios: {
-      painPoints: ['facturación', 'seguimiento a clientes', 'cartera', 'cotizaciones'],
-      qualifyingQuestions: [
-        '¿Lo más importante para ustedes hoy es facturar mejor o cobrar mejor?',
-        '¿Manejan cotizaciones antes de cerrar la venta?',
-        '¿Cuántas personas del equipo usarían la herramienta?',
-      ],
-      suggestedNeeds: ['facturacion', 'cartera', 'cotizaciones', 'reportes'],
-      valuePitch:
-        'les ordena la parte administrativa, el seguimiento comercial y el cobro sin depender de tantos procesos manuales.',
-      recommendedCta: 'quote',
-    },
-    ferreteria: {
-      painPoints: ['muchas referencias', 'inventario', 'compras', 'ventas rápidas'],
-      qualifyingQuestions: [
-        '¿Manejan muchas referencias y cambios frecuentes de precio?',
-        '¿La mayor dificultad hoy está en inventario o en la venta rápida?',
-        '¿También necesitan compras y proveedores?',
-      ],
-      suggestedNeeds: ['inventario', 'pos', 'compras', 'reportes'],
-      valuePitch:
-        'les ayuda a ordenar referencias, compras y ventas para evitar quiebres de stock y pérdida de control.',
-      recommendedCta: 'demo',
-    },
-    drogueria: {
-      painPoints: ['atención rápida', 'inventario sensible', 'control por referencias'],
-      qualifyingQuestions: [
-        '¿Necesitan vender rápido en caja y controlar inventario al mismo tiempo?',
-        '¿Tienen una sola droguería o varias?',
-        '¿Hoy el problema es más de facturación, inventario o caja?',
-      ],
-      suggestedNeeds: ['pos', 'inventario', 'facturacion', 'reportes'],
-      valuePitch:
-        'les permite atender rápido, controlar inventario y tener más orden en la operación diaria.',
-      recommendedCta: 'demo',
-    },
-    distribuidora: {
-      painPoints: ['inventario por volumen', 'cartera', 'pedidos', 'múltiples vendedores'],
-      qualifyingQuestions: [
-        '¿Venden más a crédito o de contado?',
-        '¿Manejan cartera y cobranza frecuente?',
-        '¿Cuántas personas entre ventas y administración usarían el sistema?',
-      ],
-      suggestedNeeds: ['inventario', 'cartera', 'cotizaciones', 'compras', 'reportes'],
-      valuePitch:
-        'les da control comercial completo entre ventas, cartera, pedidos y administración.',
-      recommendedCta: 'quote',
-    },
-    manufactura: {
-      painPoints: ['inventario', 'compras', 'costos', 'control administrativo'],
-      qualifyingQuestions: [
-        '¿Lo que más quieren ordenar hoy es inventario, compras o facturación?',
-        '¿Necesitan varios usuarios entre planta y administración?',
-        '¿Ya tienen algún sistema o todavía lo llevan en Excel?',
-      ],
-      suggestedNeeds: ['inventario', 'compras', 'facturacion', 'reportes', 'contabilidad'],
-      valuePitch:
-        'les ayuda a reducir dependencia de Excel y a tener más trazabilidad en inventario, compras y facturación.',
-      recommendedCta: 'demo',
-    },
-  },
-
-  intentPlaybooks: {
-    curious: {
-      goal: 'abrir conversación y capturar el primer dato útil',
-      cta: 'ask_context',
-      guidance: ['educa breve', 'haz una sola pregunta de contexto', 'no cierres agresivamente'],
-    },
-    comparing: {
-      goal: 'diferenciar por valor y entender criterio de decisión',
-      cta: 'recommend_or_demo',
-      guidance: ['compara sin atacar competencia', 'lleva al dolor principal', 'habla de ajuste al negocio'],
-    },
-    demo_ready: {
-      goal: 'convertir interés en demostración enfocada',
-      cta: 'schedule_demo',
-      guidance: ['pregunta qué quiere ver primero', 'captura datos faltantes', 'aterriza la demo a la operación'],
-    },
-    quote_ready: {
-      goal: 'formalizar propuesta sin perder momentum',
-      cta: 'create_quote',
-      guidance: ['resume encaje', 'confirma plan sugerido', 'pide correo o WhatsApp si falta'],
-    },
-    payment_ready: {
-      goal: 'remover fricción y mover a activación',
-      cta: 'create_payment_link',
-      guidance: ['explica el siguiente paso', 'refuerza activación rápida', 'no reabras objeciones'],
-    },
-  },
+  industryPlaybooks: SALES_INDUSTRY_PLAYBOOKS,
+  intentPlaybooks: SALES_INTENT_PLAYBOOKS,
+  escalationRules: SALES_ESCALATION_RULES,
+  conversationTests: SALES_CONVERSATION_TEST_CASES,
 };
 
 export type SalesKnowledgeBase = typeof SALES_KNOWLEDGE_BASE;

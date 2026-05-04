@@ -81,6 +81,11 @@ export class SalesAgentService implements OnModuleInit {
       salesStage: decision.salesStage ?? this.resolveSalesStage(decision),
     };
 
+    // Guardia de cualificación mínima:
+    // No se genera cotización si la conversación tiene menos de 3 intercambios
+    // o si aún no se conoce el número de usuarios ni el plan recomendado.
+    decision = this.enforceQualificationGate(decision, ctx);
+
     return this.toAgentResponse(decision);
   }
 
@@ -131,6 +136,45 @@ export class SalesAgentService implements OnModuleInit {
       shouldCreateQuote: d.shouldCreateQuote,
       shouldEscalateToHuman: d.shouldEscalateToHuman,
     };
+  }
+
+  private enforceQualificationGate(
+    decision: StructuredAgentDecision,
+    ctx: SalesAgentContext,
+  ): StructuredAgentDecision {
+    if (!decision.shouldCreateQuote) return decision;
+
+    const agentMsgCount = ctx.conversation.messages.filter((m) => m.sender === 'AGENT').length;
+    const metadata =
+      ctx.conversation.metadata && typeof ctx.conversation.metadata === 'object' && !Array.isArray(ctx.conversation.metadata)
+        ? (ctx.conversation.metadata as Record<string, unknown>)
+        : {};
+
+    const usersCount =
+      typeof decision.capturedData.usersCount === 'number'
+        ? decision.capturedData.usersCount
+        : typeof metadata['usersCount'] === 'number'
+          ? metadata['usersCount']
+          : undefined;
+
+    const hasPlan = Boolean(decision.recommendedPlanName ?? ctx.conversation.recommendedPlanName);
+    const hasUsers = typeof usersCount === 'number';
+    const hasEnoughExchanges = agentMsgCount >= 3;
+
+    if (!hasEnoughExchanges || !hasUsers || !hasPlan) {
+      this.logger.debug(
+        `Qualification gate blocked quote creation — exchanges=${agentMsgCount}, hasUsers=${hasUsers}, hasPlan=${hasPlan}`,
+      );
+      return {
+        ...decision,
+        shouldCreateQuote: false,
+        shouldCreatePaymentLink: false,
+        nextAction: 'ask_follow_up',
+        salesStage: hasUsers || hasPlan ? 'QUALIFICATION' : 'DISCOVERY',
+      };
+    }
+
+    return decision;
   }
 
   private resolveSalesStage(d: StructuredAgentDecision): SalesStage {

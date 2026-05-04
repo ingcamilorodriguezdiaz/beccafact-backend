@@ -387,13 +387,15 @@ export class SalesChatService {
       conversation.recommendedPlanName
       ?? conversation.interestedPlanName
       ?? (typeof metadata['recommendedPlanName'] === 'string' ? metadata['recommendedPlanName'] : null)
-      ?? 'Profesional';
+      ?? null;
 
-    const plan = await this.prisma.salesPlan.findFirst({
-      where: { isActive: true, name: recommendedPlanName },
-    });
-    if (plan) {
-      return plan;
+    if (recommendedPlanName) {
+      const plan = await this.prisma.salesPlan.findFirst({
+        where: { isActive: true, name: recommendedPlanName },
+      });
+      if (plan) {
+        return plan;
+      }
     }
 
     const fallbackPlan = await this.prisma.salesPlan.findFirst({

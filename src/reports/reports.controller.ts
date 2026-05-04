@@ -199,6 +199,60 @@ export class ReportsController {
     this.sendXlsxResponse(res, buffer, 'report-collections.xlsx');
   }
 
+  // ── Compras ──────────────────────────────────────────────────────────────────
+
+  @Get('purchasing')
+  @PlanFeature('has_purchasing')
+  @ApiOperation({ summary: 'Reporte de órdenes de compra' })
+  getPurchasing(
+    @CurrentUser('companyId') companyId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.reportsService.getPurchasingReport(companyId, from, to, search);
+  }
+
+  @Get('purchasing/xlsx')
+  @PlanFeature('has_purchasing')
+  @ApiOperation({ summary: 'Descargar reporte de compras en Excel' })
+  async downloadPurchasingXlsx(
+    @CurrentUser('companyId') companyId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('search') search: string,
+    @Res() res: Response,
+  ) {
+    const data = await this.reportsService.getPurchasingReport(companyId, from, to, search);
+    const buffer = this.reportsService.downloadExcel('purchasing', data);
+    this.sendXlsxResponse(res, buffer, 'report-purchasing.xlsx');
+  }
+
+  // ── Inventario ────────────────────────────────────────────────────────────────
+
+  @Get('inventory')
+  @PlanFeature('has_inventory')
+  @ApiOperation({ summary: 'Reporte de inventario de productos' })
+  getInventory(
+    @CurrentUser('companyId') companyId: string,
+    @Query('search') search?: string,
+  ) {
+    return this.reportsService.getInventoryReport(companyId, search);
+  }
+
+  @Get('inventory/xlsx')
+  @PlanFeature('has_inventory')
+  @ApiOperation({ summary: 'Descargar reporte de inventario en Excel' })
+  async downloadInventoryXlsx(
+    @CurrentUser('companyId') companyId: string,
+    @Query('search') search: string,
+    @Res() res: Response,
+  ) {
+    const data = await this.reportsService.getInventoryReport(companyId, search);
+    const buffer = this.reportsService.downloadExcel('inventory', data);
+    this.sendXlsxResponse(res, buffer, 'report-inventory.xlsx');
+  }
+
   // ── Dashboard Excel ──────────────────────────────────────────────────────────
 
   @Get('dashboard/xlsx')

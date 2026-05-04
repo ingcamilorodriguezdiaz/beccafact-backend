@@ -55,6 +55,13 @@ export class OllamaProvider implements ISalesAgentProvider {
     // Step 1: get the full structured decision from rule-based provider
     const ruleDecision = await this.ruleProvider.generate(ctx);
 
+    if (this.shouldBypassRewrite(ruleDecision.intent, userMessage)) {
+      this.logger.log(
+        `Ollama rewrite skipped conversation=${conversation.id} intent=${ruleDecision.intent} messagePreview="${this.preview(userMessage)}"`,
+      );
+      return ruleDecision;
+    }
+
     // Step 2: build a plain-text prompt for Ollama to generate only the message
     const plansText = availablePlans
       .map(
@@ -69,7 +76,7 @@ export class OllamaProvider implements ISalesAgentProvider {
         {
           role: 'system' as const,
           content:
-            'Eres Becca, asesora comercial de BeccaSoft. Responde al cliente en máximo 2 oraciones en español colombiano. Solo el texto de la respuesta, sin explicaciones ni JSON.',
+            'Eres Becca, asesora comercial de BeccaSoft. Reescribe la respuesta base en maximo 2 oraciones, en espanol colombiano, manteniendo exactamente la misma intencion comercial. Devuelve solo el mensaje final para el cliente. No uses comillas, no hables de "sugerencia", no digas "aqui tienes una respuesta", no expliques tu proceso y no inventes planes, precios ni funcionalidades.',
         },
         {
           role: 'user' as const,
@@ -128,9 +135,9 @@ Cliente pregunta: ${this.truncate(userMessage, this.maxMessageChars)}`,
 
       const ollamaMessage = this.cleanPlainText(raw);
 
-      if (!ollamaMessage) {
+      if (!ollamaMessage || !this.isUsableRewrite(ollamaMessage, ruleDecision.message)) {
         this.logger.warn(
-          `Ollama returned empty text conversation=${conversation.id} — using rule-based message`,
+          `Ollama returned unusable text conversation=${conversation.id} preview="${this.preview(ollamaMessage)}" — using rule-based message`,
         );
         return ruleDecision;
       }
@@ -201,5 +208,67 @@ Cliente pregunta: ${this.truncate(userMessage, this.maxMessageChars)}`,
 
   private preview(value: string, maxChars: number = 160): string {
     return this.truncate(value.replace(/\s+/g, ' ').trim(), maxChars);
+  }
+
+  private shouldBypassRewrite(intent: StructuredAgentDecision['intent'], userMessage: string): boolean {
+    const factualIntents = new Set<StructuredAgentDecision['intent']>([
+      'ASK_PRICE',
+      'ASK_FEATURES',
+      'ASK_DEMO',
+      'ASK_PAYMENT',
+      'ASK_SUPPORT',
+      'COMPARE_PLANS',
+      'READY_TO_BUY',
+      'HUMAN_REQUEST',
+    ]);
+
+    const lower = userMessage.toLowerCase();
+    return (
+      factualIntents.has(intent)
+      || lower.includes('sandbox')
+      || lower.includes('ambiente de prueba')
+      || lower.includes('ambiente de pruebas')
+    );
+  }
+
+  private isUsableRewrite(candidate: string, fallback: string): boolean {
+    const normalized = candidate.trim();
+    if (!normalized) return false;
+
+    const lower = normalized.toLowerCase();
+    const blockedPatterns = [
+      'aqui tienes una respuesta',
+      'aquí tienes una respuesta',
+      'respuesta en español',
+      'respuesta en espanol',
+      'esta respuesta es una sugerencia',
+      'sugerencia basada',
+      'sin necesidad de explicaciones',
+      'contenido del mensaje de cliente',
+      'solo el texto de la respuesta',
+      'cliente pregunta',
+      'mensaje base recomendado',
+    ];
+
+    if (blockedPatterns.some((pattern) => lower.includes(pattern))) {
+      return false;
+    }
+
+    const quoteCount = (normalized.match(/["']/g) ?? []).length;
+    if (quoteCount >= 4) {
+      return false;
+    }
+
+    if (normalized.length > 320) {
+      return false;
+    }
+
+    const fallbackPriceMention = /\bCOP\b/i.test(fallback);
+    const candidatePriceMention = /\bCOP\b/i.test(normalized);
+    if (fallbackPriceMention !== candidatePriceMention) {
+      return false;
+    }
+
+    return true;
   }
 }

@@ -37,7 +37,10 @@ export class RuleBasedSalesAgentProvider implements ISalesAgentProvider {
       ? availablePlans.find((plan) => plan.name === conversation.recommendedPlanName)
       : undefined;
 
-    if (hasContactInfo && lastIntent === 'HUMAN_REQUEST') {
+    // Solo confirmar handoff cuando el bot ACABA de pedirle al cliente sus datos (lastNextAction === 'escalate_to_human')
+    // y el cliente acaba de proveerlos. Si el usuario hace una pregunta nueva, dejarlo fluir normalmente.
+    const justProvidedContact = Boolean(captured.email || captured.phone);
+    if (lastNextAction === 'escalate_to_human' && justProvidedContact && hasContactInfo && lastIntent === 'HUMAN_REQUEST') {
       return this.decide({
         message: this.buildHumanHandoffConfirmation(
           conversation.email ?? this.asString(captured.email),
@@ -66,7 +69,11 @@ export class RuleBasedSalesAgentProvider implements ISalesAgentProvider {
       });
     }
 
-    if (this.matches(lower, ['asesor', 'humano', 'persona real', 'hablar con alguien', 'quiero hablar'])) {
+    const humanRequestKeywords = (KB.escalationRules ?? [])
+      .find((rule) => rule.id === 'human_explicit_request')
+      ?.customerSignals ?? ['asesor', 'humano', 'persona real', 'hablar con alguien', 'quiero hablar'];
+
+    if (this.matches(lower, humanRequestKeywords)) {
       return this.decide({
         message: this.buildAdvisorReply(hasContactInfo),
         intent: 'HUMAN_REQUEST',
@@ -79,7 +86,7 @@ export class RuleBasedSalesAgentProvider implements ISalesAgentProvider {
     if (agentMsgCount === 0) {
       return this.decide({
         message:
-          'Hola, qué bueno tenerte por aquí. Te ayudo a encontrar el plan que mejor te encaje y, si te interesa, te dejo listo el proceso de compra. Cuéntame cómo se llama tu empresa y qué necesitas resolver hoy.',
+          'Hola, bienvenido a BeccaSoft. Soy tu asesor. Cuéntame, ¿en qué tipo de negocio están y qué es lo que más trabajo les está dando hoy?',
         intent: 'GENERAL_QUESTION',
         nextAction: 'ask_follow_up',
         capturedData: { ...captured, companyIndustry, needs: combinedNeeds },
@@ -110,11 +117,33 @@ export class RuleBasedSalesAgentProvider implements ISalesAgentProvider {
     }
 
     if (this.matches(lower, ['precio', 'costo', 'cuánto vale', 'cuánto cuesta', 'planes', 'qué plan', 'que plan'])) {
-      const professionalPlan = availablePlans.find((p) => p.name === 'Profesional') ?? availablePlans[0];
+      const highlightedPlan = this.selectHighlightedPlan(availablePlans);
       return this.decide({
-        message: `Hoy tenemos opciones desde COP ${this.formatPrice(availablePlans[0]?.price)} al mes. El plan que más eligen las empresas en crecimiento es ${professionalPlan?.name ?? 'Profesional'} porque combina ventas, inventario y control${playbook ? ` y en negocios como el tuyo ${playbook.valuePitch}` : ''}. ${this.buildStageQuestion(intentStage, playbook)}`,
+        message: `Hoy tenemos opciones desde COP ${this.formatPrice(availablePlans[0]?.price)} al mes.${highlightedPlan ? ` Una alternativa muy completa para empresas en crecimiento es ${highlightedPlan.name}${this.describePlanCapabilities(highlightedPlan) ? ` porque ${this.describePlanCapabilities(highlightedPlan)}` : ''}.` : ''}${playbook ? ` En negocios como el tuyo, ${playbook.valuePitch}` : ''} ${this.buildStageQuestion(intentStage, playbook)}`,
         intent: 'ASK_PRICE',
         nextAction: 'ask_follow_up',
+        capturedData: { ...captured, companyIndustry, needs: combinedNeeds },
+      });
+    }
+
+    if (this.matches(lower, ['sandbox', 'ambiente de prueba', 'ambiente de pruebas', 'entorno de prueba', 'modo prueba'])) {
+      const sandboxPlan = this.findSandboxPlan(availablePlans);
+      return this.decide({
+        message: this.buildSandboxMessage(sandboxPlan, hasContactInfo),
+        intent: 'ASK_DEMO',
+        nextAction: hasContactInfo ? 'escalate_to_human' : 'ask_follow_up',
+        shouldEscalateToHuman: hasContactInfo,
+        capturedData: { ...captured, companyIndustry, needs: combinedNeeds },
+      });
+    }
+
+    if (this.matches(lower, ['características', 'caracteristicas', 'funciones', 'módulos', 'modulos']) || (this.matches(lower, ['qué incluye', 'que incluye']) && Boolean(storedPlan))) {
+      const relevantPlan = this.findRelevantPlan(lower, availablePlans, storedPlan);
+      return this.decide({
+        message: this.buildPlanFeaturesMessage(relevantPlan, availablePlans),
+        intent: 'ASK_FEATURES',
+        nextAction: relevantPlan ? 'answer_question' : 'ask_follow_up',
+        recommendedPlanName: relevantPlan?.name ?? storedPlan?.name,
         capturedData: { ...captured, companyIndustry, needs: combinedNeeds },
       });
     }
@@ -223,19 +252,38 @@ export class RuleBasedSalesAgentProvider implements ISalesAgentProvider {
     }
 
     if (!conversation.recommendedPlanName && (combinedNeeds.length > 0 || companyIndustry)) {
-      const inferredPlan = this.recommendPlan(
-        this.asNumber(captured.usersCount) ?? 4,
-        availablePlans,
-        combinedNeeds,
-        companyIndustry,
-      );
-      if (intentStage === 'quote_ready' && !needsEmail) {
+      const inferredUsersCount = this.asNumber(captured.usersCount) ?? this.asNumber(metadata.usersCount as unknown);
+      const hasUsersData = typeof inferredUsersCount === 'number';
+      const hasPlanRecommended = Boolean(conversation.recommendedPlanName);
+      const qualificationComplete = hasUsersData && hasPlanRecommended;
+
+      // Solo avanzar a cotización si la cualificación está completa:
+      // debe tener usuarios conocidos Y plan ya recomendado Y email disponible Y cliente lo pidió explícitamente.
+      if (intentStage === 'quote_ready' && !needsEmail && qualificationComplete) {
+        const inferredPlan = this.recommendPlan(
+          inferredUsersCount!,
+          availablePlans,
+          combinedNeeds,
+          companyIndustry,
+        );
         return this.decide({
           message: `Con lo que me cuentas, ya te puedo orientar una cotización bastante aterrizada. La opción que más te encaja sería ${inferredPlan.name} por el tipo de operación que manejan. Te dejo listo el siguiente paso para enviártela.`,
           intent: 'READY_TO_BUY',
           nextAction: 'create_quote',
           shouldCreateQuote: true,
           recommendedPlanName: inferredPlan.name,
+          capturedData: { ...captured, companyIndustry, needs: combinedNeeds },
+        });
+      }
+
+      // Si hay necesidades pero faltan datos de cualificación, preguntar usuarios.
+      if (!hasUsersData) {
+        const companyPhrase = companyName ? `¡${companyName}! ` : '';
+        const needsPhrase = this.buildNeedsAcknowledgement(combinedNeeds, companyIndustry);
+        return this.decide({
+          message: `${companyPhrase}${needsPhrase} Para recomendarte el plan ideal, ¿cuántas personas estarían usando el sistema y más o menos cuántas ${this.buildVolumeQuestion(combinedNeeds)} al mes?`,
+          intent: 'PROVIDING_INFO',
+          nextAction: 'ask_follow_up',
           capturedData: { ...captured, companyIndustry, needs: combinedNeeds },
         });
       }
@@ -434,17 +482,24 @@ export class RuleBasedSalesAgentProvider implements ISalesAgentProvider {
     return amount.toLocaleString('es-CO');
   }
 
-  private buildPlanComparison(plans: { name: string; maxUsers: number | null }[]): string {
-    const basic = plans.find((plan) => plan.name === 'Básico');
-    const professional = plans.find((plan) => plan.name === 'Profesional');
-    const enterprise = plans.find((plan) => plan.name === 'Empresarial');
-    return `${basic?.name ?? 'Básico'} te sirve para empezar, ${professional?.name ?? 'Profesional'} te da más control comercial y operativo, y ${enterprise?.name ?? 'Empresarial'} es para equipos que necesitan todo integrado y más escala.`;
+  private buildPlanComparison(plans: { name: string; price: unknown; maxUsers: number | null }[]): string {
+    const sortedPlans = [...plans].sort((a, b) => Number(a.price ?? 0) - Number(b.price ?? 0));
+    if (sortedPlans.length === 0) {
+      return 'Tenemos varias opciones según el tamaño de tu operación y los módulos que necesites.';
+    }
+    if (sortedPlans.length === 1) {
+      return `${sortedPlans[0].name} es la opción activa que hoy tenemos disponible para esta línea comercial.`;
+    }
+
+    const first = sortedPlans[0];
+    const middle = sortedPlans[Math.min(1, sortedPlans.length - 1)];
+    const last = sortedPlans[sortedPlans.length - 1];
+
+    return `${first.name} te sirve para empezar, ${middle.name} te da más control comercial y operativo, y ${last.name} es para equipos que necesitan más cobertura, escala o módulos avanzados.`;
   }
 
   private buildPlanPitch(plan: PlanLike): string {
-    const topFeatures = Array.isArray(plan.features)
-      ? (plan.features as string[]).slice(0, 2).join(' y ')
-      : 'las funciones clave que hoy necesitas';
+    const topFeatures = this.extractPlanFeatureTexts(plan).slice(0, 2).join(' y ');
     return `${plan.name} por COP ${this.formatPrice(plan.price)} al mes, porque te cubre ${topFeatures}`;
   }
 
@@ -454,21 +509,164 @@ export class RuleBasedSalesAgentProvider implements ISalesAgentProvider {
     needs: string[] = [],
     industry?: IndustryKey,
   ): PlanLike {
-    const needsPos = needs.includes('pos') || needs.includes('inventario');
-    const needsEnterprise = needs.includes('nomina') || needs.includes('contabilidad');
+    const sortedPlans = [...plans].sort((a, b) => Number(a.price ?? 0) - Number(b.price ?? 0));
+    const needsEnterprise = needs.includes('nomina') || needs.includes('contabilidad') || needs.includes('compras');
+    const requiredNeeds = Array.from(new Set(needs));
+
+    const plansMatchingNeeds = requiredNeeds.length
+      ? sortedPlans.filter((plan) => requiredNeeds.every((need) => this.planSupportsNeed(plan, need)))
+      : sortedPlans;
+
+    const candidatePlans = plansMatchingNeeds.length > 0 ? plansMatchingNeeds : sortedPlans;
 
     if (needsEnterprise) {
-      return plans.find((p) => p.name === 'Empresarial') ?? plans[plans.length - 1];
+      return candidatePlans[candidatePlans.length - 1] ?? sortedPlans[sortedPlans.length - 1];
     }
+
     if ((industry === 'distribuidora' || industry === 'manufactura') && numUsers > 3) {
-      return plans.find((p) => p.name === 'Profesional') ?? plans[1] ?? plans[0];
+      return this.pickPlanByUsers(candidatePlans, Math.max(numUsers, 4));
     }
-    if (needsPos && numUsers <= 10) {
-      return plans.find((p) => p.name === 'Profesional') ?? plans[1] ?? plans[0];
+
+    return this.pickPlanByUsers(candidatePlans, numUsers);
+  }
+
+  private pickPlanByUsers(plans: PlanLike[], numUsers: number): PlanLike {
+    const sortedPlans = [...plans].sort((a, b) => Number(a.price ?? 0) - Number(b.price ?? 0));
+    const matched = sortedPlans.find((plan) => {
+      const maxUsers = this.getMaxUsers(plan);
+      return maxUsers === null || maxUsers >= numUsers;
+    });
+    return matched ?? sortedPlans[sortedPlans.length - 1] ?? plans[0];
+  }
+
+  private getMaxUsers(plan: PlanLike): number | null {
+    if (typeof (plan as { maxUsers?: unknown }).maxUsers === 'number') {
+      return (plan as { maxUsers?: number | null }).maxUsers ?? null;
     }
-    if (numUsers <= 3) return plans.find((p) => p.name === 'Básico') ?? plans[0];
-    if (numUsers <= 10) return plans.find((p) => p.name === 'Profesional') ?? plans[1] ?? plans[0];
-    return plans.find((p) => p.name === 'Empresarial') ?? plans[plans.length - 1];
+    return null;
+  }
+
+  private selectHighlightedPlan(plans: PlanLike[]): PlanLike | undefined {
+    if (plans.length === 0) return undefined;
+    const sortedPlans = [...plans].sort((a, b) => Number(a.price ?? 0) - Number(b.price ?? 0));
+    return sortedPlans[Math.min(1, sortedPlans.length - 1)] ?? sortedPlans[0];
+  }
+
+  private findRelevantPlan(lower: string, plans: PlanLike[], storedPlan?: PlanLike): PlanLike | undefined {
+    const normalizedMessage = this.normalizePlanName(lower);
+    const explicitMatch = plans.find((plan) => {
+      const normalizedPlanName = this.normalizePlanName(String(plan.name ?? ''));
+      return normalizedPlanName.length > 0 && normalizedMessage.includes(normalizedPlanName);
+    });
+
+    if (explicitMatch) {
+      return explicitMatch;
+    }
+
+    return storedPlan ?? this.selectHighlightedPlan(plans);
+  }
+
+  private findSandboxPlan(plans: PlanLike[]): PlanLike | undefined {
+    return plans.find((plan) => this.normalizePlanName(String(plan.name ?? '')) === 'sandbox');
+  }
+
+  private planSupportsNeed(plan: PlanLike, need: string): boolean {
+    const haystack = this.extractPlanFeatureTexts(plan).join(' ').toLowerCase();
+    const keywords: Record<string, string[]> = {
+      inventario: ['inventario', 'stock', 'bodega'],
+      pos: ['pos', 'punto de venta', 'caja'],
+      facturacion: ['facturación', 'facturacion', 'dian', 'factura'],
+      cartera: ['cartera', 'cobranza', 'cuentas por cobrar'],
+      cotizaciones: ['cotización', 'cotizacion', 'propuesta', 'pedido'],
+      compras: ['compra', 'compras', 'proveedor', 'proveedores'],
+      nomina: ['nómina', 'nomina', 'empleados', 'prestaciones'],
+      contabilidad: ['contabilidad', 'contable', 'balance', 'puc'],
+      reportes: ['reporte', 'reportes', 'indicadores', 'dashboard'],
+    };
+
+    return (keywords[need] ?? [need]).some((keyword) => haystack.includes(keyword));
+  }
+
+  private describePlanCapabilities(plan: PlanLike): string {
+    const features = this.extractPlanFeatureTexts(plan).slice(0, 3);
+    if (features.length === 0) {
+      return '';
+    }
+    if (features.length === 1) {
+      return `incluye ${features[0]}`;
+    }
+    return `incluye ${features.slice(0, -1).join(', ')} y ${features[features.length - 1]}`;
+  }
+
+  private extractPlanFeatureTexts(plan: PlanLike): string[] {
+    if (!Array.isArray(plan.features)) {
+      return ['las funciones clave que hoy necesitas'];
+    }
+
+    const values = plan.features
+      .map((feature) => this.stringifyFeature(feature))
+      .filter((value): value is string => Boolean(value));
+
+    return values.length > 0 ? values : ['las funciones clave que hoy necesitas'];
+  }
+
+  private buildPlanFeaturesMessage(plan: PlanLike | undefined, plans: PlanLike[]): string {
+    const fallbackPlan = plan ?? this.selectHighlightedPlan(plans);
+    if (!fallbackPlan) {
+      return 'Tenemos varias opciones con facturación, inventario, POS, cartera y soporte, según el tamaño de tu operación. Si me dices cuántos usuarios tendrían y qué proceso quieres cubrir primero, te digo cuál te conviene.';
+    }
+
+    const features = this.extractPlanFeatureTexts(fallbackPlan)
+      .filter((feature) => !/^soporte/i.test(feature))
+      .slice(0, 4);
+    const maxUsers = this.describePlanUserCapacity(fallbackPlan);
+    const supportLevel = this.describePlanSupport(fallbackPlan);
+    const featureText =
+      features.length > 0
+        ? this.joinNaturalList(features)
+        : 'las funciones clave para operar mejor';
+
+    return `${fallbackPlan.name} te ofrece ${featureText}${maxUsers ? `, pensado para ${maxUsers}` : ''}. ${supportLevel} Si quieres, te digo también con cuál otro plan lo compararía para tu negocio.`;
+  }
+
+  private buildSandboxMessage(plan: PlanLike | undefined, hasContactInfo: boolean): string {
+    const features = plan ? this.extractPlanFeatureTexts(plan).slice(0, 4) : [];
+    const featuresText =
+      features.length > 0
+        ? `Te permite validar ${this.joinNaturalList(features)}, sin efectos reales ante la DIAN.`
+        : 'Sí, manejamos ambiente de pruebas para validar el flujo antes de salir a producción.';
+
+    if (hasContactInfo) {
+      return `${featuresText} Como ya tengo cómo ubicarte, te coordinamos el acceso o una demo guiada para que lo revises con tu operación real.`;
+    }
+
+    return `${featuresText} Si quieres, te coordinamos una demo o el acceso de prueba y te muestro qué alcance tiene según tu caso.`;
+  }
+
+  private stringifyFeature(feature: unknown): string | null {
+    if (typeof feature === 'string') {
+      return feature.trim() || null;
+    }
+
+    if (feature && typeof feature === 'object') {
+      const record = feature as Record<string, unknown>;
+      const label = typeof record.label === 'string' ? record.label.trim() : '';
+      const value = typeof record.value === 'string' ? record.value.trim() : '';
+
+      if (value.toLowerCase() === 'false' || value === '0') {
+        return null;
+      }
+
+      if (label) {
+        return label;
+      }
+
+      if (value && value.toLowerCase() !== 'true') {
+        return value;
+      }
+    }
+
+    return null;
   }
 
   private asStringArray(value: string | number | string[] | undefined): string[] {
@@ -573,5 +771,93 @@ export class RuleBasedSalesAgentProvider implements ISalesAgentProvider {
       return playbook.suggestedNeeds.slice(0, 2).join(' y ');
     }
     return 'tu proceso comercial principal';
+  }
+
+  private describePlanUserCapacity(plan: PlanLike): string | null {
+    const directMaxUsers = this.getMaxUsers(plan);
+    if (typeof directMaxUsers === 'number' && directMaxUsers > 0) {
+      return `${directMaxUsers} usuario${directMaxUsers === 1 ? '' : 's'}`;
+    }
+
+    const feature = this.extractPlanFeatureTexts(plan).find((item) => /usuario/i.test(item));
+    return feature ? feature.toLowerCase() : null;
+  }
+
+  private describePlanSupport(plan: PlanLike): string {
+    const features = this.extractPlanFeatureTexts(plan);
+    const supportFeature = features.find((item) => /soporte/i.test(item));
+    if (supportFeature) {
+      return `${supportFeature}.`;
+    }
+
+    const normalizedName = this.normalizePlanName(String(plan.name ?? ''));
+    if (normalizedName.includes('emprendedor')) {
+      return `${KB.support.basic}.`;
+    }
+    if (normalizedName.includes('pyme') || normalizedName.includes('profesional')) {
+      return `${KB.support.professional}.`;
+    }
+    if (normalizedName.includes('empresarial') || normalizedName.includes('enterprise')) {
+      return `${KB.support.enterprise}.`;
+    }
+
+    return 'Incluye acompanamiento inicial y soporte para arrancar bien.';
+  }
+
+  private normalizePlanName(value: string): string {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  private joinNaturalList(values: string[]): string {
+    if (values.length === 0) return '';
+    if (values.length === 1) return values[0];
+    if (values.length === 2) return `${values[0]} y ${values[1]}`;
+    return `${values.slice(0, -1).join(', ')} y ${values[values.length - 1]}`;
+  }
+
+  private buildNeedsAcknowledgement(needs: string[], industry?: IndustryKey | string): string {
+    const needLabels: Record<string, string> = {
+      facturacion: 'facturación electrónica DIAN',
+      inventario: 'control de inventario',
+      pos: 'punto de venta',
+      cartera: 'gestión de cartera',
+      cotizaciones: 'cotizaciones comerciales',
+      compras: 'compras y proveedores',
+      nomina: 'nómina electrónica',
+      contabilidad: 'contabilidad',
+      reportes: 'reportes e indicadores',
+    };
+
+    const industryContext: Partial<Record<IndustryKey, string>> = {
+      restaurante: 'En el sector de alimentos',
+      retail: 'En comercio al por menor',
+      servicios: 'En empresas de servicios',
+      ferreteria: 'En ferreterías',
+      drogueria: 'En droguerías y farmacias',
+      distribuidora: 'En distribuidoras',
+      manufactura: 'En manufactura',
+    };
+
+    const needsText = needs.length > 0
+      ? `${needLabels[needs[0]] ?? needs[0]} es justo lo que más usan nuestros clientes`
+      : 'eso es exactamente lo que resuelve BeccaFact';
+
+    const industryPhrase = industry && industryContext[industry as IndustryKey]
+      ? `${industryContext[industry as IndustryKey]}, la ${needsText}.`
+      : `La ${needsText}.`;
+
+    return industryPhrase;
+  }
+
+  private buildVolumeQuestion(needs: string[]): string {
+    if (needs.includes('facturacion')) return 'facturas generan';
+    if (needs.includes('pos')) return 'ventas procesan';
+    if (needs.includes('nomina')) return 'empleados liquidan';
+    if (needs.includes('inventario')) return 'movimientos de stock tienen';
+    return 'operaciones procesan';
   }
 }

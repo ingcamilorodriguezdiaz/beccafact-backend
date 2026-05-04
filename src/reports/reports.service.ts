@@ -579,6 +579,107 @@ export class ReportsService {
     };
   }
 
+  // ── Compras ──────────────────────────────────────────────────────────────────
+
+  async getPurchasingReport(companyId: string, from?: string, to?: string, search?: string) {
+    const where: any = { companyId, deletedAt: null };
+    if (from || to) {
+      where.issueDate = {};
+      if (from) where.issueDate.gte = new Date(from);
+      if (to) where.issueDate.lte = new Date(to + 'T23:59:59');
+    }
+    if (search) {
+      where.OR = [
+        { number: { contains: search, mode: 'insensitive' } },
+        { customer: { name: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+
+    const orders = await this.prisma.purchaseOrder.findMany({
+      where,
+      include: {
+        customer: { select: { name: true, documentNumber: true } },
+        items: { select: { quantity: true, unitPrice: true, total: true } },
+      },
+      orderBy: { issueDate: 'desc' },
+      take: 500,
+    });
+
+    const totalOrders = orders.length;
+    const totalAmount = orders.reduce((s, o) => s + Number(o.total), 0);
+    const totalTaxes = orders.reduce((s, o) => s + Number(o.taxAmount), 0);
+    const totalItems = orders.reduce((s, o) => s + o.items.length, 0);
+
+    const byStatus: Record<string, number> = {};
+    for (const o of orders) {
+      byStatus[o.status] = (byStatus[o.status] ?? 0) + 1;
+    }
+
+    const items = orders.map(o => ({
+      id: o.id,
+      number: o.number,
+      issueDate: o.issueDate,
+      dueDate: o.dueDate,
+      supplierName: o.customer?.name ?? '',
+      supplierDocument: o.customer?.documentNumber ?? '',
+      status: o.status,
+      subtotal: Number(o.subtotal),
+      taxAmount: Number(o.taxAmount),
+      total: Number(o.total),
+      itemCount: o.items.length,
+    }));
+
+    return {
+      summary: { totalOrders, totalAmount, totalTaxes, totalItems, byStatus },
+      items,
+    };
+  }
+
+  // ── Inventario ────────────────────────────────────────────────────────────────
+
+  async getInventoryReport(companyId: string, search?: string) {
+    const where: any = { companyId, deletedAt: null };
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { sku: { contains: search, mode: 'insensitive' } },
+        { barcode: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const products = await this.prisma.product.findMany({
+      where,
+      include: { category: { select: { name: true } } },
+      orderBy: { name: 'asc' },
+      take: 1000,
+    });
+
+    const totalProducts = products.length;
+    const activeProducts = products.filter(p => p.status === 'ACTIVE').length;
+    const lowStockProducts = products.filter(p => p.stock <= p.minStock && p.status === 'ACTIVE').length;
+    const totalStockValue = products.reduce((s, p) => s + Number(p.cost) * p.stock, 0);
+
+    const items = products.map(p => ({
+      id: p.id,
+      sku: p.sku,
+      name: p.name,
+      category: p.category?.name ?? '',
+      unit: p.unit,
+      stock: p.stock,
+      minStock: p.minStock,
+      cost: Number(p.cost),
+      price: Number(p.price),
+      stockValue: Number(p.cost) * p.stock,
+      status: p.status,
+      isLowStock: p.stock <= p.minStock,
+    }));
+
+    return {
+      summary: { totalProducts, activeProducts, lowStockProducts, totalStockValue },
+      items,
+    };
+  }
+
   // ── Excel genérico ───────────────────────────────────────────────────────────
 
   downloadExcel(type: string, data: any): Buffer {
@@ -688,6 +789,60 @@ export class ReportsService {
           ['', '', '', '', '', 'TOTAL CARTERA', '', data.summary.totalBalance, ''],
           [7],
         ), 'Cartera');
+
+    } else if (type === 'purchasing') {
+      const headers = [
+        { label: '#',             width: 5,  align: 'center' as XAlign },
+        { label: 'N° Orden',      width: 16 },
+        { label: 'F. Emisión',    width: 13 },
+        { label: 'Proveedor',     width: 36 },
+        { label: 'Documento',     width: 15 },
+        { label: 'Estado',        width: 16 },
+        { label: 'Subtotal',      width: 18, align: 'right' as XAlign },
+        { label: 'IVA',           width: 15, align: 'right' as XAlign },
+        { label: 'Total',         width: 18, align: 'right' as XAlign },
+        { label: '# Ítems',       width: 10, align: 'right' as XAlign },
+      ];
+      const fmt = (d: any) => d ? new Date(d).toLocaleDateString('es-CO') : '—';
+      const dataRows = data.items.map((r: any, i: number) => [
+        i + 1, r.number, fmt(r.issueDate), r.supplierName, r.supplierDocument,
+        r.status, r.subtotal, r.taxAmount, r.total, r.itemCount,
+      ]);
+      XLSX.utils.book_append_sheet(wb,
+        buildStyledSheet(
+          'BeccaFact — Reporte de Compras',
+          `${data.summary.totalOrders} órdenes | Total: $${Number(data.summary.totalAmount).toLocaleString('es-CO')}`,
+          headers, dataRows, [6, 7, 8],
+          ['', '', '', '', '', 'TOTALES', data.summary.totalAmount - data.summary.totalTaxes, data.summary.totalTaxes, data.summary.totalAmount, data.summary.totalItems],
+          [6, 7, 8],
+        ), 'Compras');
+
+    } else if (type === 'inventory') {
+      const headers = [
+        { label: '#',            width: 5,  align: 'center' as XAlign },
+        { label: 'SKU',          width: 14 },
+        { label: 'Producto',     width: 36 },
+        { label: 'Categoría',    width: 20 },
+        { label: 'Unidad',       width: 8  },
+        { label: 'Stock',        width: 10, align: 'right' as XAlign },
+        { label: 'Stock Mín.',   width: 12, align: 'right' as XAlign },
+        { label: 'Costo Unit.',  width: 16, align: 'right' as XAlign },
+        { label: 'Precio Venta', width: 16, align: 'right' as XAlign },
+        { label: 'Valor Stock',  width: 18, align: 'right' as XAlign },
+        { label: 'Estado',       width: 12 },
+      ];
+      const dataRows = data.items.map((r: any, i: number) => [
+        i + 1, r.sku, r.name, r.category, r.unit,
+        r.stock, r.minStock, r.cost, r.price, r.stockValue, r.status,
+      ]);
+      XLSX.utils.book_append_sheet(wb,
+        buildStyledSheet(
+          'BeccaFact — Reporte de Inventario',
+          `${data.summary.totalProducts} productos | Valor en stock: $${Number(data.summary.totalStockValue).toLocaleString('es-CO')} | ${data.summary.lowStockProducts} con stock bajo`,
+          headers, dataRows, [7, 8, 9],
+          ['', '', '', '', 'TOTAL', '', '', '', '', data.summary.totalStockValue, ''],
+          [9],
+        ), 'Inventario');
     }
 
     return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
