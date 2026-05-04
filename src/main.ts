@@ -37,6 +37,7 @@ const corsOrigin = configService.get<string>('CORS_ORIGIN', 'http://localhost:42
       'http://localhost:4201',
       'http://localhost:4202',
       'http://localhost:4203',
+      'http://localhost:4300',
       'https://cf04lvdh-4300.use2.devtunnels.ms'
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

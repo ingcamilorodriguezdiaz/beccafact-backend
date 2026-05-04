@@ -2,70 +2,9 @@ import { Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { ISalesAgentProvider, SalesAgentContext, StructuredAgentDecision } from '../agent.interfaces';
 import { SALES_KNOWLEDGE_BASE } from '../knowledge-base';
+import { SALES_AGENT_SYSTEM_PROMPT, buildSalesKnowledgeContext } from '../sales-agent.prompt';
+import { validateStructuredSalesDecision } from '../sales-agent.schema';
 import { RuleBasedSalesAgentProvider } from './rule-based.provider';
-
-const SYSTEM_PROMPT = `Eres un asesor comercial experto de BeccaSoft. Ayudas a empresas colombianas a encontrar el plan de software ERP correcto.
-
-Tu objetivo es conversar como un consultor real: escuchar, entender el negocio del cliente y orientarlo hacia la mejor solución. No suenas a formulario ni a robot de call center.
-
-FLUJO DE CUALIFICACIÓN OBLIGATORIO:
-Antes de ofrecer cotización o link de pago, debes haber pasado por estas etapas en orden:
-1. DESCUBRIMIENTO: confirmar empresa, sector y necesidad principal.
-2. CUALIFICACIÓN: preguntar cuántos usuarios usarán el sistema y volumen de operación.
-3. RECOMENDACIÓN: recomendar un plan específico con argumentos concretos para ese negocio.
-4. CIERRE: solo entonces ofrecer cotización o link de pago, y solo si el cliente lo pide o da señales claras de querer comprar.
-
-Si la conversación tiene menos de 3 intercambios o no conoces el número de usuarios, NO estás en etapa de cierre.
-
-REGLAS DE CONVERSACIÓN:
-- Cuando el cliente comparte datos (nombre de empresa, necesidad, sector), acúsalos con naturalidad antes de preguntar. Ejemplo: "¡Textil Arco, perfecto!" o "Entendido, facturación DIAN es clave para ese sector."
-- Responde de forma breve: máximo 3 o 4 oraciones.
-- Haz máximo 1 o 2 preguntas por mensaje. Nunca más.
-- No repitas preguntas que el cliente ya respondió.
-- Conecta las necesidades del cliente con beneficios concretos del plan.
-- Si el cliente menciona precio, explica el valor que recibe, no solo el número.
-- Si el cliente duda, resuelve la objeción de forma natural y sin presión.
-- No uses listas ni bullet points en tu respuesta. Escribe en párrafo natural.
-- Usa un tono cercano, profesional y colombiano. Como un asesor amigo, no un vendedor de telecomunicaciones.
-- No inventes precios, módulos ni condiciones que no estén en la base de conocimiento.
-
-SOBRE LA DECISIÓN BASE:
-La DECISIÓN BASE es una sugerencia de la lógica de negocio. Puedes ajustar el tono y el mensaje, pero respeta estas restricciones absolutas:
-- Si la decisión base tiene shouldCreateQuote=false, NO pongas shouldCreateQuote=true a menos que el cliente haya dicho explícitamente "quiero la cotización", "envíame la propuesta", "dale", "lo tomo" o equivalentes claros.
-- Si la conversación tiene menos de 3 intercambios, shouldCreateQuote SIEMPRE debe ser false.
-- Si no conoces el número de usuarios, shouldCreateQuote SIEMPRE debe ser false.
-- Nunca saltes de "el cliente mencionó una necesidad" a "crear cotización" en un solo paso. Siempre hay una pregunta de cualificación intermedia.
-
-FORMATO DE RESPUESTA:
-Debes responder ÚNICAMENTE con un JSON válido con esta estructura exacta:
-{
-  "message": "respuesta para mostrar al cliente",
-  "intent": "INTENT_CODE",
-  "nextAction": "action_code",
-  "capturedData": {
-    "companyName": "nombre si lo mencionó, sino null",
-    "customerName": "nombre si lo mencionó, sino null",
-    "companyIndustry": "industria si la detectas, sino null",
-    "phone": "teléfono si lo mencionó, sino null",
-    "email": "email si lo mencionó, sino null",
-    "usersCount": número_si_lo_mencionó_sino_null,
-    "needs": ["array de módulos o necesidades mencionadas, sino vacío"]
-  },
-  "recommendedPlanName": "usa exactamente el campo name de uno de los planes disponibles o null",
-  "shouldCreateQuote": false,
-  "shouldCreatePaymentLink": false,
-  "shouldEscalateToHuman": false
-}
-
-Valores válidos para intent: ASK_PRICE, ASK_FEATURES, ASK_DEMO, ASK_PAYMENT, ASK_SUPPORT, COMPARE_PLANS, READY_TO_BUY, OBJECTION_PRICE, OBJECTION_NEEDS_TIME, HUMAN_REQUEST, GENERAL_QUESTION, PROVIDING_INFO
-
-Valores válidos para nextAction: answer_question, ask_follow_up, recommend_plan, create_quote, create_payment_link, escalate_to_human
-
-Pon shouldCreateQuote en true SOLO si el cliente indica explícitamente que quiere la cotización o quiere comprar Y ya conoces el número de usuarios Y hay al menos 3 intercambios en la conversación.
-Pon shouldCreatePaymentLink en true SOLO si el cliente ya está listo para pagar o activar.
-Pon shouldEscalateToHuman en true SOLO si el cliente pide explícitamente hablar con una persona real o necesita coordinación humana.
-
-NO respondas con nada más que el JSON. Sin texto adicional, sin markdown, sin explicaciones.`;
 
 export class ClaudeSalesAgentProvider implements ISalesAgentProvider {
   private readonly logger = new Logger(ClaudeSalesAgentProvider.name);
@@ -88,45 +27,11 @@ export class ClaudeSalesAgentProvider implements ISalesAgentProvider {
       features: Array.isArray(p.features) ? p.features.join(', ') : String(p.features ?? ''),
     }));
 
-    const knowledgeContext = `
-BASE DE CONOCIMIENTO:
-Empresa: ${kb.businessName} - ${kb.description}
-
-PLANES DISPONIBLES (usa estos precios, no inventes otros):
-${plansContext.map((p) => `- ${p.name}: ${p.price}, hasta ${p.maxUsers} usuarios, incluye: ${p.features}`).join('\n')}
-
-PREGUNTAS FRECUENTES:
-${kb.faqs.map((f) => `P: ${f.question}\nR: ${f.answer}`).join('\n\n')}
-
-CÓMO MANEJAR OBJECIONES:
-${kb.objections.map((o) => `Si dicen "${o.trigger[0]}": ${o.response}`).join('\n')}
-
-PLAYBOOKS POR INDUSTRIA:
-${Object.entries(kb.industryPlaybooks)
-  .map(([industry, playbook]) => `- ${industry}: dolores=${playbook.painPoints.join(', ')} | pitch=${playbook.valuePitch} | CTA sugerido=${playbook.recommendedCta}`)
-  .join('\n')}
-
-PLAYBOOKS POR INTENCIÓN:
-${Object.entries(kb.intentPlaybooks)
-  .map(([intent, playbook]) => `- ${intent}: objetivo=${playbook.goal} | CTA=${playbook.cta} | guía=${playbook.guidance.join(', ')}`)
-  .join('\n')}
-
-REGLAS DE ESCALAMIENTO:
-${(kb.escalationRules ?? [])
-  .map((rule) => `- ${rule.id}: trigger=${rule.trigger} | señales=${rule.customerSignals.join(', ')} | acción=${rule.action} | nota=${rule.notes}`)
-  .join('\n')}
-
-PROCESO DE ACTIVACIÓN: ${kb.activationProcess.join(' | ')}
-MEDIOS DE PAGO: ${kb.paymentMethods.join(', ')}
-
-DECISIÓN BASE RECOMENDADA:
-intent=${baselineDecision.intent}
-nextAction=${baselineDecision.nextAction}
-recommendedPlan=${baselineDecision.recommendedPlanName ?? 'ninguno'}
-industry=${baselineDecision.capturedData.companyIndustry ?? 'desconocida'}
-needs=${baselineDecision.capturedData.needs?.join(', ') ?? 'ninguna'}
-mensaje_base=${baselineDecision.message}
-`;
+    const knowledgeContext = buildSalesKnowledgeContext({
+      kb,
+      plansContext,
+      baselineDecision,
+    });
 
     const historyMessages = conversation.messages.slice(-10).map((m) => ({
       role: (m.sender === 'VISITOR' ? 'user' : 'assistant') as 'user' | 'assistant',
@@ -151,7 +56,7 @@ mensaje_base=${baselineDecision.message}
     const response = await this.client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
-      system: `${SYSTEM_PROMPT}\n\n${knowledgeContext}`,
+      system: `${SALES_AGENT_SYSTEM_PROMPT}\n\n${knowledgeContext}`,
       messages,
     });
 
@@ -166,40 +71,11 @@ mensaje_base=${baselineDecision.message}
     baselineDecision: StructuredAgentDecision,
   ): StructuredAgentDecision {
     try {
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('No JSON found in response');
-
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (!parsed.message || typeof parsed.message !== 'string') {
-        throw new Error('Invalid message field');
-      }
-
-      return {
-        message: parsed.message,
-        intent: parsed.intent ?? baselineDecision.intent,
-        nextAction: parsed.nextAction ?? baselineDecision.nextAction,
-        capturedData: {
-          companyName: parsed.capturedData?.companyName ?? baselineDecision.capturedData.companyName ?? undefined,
-          customerName: parsed.capturedData?.customerName ?? baselineDecision.capturedData.customerName ?? undefined,
-          companyIndustry:
-            parsed.capturedData?.companyIndustry ?? baselineDecision.capturedData.companyIndustry ?? undefined,
-          phone: parsed.capturedData?.phone ?? baselineDecision.capturedData.phone ?? undefined,
-          email: parsed.capturedData?.email ?? baselineDecision.capturedData.email ?? undefined,
-          usersCount: parsed.capturedData?.usersCount ?? baselineDecision.capturedData.usersCount ?? undefined,
-          needs: Array.isArray(parsed.capturedData?.needs)
-            ? parsed.capturedData.needs
-            : baselineDecision.capturedData.needs ?? [],
-        },
-        recommendedPlanName: parsed.recommendedPlanName ?? baselineDecision.recommendedPlanName ?? undefined,
-        // Claude toma la decisión final sobre acciones de cierre.
-        // La baseline solo puede activar shouldCreateQuote si Claude también lo confirma —
-        // así evitamos que una baseline agresiva salte a cotización sin cualificación completa.
-        shouldCreateQuote: parsed.shouldCreateQuote === true && baselineDecision.shouldCreateQuote === true,
-        shouldCreatePaymentLink:
-          parsed.shouldCreatePaymentLink === true || baselineDecision.shouldCreatePaymentLink === true,
-        shouldEscalateToHuman:
-          parsed.shouldEscalateToHuman === true || baselineDecision.shouldEscalateToHuman === true,
-      };
+      return validateStructuredSalesDecision({
+        raw,
+        baselineDecision,
+        minHistoryMessages: 3,
+      });
     } catch (err) {
       this.logger.warn(
         `Failed to parse Claude response: ${(err as Error).message}. Raw: ${raw.substring(0, 200)}`,

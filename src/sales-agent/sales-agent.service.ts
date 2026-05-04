@@ -112,8 +112,10 @@ export class SalesAgentService implements OnModuleInit {
       newStatus = SalesConversationStatus.HUMAN_REQUIRED;
     } else if (d.salesStage === 'PAYMENT') {
       newStatus = SalesConversationStatus.PAYMENT_PENDING;
-    } else if (d.salesStage === 'QUOTATION' || d.shouldCreateQuote) {
+    } else if (d.salesStage === 'QUOTATION' || d.salesStage === 'QUOTE' || d.shouldCreateQuote) {
       newStatus = SalesConversationStatus.QUOTE_SENT;
+    } else if (d.salesStage === 'DEMO_OR_SANDBOX' || d.nextAction === 'offer_demo' || d.nextAction === 'offer_sandbox') {
+      newStatus = SalesConversationStatus.IN_PROGRESS;
     } else if (d.salesStage === 'RECOMMENDATION' || d.nextAction === 'recommend_plan') {
       newStatus = SalesConversationStatus.QUALIFIED;
     } else if (['ask_follow_up', 'answer_question'].includes(d.nextAction)) {
@@ -187,8 +189,11 @@ export class SalesAgentService implements OnModuleInit {
     if (d.shouldCreateQuote || d.nextAction === 'create_quote' || d.intent === 'READY_TO_BUY') {
       return 'QUOTATION';
     }
-    if (d.intent === 'ASK_DEMO') {
+    if (d.intent === 'ASK_DEMO' || d.intent === 'ASK_SANDBOX') {
       return 'DEMO';
+    }
+    if (d.intent === 'ASK_QUOTE') {
+      return 'QUOTATION';
     }
     if (d.intent === 'OBJECTION_PRICE' || d.intent === 'OBJECTION_NEEDS_TIME') {
       return 'OBJECTION';

@@ -457,6 +457,24 @@ export const SALES_CONVERSATION_TEST_CASES: SalesConversationTestCase[] = [
     expectedAction: 'create_quote',
     expectedSignals: ['payment_link'],
   },
+  {
+    id: 'general_sandbox',
+    title: 'Pregunta por sandbox',
+    industry: 'general',
+    userMessage: 'Tienen sandbox o ambiente de pruebas para validar primero?',
+    expectedStage: 'DEMO',
+    expectedAction: 'ask_follow_up',
+    expectedSignals: ['sandbox', 'demo'],
+  },
+  {
+    id: 'general_plan_features',
+    title: 'Pregunta por caracteristicas de plan',
+    industry: 'general',
+    userMessage: 'Que caracteristicas tiene el plan pyme?',
+    expectedStage: 'QUALIFICATION',
+    expectedAction: 'answer_question',
+    expectedSignals: ['features', 'plan'],
+  },
 ];
 
 export const SALES_PLAYBOOK = {
@@ -466,4 +484,3 @@ export const SALES_PLAYBOOK = {
   guidelines: SALES_PLAYBOOK_GUIDELINES,
   conversationTests: SALES_CONVERSATION_TEST_CASES,
 };
-
